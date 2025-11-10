@@ -23,8 +23,8 @@ data class ChordProgression(
         if (measures.size > 1 && index in measures.indices) {
             measures.removeAt(index)
             // Renumber remaining measures
-            measures.forEachIndexed { i, measure ->
-                measure.number.let { measures[i] = measure.copy(number = i + 1) }
+            measures.forEachIndexed { i, _ ->
+                measures[i] = Measure(i + 1, measures[i].chordEvents, measures[i].strummingPattern)
             }
         }
     }
