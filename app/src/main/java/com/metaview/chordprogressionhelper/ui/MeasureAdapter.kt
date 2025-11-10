@@ -1,17 +1,21 @@
 package com.metaview.chordprogressionhelper.ui
 
+import android.view.DragEvent
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.metaview.chordprogressionhelper.databinding.ItemMeasureBinding
+import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.Measure
 
 class MeasureAdapter(
     private val onChordClick: (measureIndex: Int, quarterNote: Int) -> Unit,
     private val onChordLongClick: (measureIndex: Int, quarterNote: Int) -> Unit,
-    private val onStrummingPatternClick: (measureIndex: Int) -> Unit
+    private val onStrummingPatternClick: (measureIndex: Int) -> Unit,
+    private val onChordDrop: (measureIndex: Int, quarterNote: Int, chord: Chord) -> Unit
 ) : ListAdapter<Measure, MeasureAdapter.MeasureViewHolder>(MeasureDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MeasureViewHolder {
@@ -62,6 +66,36 @@ class MeasureAdapter(
             textView.setOnLongClickListener {
                 onChordLongClick(measureIndex, quarterNote)
                 true
+            }
+            
+            // Set up drag and drop listener
+            textView.setOnDragListener { view, event ->
+                when (event.action) {
+                    DragEvent.ACTION_DRAG_STARTED -> {
+                        event.clipDescription.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+                    }
+                    DragEvent.ACTION_DRAG_ENTERED -> {
+                        view.alpha = 0.5f
+                        true
+                    }
+                    DragEvent.ACTION_DRAG_EXITED -> {
+                        view.alpha = 1.0f
+                        true
+                    }
+                    DragEvent.ACTION_DROP -> {
+                        view.alpha = 1.0f
+                        val chord = event.localState as? Chord
+                        chord?.let {
+                            onChordDrop(measureIndex, quarterNote, it)
+                        }
+                        true
+                    }
+                    DragEvent.ACTION_DRAG_ENDED -> {
+                        view.alpha = 1.0f
+                        true
+                    }
+                    else -> false
+                }
             }
         }
     }

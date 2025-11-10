@@ -1,6 +1,9 @@
 package com.metaview.chordprogressionhelper.ui
 
+import android.content.ClipData
+import android.content.ClipDescription
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
@@ -60,6 +63,15 @@ class ChordAdapter(
             
             binding.root.setOnClickListener {
                 onChordClick(chord)
+            }
+            
+            // Enable drag and drop
+            binding.root.setOnLongClickListener {
+                val chordData = "${chord.root.displayName}:${chord.quality.name}:${chord.scaleDegreeName ?: ""}"
+                val clipData = ClipData.newPlainText("chord", chordData)
+                val dragShadowBuilder = View.DragShadowBuilder(binding.root)
+                binding.root.startDragAndDrop(clipData, dragShadowBuilder, chord, 0)
+                true
             }
         }
     }
