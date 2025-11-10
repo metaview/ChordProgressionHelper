@@ -54,6 +54,7 @@
 
 ### 2. Chord Selection (Horizontal Scroll)
 - **Tap a chord**: Highlights it (blue background)
+- **Long press a chord**: Starts drag operation for drag & drop placement
 - **Shows**: Chord name (e.g., "C", "Dm") and Roman numeral (e.g., "I", "ii")
 - **7 chords**: Based on scale degrees of selected key/mode
 
@@ -61,12 +62,14 @@
 - **Each measure has**:
   - Measure number (e.g., "Measure 1")
   - Strumming pattern (tap to change)
-  - 4 quarter note slots
+  - 4 quarter note slots (48dp height for compact display)
   
 - **Quarter Note Slots**:
   - Shows "-" if empty
   - Shows chord name if filled (e.g., "C", "Dm")
   - **Tap**: Place selected chord here
+  - **Drag & drop**: Drag a chord from the palette and drop it here
+  - **Visual feedback**: Slot becomes semi-transparent when chord is dragged over it
   - **Long press**: Remove chord from this slot
 
 ### 4. Strumming Patterns
@@ -87,6 +90,7 @@
 
 ## Example Usage Flow
 
+### Method 1: Tap to Place
 1. **Select Key**: Tap "Key" spinner → Select "C"
 2. **Select Mode**: Tap "Mode" spinner → Select "Major"
 3. **View Chords**: See I (C), ii (Dm), iii (Em), IV (F), V (G), vi (Am), vii° (Bdim)
@@ -97,6 +101,13 @@
 8. **Play**: Tap "Play" → Hear progression with selected tempo and patterns
 9. **Stop**: Tap "Stop" if needed
 10. **Modify**: Long press any chord to remove, or add more measures
+
+### Method 2: Drag & Drop
+1. **Select Key & Mode**: Same as Method 1
+2. **Long Press Chord**: Long press "C" chord → Drag shadow appears
+3. **Drag**: Move finger to desired quarter note slot → Slot becomes semi-transparent
+4. **Drop**: Release finger → "C" appears in the slot
+5. **Continue**: Drag and drop other chords as needed
 
 ## Color Coding
 - **Selected Chord**: Light blue background (#BBDEFB)

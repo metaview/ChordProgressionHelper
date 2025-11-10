@@ -31,13 +31,14 @@ To run on an emulator or device:
 1. Select a musical key from the dropdown (C, D, E, etc.)
 2. Select a mode (Major, Minor, Dorian, or Mixolydian)
 3. Available scale degree chords will be displayed
-4. Tap a chord to select it
-5. Tap a quarter note slot in a measure to place the selected chord
-6. Long press a quarter note slot to remove a chord
-7. Tap the strumming pattern text to change it for that measure
-8. Use the "Add Measure" button to add more measures
-9. Press "Play" to hear your progression
-10. Press "Clear" to start over
+4. **To place a chord** (two methods):
+   - **Tap method**: Tap a chord to select it, then tap a quarter note slot in a measure to place it
+   - **Drag & drop method**: Long press a chord and drag it to any quarter note slot, then release
+5. Long press a quarter note slot to remove a chord
+6. Tap the strumming pattern text to change it for that measure
+7. Use the "Add Measure" button to add more measures
+8. Press "Play" to hear your progression
+9. Press "Clear" to start over
 
 ## Requirements
 
