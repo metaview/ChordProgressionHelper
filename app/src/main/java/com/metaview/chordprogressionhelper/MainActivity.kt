@@ -90,6 +90,9 @@ class MainActivity : AppCompatActivity() {
             },
             onStrummingPatternClick = { measureIndex ->
                 showStrummingPatternDialog(measureIndex)
+            },
+            onChordDrop = { measureIndex, quarterNote, chord ->
+                viewModel.addChordToMeasure(measureIndex, quarterNote, chord)
             }
         )
         binding.measureRecyclerView.apply {
