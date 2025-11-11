@@ -16,7 +16,7 @@ enum class Key(val displayName: String, val rootNote: Int) {
 
     companion object {
         fun fromRootNote(note: Int): Key {
-            return values().first { it.rootNote == note % 12 }
+            return entries.first { it.rootNote == note % 12 }
         }
     }
 }

@@ -33,9 +33,11 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
         android:minHeight="48dp"
         app:layout_constraintBottom_toBottomOf="@id/keyLabel"
         app:layout_constraintEnd_toStartOf="@id/modeLabel"
+        app:layout_constraintHorizontal_chainStyle="spread_inside"
         app:layout_constraintStart_toEndOf="@id/keyLabel"
         app:layout_constraintTop_toTopOf="@id/keyLabel" />
 
@@ -43,10 +45,11 @@
         android:id="@+id/modeLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
+        android:layout_marginEnd="8dp"
         android:text="Mode:"
         android:textSize="16sp"
         app:layout_constraintBottom_toBottomOf="@id/keyLabel"
+        app:layout_constraintEnd_toStartOf="@id/modeSpinner"
         app:layout_constraintStart_toEndOf="@id/keySpinner"
         app:layout_constraintTop_toTopOf="@id/keyLabel" />
 

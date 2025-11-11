@@ -52,13 +52,13 @@
             <TextView
                 android:id="@+id/quarterNote1"
                 android:layout_width="0dp"
-                android:layout_height="60dp"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:layout_margin="2dp"
                 android:background="@drawable/quarter_note_background"
                 android:gravity="center"
                 android:text="-"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:clickable="true"
                 android:focusable="true" />
@@ -66,13 +66,13 @@
             <TextView
                 android:id="@+id/quarterNote2"
                 android:layout_width="0dp"
-                android:layout_height="60dp"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:layout_margin="2dp"
                 android:background="@drawable/quarter_note_background"
                 android:gravity="center"
                 android:text="-"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:clickable="true"
                 android:focusable="true" />
@@ -80,13 +80,13 @@
             <TextView
                 android:id="@+id/quarterNote3"
                 android:layout_width="0dp"
-                android:layout_height="60dp"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:layout_margin="2dp"
                 android:background="@drawable/quarter_note_background"
                 android:gravity="center"
                 android:text="-"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:clickable="true"
                 android:focusable="true" />
@@ -94,13 +94,13 @@
             <TextView
                 android:id="@+id/quarterNote4"
                 android:layout_width="0dp"
-                android:layout_height="60dp"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:layout_margin="2dp"
                 android:background="@drawable/quarter_note_background"
                 android:gravity="center"
                 android:text="-"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:clickable="true"
                 android:focusable="true" />

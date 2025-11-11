@@ -5,6 +5,8 @@ data class Chord(
     val quality: ChordQuality,
     val scaleDegree: Int? = null
 ) {
+    val scaleDegreeName: String = ""
+
     fun getDisplayName(): String {
         return "${root.displayName}${quality.displaySuffix}"
     }
