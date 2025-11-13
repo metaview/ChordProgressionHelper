@@ -21,6 +21,12 @@ class ProgressionViewModel : ViewModel() {
     private val _selectedChord = MutableLiveData<Chord?>()
     val selectedChord: LiveData<Chord?> = _selectedChord
 
+    private val _showDeleteConfirmation = MutableLiveData<Int?>()
+    val showDeleteConfirmation: LiveData<Int?> = _showDeleteConfirmation
+
+    private val _showClearConfirmationDialog = MutableLiveData<Boolean>()
+    val showClearConfirmationDialog: LiveData<Boolean> = _showClearConfirmationDialog
+
     init {
         updateScaleDegreeChords()
         updateMeasures()
@@ -66,8 +72,50 @@ class ProgressionViewModel : ViewModel() {
         updateMeasures()
     }
 
+    fun removeMeasure(measureIndex: Int) {
+        if (measureIndex in progression.measures.indices) {
+            val measure = progression.measures[measureIndex]
+            if (measure.chordEvents.isNotEmpty()) {
+                _showDeleteConfirmation.value = measureIndex
+            } else {
+                progression.removeMeasure(measureIndex)
+                updateMeasures()
+            }
+        }
+    }
+
+    fun confirmRemoveMeasure(measureIndex: Int) {
+        if (measureIndex in progression.measures.indices) {
+            progression.removeMeasure(measureIndex)
+            updateMeasures()
+        }
+    }
+
+    fun onDeleteConfirmationHandled() {
+        _showDeleteConfirmation.value = null
+    }
+
     fun clearProgression() {
+        val isNotEmpty = progression.measures.any { it.chordEvents.isNotEmpty() }
+        if (isNotEmpty) {
+            _showClearConfirmationDialog.value = true
+        } else {
+            progression.clear()
+            updateMeasures()
+        }
+    }
+
+    fun confirmClearProgression() {
         progression.clear()
+        updateMeasures()
+    }
+
+    fun onClearConfirmationDialogHandled() {
+        _showClearConfirmationDialog.value = false
+    }
+
+    fun moveMeasure(fromPosition: Int, toPosition: Int) {
+        progression.moveMeasure(fromPosition, toPosition)
         updateMeasures()
     }
 
@@ -90,7 +138,9 @@ class ProgressionViewModel : ViewModel() {
     }
 
     private fun updateMeasures() {
-        _measures.value = ArrayList(progression.measures)
+        _measures.value = progression.measures.map { measure ->
+            measure.copy(chordEvents = measure.chordEvents.toMutableList())
+        }
     }
 
     override fun onCleared() {

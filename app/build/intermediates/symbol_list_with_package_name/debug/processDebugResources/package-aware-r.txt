@@ -3001,6 +3001,7 @@ drawable ic_call_decline
 drawable ic_call_decline_low
 drawable ic_clear_black_24
 drawable ic_clock_black_24dp
+drawable ic_drag_handle
 drawable ic_keyboard_black_24dp
 drawable ic_m3_chip_check
 drawable ic_m3_chip_checked_circle
@@ -3253,6 +3254,7 @@ id dragAnticlockwise
 id dragClockwise
 id dragDown
 id dragEnd
+id dragHandle
 id dragLeft
 id dragRight
 id dragStart
@@ -3464,6 +3466,7 @@ id quarterNote4
 id radio
 id ratio
 id rectangles
+id removeMeasureButton
 id report_drawn
 id reverseSawtooth
 id right
@@ -3739,6 +3742,7 @@ layout design_text_input_end_icon
 layout design_text_input_start_icon
 layout ime_base_split_test_activity
 layout ime_secondary_split_test_activity
+layout item_add_measure
 layout item_chord
 layout item_measure
 layout m3_alert_dialog

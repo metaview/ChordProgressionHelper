@@ -137,13 +137,6 @@
             android:text="Stop" />
 
         <Button
-            android:id="@+id/addMeasureButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_margin="4dp"
-            android:text="Add Measure" />
-
-        <Button
             android:id="@+id/clearButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

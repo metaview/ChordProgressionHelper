@@ -3,7 +3,8 @@ package com.metaview.chordprogressionhelper.model
 data class Measure(
     val number: Int,
     val chordEvents: MutableList<ChordEvent> = mutableListOf(),
-    var strummingPattern: StrummingPattern = StrummingPattern.DOWN_DOWN_DOWN_DOWN
+    var strummingPattern: StrummingPattern = StrummingPattern.DOWN_DOWN_DOWN_DOWN,
+    val id: Long = java.util.UUID.randomUUID().mostSignificantBits
 ) {
     data class ChordEvent(
         val chord: Chord,

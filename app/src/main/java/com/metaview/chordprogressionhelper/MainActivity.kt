@@ -7,7 +7,9 @@ import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.metaview.chordprogressionhelper.databinding.ActivityMainBinding
 import com.metaview.chordprogressionhelper.model.Key
@@ -22,6 +24,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewModel: ProgressionViewModel
     private lateinit var chordAdapter: ChordAdapter
     private lateinit var measureAdapter: MeasureAdapter
+    private lateinit var itemTouchHelper: ItemTouchHelper
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +37,7 @@ class MainActivity : AppCompatActivity() {
         setupRecyclerViews()
         setupButtons()
         observeViewModel()
+        setupDragAndDrop()
     }
 
     private fun setupSpinners() {
@@ -93,6 +97,15 @@ class MainActivity : AppCompatActivity() {
             },
             onChordDrop = { measureIndex, quarterNote, chord ->
                 viewModel.addChordToMeasure(measureIndex, quarterNote, chord)
+            },
+            onRemoveMeasureClick = { measureIndex ->
+                viewModel.removeMeasure(measureIndex)
+            },
+            onAddMeasureClick = {
+                viewModel.addMeasure()
+            },
+            onStartDrag = { viewHolder ->
+                itemTouchHelper.startDrag(viewHolder)
             }
         )
         binding.measureRecyclerView.apply {
@@ -118,13 +131,44 @@ class MainActivity : AppCompatActivity() {
             binding.stopButton.isEnabled = false
         }
 
-        binding.addMeasureButton.setOnClickListener {
-            viewModel.addMeasure()
-        }
-
         binding.clearButton.setOnClickListener {
             viewModel.clearProgression()
         }
+    }
+
+    private fun setupDragAndDrop() {
+        val callback = object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN,
+            0
+        ) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                val fromPosition = viewHolder.adapterPosition
+                val toPosition = target.adapterPosition
+
+                if (target is MeasureAdapter.AddMeasureViewHolder) {
+                    return false
+                }
+
+                viewModel.moveMeasure(fromPosition, toPosition)
+                return true
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+            override fun getDragDirs(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder
+            ): Int {
+                if (viewHolder is MeasureAdapter.AddMeasureViewHolder) return 0
+                return super.getDragDirs(recyclerView, viewHolder)
+            }
+        }
+        itemTouchHelper = ItemTouchHelper(callback)
+        itemTouchHelper.attachToRecyclerView(binding.measureRecyclerView)
     }
 
     private fun observeViewModel() {
@@ -133,16 +177,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         viewModel.measures.observe(this) { measures ->
-            measureAdapter.submitList(measures)
+            val items = measures.map { MeasureAdapter.DisplayableItem.MeasureItem(it) } + MeasureAdapter.DisplayableItem.AddMeasureItem
+            measureAdapter.submitList(items)
         }
 
         viewModel.selectedChord.observe(this) { chord ->
             chordAdapter.setSelectedChord(chord)
-            
+
             // Show related chords when a chord is selected
             chord?.let {
                 val relatedChords = viewModel.getRelatedChords(it)
                 // You could display these in a separate section if needed
+            }
+        }
+
+        viewModel.showDeleteConfirmation.observe(this) { measureIndex ->
+            measureIndex?.let {
+                showDeleteConfirmationDialog(it)
+            }
+        }
+
+        viewModel.showClearConfirmationDialog.observe(this) { show ->
+            if (show == true) {
+                showClearConfirmationDialog()
             }
         }
     }
@@ -150,11 +207,39 @@ class MainActivity : AppCompatActivity() {
     private fun showStrummingPatternDialog(measureIndex: Int) {
         val patterns = com.metaview.chordprogressionhelper.model.StrummingPattern.values()
         val patternNames = patterns.map { it.displayName }.toTypedArray()
-        
+
         MaterialAlertDialogBuilder(this)
             .setTitle("Select Strumming Pattern")
             .setItems(patternNames) { _, which ->
                 viewModel.setStrummingPattern(measureIndex, patterns[which])
+            }
+            .show()
+    }
+
+    private fun showDeleteConfirmationDialog(measureIndex: Int) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Delete Measure?")
+            .setMessage("This measure contains chords. Are you sure you want to delete it?")
+            .setPositiveButton("Delete") { _, _ ->
+                viewModel.confirmRemoveMeasure(measureIndex)
+            }
+            .setNegativeButton("Cancel", null)
+            .setOnDismissListener {
+                viewModel.onDeleteConfirmationHandled()
+            }
+            .show()
+    }
+
+    private fun showClearConfirmationDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Clear Progression?")
+            .setMessage("This will remove all chords from the progression. Are you sure?")
+            .setPositiveButton("Clear") { _, _ ->
+                viewModel.confirmClearProgression()
+            }
+            .setNegativeButton("Cancel", null)
+            .setOnDismissListener {
+                viewModel.onClearConfirmationDialogHandled()
             }
             .show()
     }

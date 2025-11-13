@@ -1,5 +1,7 @@
 package com.metaview.chordprogressionhelper.model
 
+import java.util.Collections
+
 data class ChordProgression(
     var key: Key = Key.C,
     var mode: Mode = Mode.MAJOR,
@@ -23,8 +25,18 @@ data class ChordProgression(
         if (measures.size > 1 && index in measures.indices) {
             measures.removeAt(index)
             // Renumber remaining measures
-            measures.forEachIndexed { i, _ ->
-                measures[i] = Measure(i + 1, measures[i].chordEvents, measures[i].strummingPattern)
+            for (i in index until measures.size) {
+                measures[i] = measures[i].copy(number = i + 1)
+            }
+        }
+    }
+
+    fun moveMeasure(fromPosition: Int, toPosition: Int) {
+        if (fromPosition in measures.indices && toPosition in measures.indices) {
+            Collections.swap(measures, fromPosition, toPosition)
+            // Renumber all measures
+            for (i in measures.indices) {
+                measures[i] = measures[i].copy(number = i + 1)
             }
         }
     }
