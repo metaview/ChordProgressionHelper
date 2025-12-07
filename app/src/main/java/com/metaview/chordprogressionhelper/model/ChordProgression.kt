@@ -1,51 +1,91 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
+
 package com.metaview.chordprogressionhelper.model
 
-import java.util.Collections
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class ChordProgression(
+    var name: String = "",
     var key: Key = Key.C,
     var mode: Mode = Mode.MAJOR,
-    val measures: MutableList<Measure> = mutableListOf(),
-    var tempo: Int = 120 // BPM
+    var tempo: Int = 120,
+    val measures: MutableList<Measure> = mutableListOf(Measure(1))
 ) {
-    init {
-        // Initialize with 4 empty measures
-        if (measures.isEmpty()) {
-            repeat(4) { i ->
-                measures.add(Measure(i + 1))
-            }
+    fun getScaleDegreeChords(): List<Chord> {
+        val scale = mode.getScale(key)
+        return (1..7).map { degree ->
+            val rootNote = scale[degree - 1]
+            val chordType = mode.getChordTypeForDegree(degree)
+            val romanNumeral = getRomanNumeral(degree, chordType)
+            Chord(rootNote, chordType, romanNumeral)
         }
     }
 
-    fun addMeasure() {
-        measures.add(Measure(measures.size + 1))
+    fun getParallelMinorChords(): List<Chord> {
+        if (mode != Mode.MAJOR) return emptyList()
+        val parallelMinorMode = Mode.MINOR
+        val scale = parallelMinorMode.getScale(key)
+        val numerals = listOf("i", "ii°", "bIII", "iv", "v", "bVI", "bVII")
+
+        // Return degrees 2 through 7, as the tonic minor is less common for borrowing.
+        return (2..7).map { degree ->
+            val rootNote = scale[degree - 1]
+            val chordType = parallelMinorMode.getChordTypeForDegree(degree)
+            val romanNumeral = numerals[degree - 1]
+            Chord(rootNote, chordType, romanNumeral)
+        }
+    }
+
+    fun addMeasure(withChord: Chord? = null) {
+        val newMeasure = Measure(measures.size + 1)
+        withChord?.let { newMeasure.addChord(it, 0) }
+        measures.add(newMeasure)
     }
 
     fun removeMeasure(index: Int) {
-        if (measures.size > 1 && index in measures.indices) {
+        if (index in measures.indices) {
             measures.removeAt(index)
-            // Renumber remaining measures
-            for (i in index until measures.size) {
-                measures[i] = measures[i].copy(number = i + 1)
-            }
+            renumberMeasures()
         }
     }
 
-    fun moveMeasure(fromPosition: Int, toPosition: Int) {
-        if (fromPosition in measures.indices && toPosition in measures.indices) {
-            Collections.swap(measures, fromPosition, toPosition)
-            // Renumber all measures
-            for (i in measures.indices) {
-                measures[i] = measures[i].copy(number = i + 1)
-            }
+    fun moveMeasure(from: Int, to: Int) {
+        if (from in measures.indices && to in measures.indices) {
+            val item = measures.removeAt(from)
+            measures.add(to, item)
         }
     }
 
-    fun getScaleDegreeChords(): List<Chord> {
-        return mode.getAllScaleDegreeChords(key)
+    fun renumberMeasures() {
+        val renumbered = measures.mapIndexed { index, measure ->
+            measure.copy(number = index + 1)
+        }
+        measures.clear()
+        measures.addAll(renumbered)
     }
 
     fun clear() {
-        measures.forEach { it.clear() }
+        measures.clear()
+        measures.add(Measure(1))
+    }
+
+    private fun getRomanNumeral(degree: Int, chordType: ChordType): String {
+        val roman = when (degree) {
+            1 -> "I"
+            2 -> "II"
+            3 -> "III"
+            4 -> "IV"
+            5 -> "V"
+            6 -> "VI"
+            7 -> "VII"
+            else -> ""
+        }
+        return when (chordType) {
+            ChordType.MAJOR -> roman
+            ChordType.MINOR -> roman.lowercase()
+            ChordType.DIMINISHED -> roman.lowercase() + "°"
+            else -> roman // For Dominant 7th etc.
+        }
     }
 }

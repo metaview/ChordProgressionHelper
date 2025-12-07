@@ -1,31 +1,49 @@
+@file:OptIn(InternalSerializationApi::class)
+
 package com.metaview.chordprogressionhelper.ui
 
 import android.annotation.SuppressLint
+import android.content.ClipDescription
+import android.graphics.Color
 import android.view.DragEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.metaview.chordprogressionhelper.R
 import com.metaview.chordprogressionhelper.databinding.ItemAddMeasureBinding
 import com.metaview.chordprogressionhelper.databinding.ItemMeasureBinding
 import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.Measure
+import kotlinx.serialization.InternalSerializationApi
 
 class MeasureAdapter(
-    private val onChordClick: (measureIndex: Int, quarterNote: Int) -> Unit,
-    private val onChordLongClick: (measureIndex: Int, quarterNote: Int) -> Unit,
+    private val onChordClick: (measureIndex: Int, eighthNoteIndex: Int) -> Unit,
+    private val onChordLongClick: (measureIndex: Int, eighthNoteIndex: Int) -> Unit,
     private val onStrummingPatternClick: (measureIndex: Int) -> Unit,
-    private val onChordDrop: (measureIndex: Int, quarterNote: Int, chord: Chord) -> Unit,
+    private val onChordDrop: (measureIndex: Int, eighthNoteIndex: Int, chord: Chord) -> Unit,
     private val onRemoveMeasureClick: (measureIndex: Int) -> Unit,
     private val onAddMeasureClick: () -> Unit,
     private val onStartDrag: (viewHolder: RecyclerView.ViewHolder) -> Unit
 ) : ListAdapter<MeasureAdapter.DisplayableItem, RecyclerView.ViewHolder>(MeasureDiffCallback()) {
 
+    private var currentPlaybackPosition: Pair<Int, Int>? = null
+
     companion object {
         private const val VIEW_TYPE_MEASURE = 0
         private const val VIEW_TYPE_ADD_MEASURE = 1
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    fun setPlaybackPosition(position: Pair<Int, Int>?) {
+        val oldPosition = currentPlaybackPosition
+        currentPlaybackPosition = position
+        // Could be optimized to only notify the changed items
+        oldPosition?.let { notifyItemChanged(it.first) }
+        position?.let { notifyItemChanged(it.first) }
     }
 
     sealed class DisplayableItem {
@@ -42,7 +60,7 @@ class MeasureAdapter(
         return when (getItem(position)) {
             is DisplayableItem.MeasureItem -> VIEW_TYPE_MEASURE
             is DisplayableItem.AddMeasureItem -> VIEW_TYPE_ADD_MEASURE
-            null -> throw IllegalStateException("Null item at position $position")
+            else -> throw IllegalStateException("Null item at position $position")
         }
     }
 
@@ -77,10 +95,30 @@ class MeasureAdapter(
             binding.measureNumberText.text = "Measure ${measure.number}"
             binding.strummingPatternText.text = measure.strummingPattern.displayName
 
-            setupQuarterNoteSlot(binding.quarterNote1, measure, measureIndex, 0)
-            setupQuarterNoteSlot(binding.quarterNote2, measure, measureIndex, 1)
-            setupQuarterNoteSlot(binding.quarterNote3, measure, measureIndex, 2)
-            setupQuarterNoteSlot(binding.quarterNote4, measure, measureIndex, 3)
+            val quarterNoteSlots = listOf(binding.quarterNote1, binding.quarterNote2, binding.quarterNote3, binding.quarterNote4)
+
+            for ((quarterNoteIndex, slot) in quarterNoteSlots.withIndex()) {
+                val eighthNoteIndex = quarterNoteIndex * 2
+                val chord = measure.getChordAt(eighthNoteIndex) // Check chord at the downbeat
+                slot.text = chord?.getDisplayName() ?: "-"
+
+                // Highlight the currently playing slot
+                val isPlayingThisSlot = currentPlaybackPosition?.first == measureIndex && currentPlaybackPosition?.second?.div(2) == quarterNoteIndex
+                if (isPlayingThisSlot) {
+                    slot.setBackgroundColor(Color.YELLOW)
+                } else {
+                    slot.setBackgroundResource(R.drawable.quarter_note_background)
+                }
+
+                slot.setOnClickListener {
+                    onChordClick(measureIndex, eighthNoteIndex)
+                }
+                slot.setOnLongClickListener {
+                    onChordLongClick(measureIndex, eighthNoteIndex)
+                    true
+                }
+                slot.setOnDragListener(createDragListener(measureIndex, eighthNoteIndex))
+            }
 
             binding.strummingPatternText.setOnClickListener {
                 onStrummingPatternClick(measureIndex)
@@ -98,27 +136,11 @@ class MeasureAdapter(
             }
         }
 
-        private fun setupQuarterNoteSlot(
-            textView: android.widget.TextView,
-            measure: Measure,
-            measureIndex: Int,
-            quarterNote: Int
-        ) {
-            val chord = measure.getChordAt(quarterNote)
-            textView.text = chord?.getDisplayName() ?: "-"
-
-            textView.setOnClickListener {
-                onChordClick(measureIndex, quarterNote)
-            }
-
-            textView.setOnLongClickListener {
-                onChordLongClick(measureIndex, quarterNote)
-                true
-            }
-
-            textView.setOnDragListener { view, event ->
+        private fun createDragListener(measureIndex: Int, eighthNoteIndex: Int): View.OnDragListener {
+            return View.OnDragListener { view, event ->
                 when (event.action) {
-                    DragEvent.ACTION_DRAG_STARTED -> event.clipDescription.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+                    DragEvent.ACTION_DRAG_STARTED -> event.clipDescription.hasMimeType(
+                        ClipDescription.MIMETYPE_TEXT_PLAIN)
                     DragEvent.ACTION_DRAG_ENTERED -> {
                         view.alpha = 0.5f; true
                     }
@@ -128,7 +150,7 @@ class MeasureAdapter(
                     DragEvent.ACTION_DROP -> {
                         view.alpha = 1.0f
                         val droppedChord = event.localState as? Chord
-                        droppedChord?.let { onChordDrop(measureIndex, quarterNote, it) }
+                        droppedChord?.let { onChordDrop(measureIndex, eighthNoteIndex, it) }
                         true
                     }
                     DragEvent.ACTION_DRAG_ENDED -> {

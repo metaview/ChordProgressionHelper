@@ -1,4 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Chord Progression Helper</string>
+    <string name="key_label">Key:</string>
+    <string name="bpm_label">BPM:</string>
+    <string name="bpm_hint">Enter BPM</string>
+    <string name="bpm_default">120</string>
+    <string name="increase_bpm">Increase BPM</string>
+    <string name="decrease_bpm">Decrease BPM</string>
+    <string name="available_chords">Available Chords:</string>
+    <string name="secondary_dominants">Secondary Dominants:</string>
+    <string name="parallel_minor_chords">Parallel Minor Chords:</string>
+    <string name="progression_label">Progression:</string>
+    <string name="play_pause_cd">Play or pause playback</string>
+    <string name="stop_cd">Stop playback</string>
+    <string name="toggle_repeat">Toggle repeat</string>
+    <string name="menu_cd">Menu</string>
+    <string name="expand_related_cd">Expand related chords</string>
+
+    <!-- Settings sound subgroup formats -->
+    <string name="drum_level_format">Drum Level: %d%%</string>
+    <string name="envelope_scale_format">Envelope Scale: %d%%</string>
+    <string name="hihat_highpass_format">HiHat Highpass: %d%%</string>
+    <string name="reset_sound_toast">Sound settings reset to defaults</string>
+    <string name="notification_playing">Playing</string>
 </resources>

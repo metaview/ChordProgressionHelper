@@ -1,70 +1,68 @@
 package com.metaview.chordprogressionhelper.model
 
-enum class Mode(
-    val displayName: String,
-    val intervals: List<Int>,
-    val scaleDegreeQualities: List<ChordQuality>
-) {
-    MAJOR(
-        "Major",
-        listOf(0, 2, 4, 5, 7, 9, 11), // Major scale intervals
-        listOf(
-            ChordQuality.MAJOR,      // I
-            ChordQuality.MINOR,      // ii
-            ChordQuality.MINOR,      // iii
-            ChordQuality.MAJOR,      // IV
-            ChordQuality.MAJOR,      // V
-            ChordQuality.MINOR,      // vi
-            ChordQuality.DIMINISHED  // vii°
-        )
-    ),
-    MINOR(
-        "Minor",
-        listOf(0, 2, 3, 5, 7, 8, 10), // Natural minor scale intervals
-        listOf(
-            ChordQuality.MINOR,      // i
-            ChordQuality.DIMINISHED, // ii°
-            ChordQuality.MAJOR,      // III
-            ChordQuality.MINOR,      // iv
-            ChordQuality.MINOR,      // v
-            ChordQuality.MAJOR,      // VI
-            ChordQuality.MAJOR       // VII
-        )
-    ),
-    DORIAN(
-        "Dorian",
-        listOf(0, 2, 3, 5, 7, 9, 10),
-        listOf(
-            ChordQuality.MINOR,      // i
-            ChordQuality.MINOR,      // ii
-            ChordQuality.MAJOR,      // III
-            ChordQuality.MAJOR,      // IV
-            ChordQuality.MINOR,      // v
-            ChordQuality.DIMINISHED, // vi°
-            ChordQuality.MAJOR       // VII
-        )
-    ),
-    MIXOLYDIAN(
-        "Mixolydian",
-        listOf(0, 2, 4, 5, 7, 9, 10),
-        listOf(
-            ChordQuality.MAJOR,      // I
-            ChordQuality.MINOR,      // ii
-            ChordQuality.DIMINISHED, // iii°
-            ChordQuality.MAJOR,      // IV
-            ChordQuality.MINOR,      // v
-            ChordQuality.MINOR,      // vi
-            ChordQuality.MAJOR       // VII
-        )
-    );
+import kotlinx.serialization.Serializable
 
-    fun getScaleDegreeChord(key: Key, degree: Int): Chord {
-        val noteIndex = (key.rootNote + intervals[degree - 1]) % 12
-        val rootKey = Key.fromRootNote(noteIndex)
-        return Chord(rootKey, scaleDegreeQualities[degree - 1], degree)
+@Serializable
+enum class Mode(val displayName: String, private val scaleIntervals: List<Int>) {
+    MAJOR("Major", listOf(2, 2, 1, 2, 2, 2, 1)),
+    MINOR("Minor", listOf(2, 1, 2, 2, 1, 2, 2));
+
+    fun getScale(key: Key): List<Note> {
+        val scale = mutableListOf(key.rootNote)
+        var currentOffset = key.rootNote.midiOffset
+        for (interval in scaleIntervals.dropLast(1)) {
+            currentOffset = (currentOffset + interval) % 12
+            scale.add(Note.entries.first { it.midiOffset == currentOffset })
+        }
+        return scale
+    }
+
+    fun getChordTypeForDegree(degree: Int): ChordType {
+        return when (this) {
+            MAJOR -> when (degree) {
+                1, 4, 5 -> ChordType.MAJOR
+                2, 3, 6 -> ChordType.MINOR
+                7 -> ChordType.DIMINISHED
+                else -> throw IllegalArgumentException("Invalid degree: $degree")
+            }
+            MINOR -> when (degree) {
+                1, 4 -> ChordType.MINOR
+                3, 6, 7 -> ChordType.MAJOR
+                2 -> ChordType.DIMINISHED
+                5 -> ChordType.MINOR // Or Major in harmonic minor
+                else -> throw IllegalArgumentException("Invalid degree: $degree")
+            }
+        }
+    }
+
+    private fun getRomanNumeralForDegree(degree: Int, type: ChordType): String {
+        val roman = when (degree) {
+            1 -> "I"
+            2 -> "II"
+            3 -> "III"
+            4 -> "IV"
+            5 -> "V"
+            6 -> "VI"
+            7 -> "VII"
+            else -> ""
+        }
+        return when (type) {
+            ChordType.MAJOR -> roman
+            ChordType.MINOR -> roman.lowercase()
+            ChordType.DIMINISHED -> roman.lowercase() + "°"
+            else -> roman // For dominant 7th etc.
+        }
     }
 
     fun getAllScaleDegreeChords(key: Key): List<Chord> {
-        return (1..7).map { degree -> getScaleDegreeChord(key, degree) }
+        val scale = getScale(key)
+        return (1..7).map { degree ->
+            val chordType = getChordTypeForDegree(degree)
+            Chord(
+                root = scale[degree - 1],
+                quality = chordType,
+                scaleDegreeName = getRomanNumeralForDegree(degree, chordType)
+            )
+        }
     }
 }

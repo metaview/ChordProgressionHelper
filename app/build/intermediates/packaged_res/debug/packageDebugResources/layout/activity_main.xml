@@ -8,25 +8,13 @@
     tools:context=".MainActivity">
 
     <TextView
-        android:id="@+id/titleText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Chord Progression Helper"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <TextView
         android:id="@+id/keyLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Key:"
+        android:text="@string/key_label"
         android:textSize="16sp"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/titleText" />
+        app:layout_constraintTop_toTopOf="parent" />
 
     <Spinner
         android:id="@+id/keySpinner"
@@ -36,44 +24,103 @@
         android:layout_marginEnd="8dp"
         android:minHeight="48dp"
         app:layout_constraintBottom_toBottomOf="@id/keyLabel"
-        app:layout_constraintEnd_toStartOf="@id/modeLabel"
+        app:layout_constraintEnd_toStartOf="@id/bpmControlsLayout"
         app:layout_constraintHorizontal_chainStyle="spread_inside"
         app:layout_constraintStart_toEndOf="@id/keyLabel"
         app:layout_constraintTop_toTopOf="@id/keyLabel" />
 
-    <TextView
-        android:id="@+id/modeLabel"
+    <LinearLayout
+        android:id="@+id/bpmControlsLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="8dp"
-        android:text="Mode:"
-        android:textSize="16sp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         app:layout_constraintBottom_toBottomOf="@id/keyLabel"
-        app:layout_constraintEnd_toStartOf="@id/modeSpinner"
-        app:layout_constraintStart_toEndOf="@id/keySpinner"
-        app:layout_constraintTop_toTopOf="@id/keyLabel" />
+        app:layout_constraintEnd_toStartOf="@id/menuButton"
+        app:layout_constraintTop_toTopOf="@id/keyLabel">
 
-    <Spinner
-        android:id="@+id/modeSpinner"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:minHeight="48dp"
-        app:layout_constraintBottom_toBottomOf="@id/modeLabel"
+        <TextView
+            android:id="@+id/bpmLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/bpm_label"
+            android:textSize="16sp" />
+
+        <EditText
+            android:id="@+id/bpmEditText"
+            android:layout_width="60dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minHeight="48dp"
+            android:gravity="center"
+            android:inputType="number"
+            android:text="@string/bpm_default"
+            android:hint="@string/bpm_hint"
+            android:importantForAutofill="no" />
+
+        <LinearLayout
+            android:layout_width="32dp"
+            android:layout_height="48dp"
+            android:orientation="vertical"
+            android:layout_marginStart="4dp">
+
+            <ImageButton
+                android:id="@+id/bpmUpButton"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/increase_bpm"
+                android:paddingTop="12dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/arrow_up_float" />
+
+            <ImageButton
+                android:id="@+id/bpmDownButton"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginBottom="2dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/decrease_bpm"
+                android:paddingBottom="4dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/arrow_down_float" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/menuButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/ic_menu_overflow"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/menu_cd"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@id/modeLabel"
-        app:layout_constraintTop_toTopOf="@id/modeLabel" />
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="@id/keyLabel"/>
 
     <TextView
         android:id="@+id/chordsLabel"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
-        android:text="Available Chords:"
+        android:text="@string/available_chords"
         android:textSize="16sp"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/keySpinner" />
+        
+    <ImageButton
+        android:id="@+id/expandRelatedChordsButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/ic_expand_more"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/expand_related_cd"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="@+id/chordsLabel" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chordRecyclerView"
@@ -81,9 +128,68 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:orientation="horizontal"
+        android:paddingBottom="8dp"
+        android:scrollbars="horizontal"
+        android:scrollbarStyle="outsideOverlay"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/chordsLabel"
+        tools:itemCount="7"
+        tools:listitem="@layout/item_chord" />
+
+    <TextView
+        android:id="@+id/relatedChordsLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/secondary_dominants"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/chordRecyclerView" />
+        
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/relatedChordRecyclerView"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp"
+        android:scrollbars="horizontal"
+        android:scrollbarStyle="outsideOverlay"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/relatedChordsLabel"
+        tools:itemCount="7"
+        tools:listitem="@layout/item_chord" />
+
+    <TextView
+        android:id="@+id/borrowedChordsLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/parallel_minor_chords"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/relatedChordRecyclerView" />
+        
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/borrowedChordRecyclerView"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp"
+        android:scrollbars="horizontal"
+        android:scrollbarStyle="outsideOverlay"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/borrowedChordsLabel"
         tools:itemCount="7"
         tools:listitem="@layout/item_chord" />
 
@@ -92,11 +198,11 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
-        android:text="Progression:"
+        android:text="@string/progression_label"
         android:textSize="16sp"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/chordRecyclerView" />
+        app:layout_constraintTop_toBottomOf="@id/borrowedChordRecyclerView" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/measureRecyclerView"
@@ -104,45 +210,89 @@
         android:layout_height="0dp"
         android:layout_marginTop="8dp"
         android:layout_marginBottom="8dp"
-        app:layout_constraintBottom_toTopOf="@id/controlsLayout"
+        android:scrollbars="vertical"
+        app:layout_constraintBottom_toTopOf="@id/controlsCard"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/measuresLabel"
         tools:itemCount="4"
         tools:listitem="@layout/item_measure" />
 
-    <LinearLayout
-        android:id="@+id/controlsLayout"
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/controlsCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center"
+        android:padding="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_controls_card"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <Button
-            android:id="@+id/playButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_margin="4dp"
-            android:text="Play" />
+        <!-- Play/Pause on the left -->
+        <ImageButton
+            android:id="@+id/playPauseButton"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:src="@drawable/ic_play_arrow"
+            android:contentDescription="@string/play_pause_cd"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_primary_button_ripple"
+            app:tint="?attr/colorOnPrimary"
+            android:scaleType="centerInside"
+            android:elevation="4dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
 
-        <Button
+        <!-- Stop next to Play with a small gap -->
+        <ImageButton
             android:id="@+id/stopButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_margin="4dp"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:src="@drawable/ic_stop"
+            android:visibility="visible"
             android:enabled="false"
-            android:text="Stop" />
+            android:alpha="0.4"
+            android:contentDescription="@string/stop_cd"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_primary_button_ripple"
+            app:tint="?attr/colorOnPrimary"
+            android:scaleType="centerInside"
+            android:elevation="4dp"
+            app:layout_constraintStart_toEndOf="@id/playPauseButton"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
 
-        <Button
-            android:id="@+id/clearButton"
+        <!-- Repeat anchored to the end to create a reliable large gap -->
+        <ImageButton
+            android:id="@+id/repeatButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_repeat_toggle_ripple"
+            android:src="@drawable/ic_repeat"
+            app:tint="?attr/colorOnPrimary"
+            android:contentDescription="@string/toggle_repeat"
+            android:elevation="4dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+        <!-- Optional guideline if you want to adjust exact positioning later -->
+        <androidx.constraintlayout.widget.Guideline
+            android:id="@+id/controls_center_guideline"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_margin="4dp"
-            android:text="Clear" />
+            app:layout_constraintGuide_begin="0dp"
+            android:orientation="vertical" />
 
-    </LinearLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

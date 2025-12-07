@@ -1,56 +1,32 @@
 package com.metaview.chordprogressionhelper.model
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
+
+@Serializable
 data class Chord(
-    val root: Key,
-    val quality: ChordQuality,
-    val scaleDegree: Int? = null
+    val root: Note,
+    val quality: ChordType,
+    val scaleDegreeName: String
 ) {
-    val scaleDegreeName: String = ""
+    @Transient
+    val name = root.displayName
 
-    fun getDisplayName(): String {
-        return "${root.displayName}${quality.displaySuffix}"
-    }
+    fun getDisplayName(): String = root.displayName + quality.suffix
 
-    fun getRomanNumeral(): String? {
-        if (scaleDegree == null) return null
-        val roman = when (scaleDegree) {
-            1 -> "I"
-            2 -> "II"
-            3 -> "III"
-            4 -> "IV"
-            5 -> "V"
-            6 -> "VI"
-            7 -> "VII"
-            else -> scaleDegree.toString()
-        }
-        return when (quality) {
-            ChordQuality.MINOR, ChordQuality.MINOR_7 -> roman.lowercase()
-            ChordQuality.DIMINISHED -> "${roman.lowercase()}°"
-            else -> roman
-        }
-    }
+    fun getRomanNumeral(): String? = scaleDegreeName
 
     fun getMidiNotes(): List<Int> {
-        return quality.getMidiNotes(root.rootNote)
+        val rootMidi = root.midiOffset
+        val intervals = quality.intervals
+        return intervals.map { rootMidi + it }
     }
+}
 
-    companion object {
-        // Get additional chords that work well with the current chord
-        fun getRelatedChords(currentChord: Chord, key: Key, mode: Mode): List<Chord> {
-            val related = mutableListOf<Chord>()
-            
-            // Add dominant 7th version if applicable
-            if (currentChord.quality == ChordQuality.MAJOR) {
-                related.add(Chord(currentChord.root, ChordQuality.DOMINANT_7, currentChord.scaleDegree))
-            } else if (currentChord.quality == ChordQuality.MINOR) {
-                related.add(Chord(currentChord.root, ChordQuality.MINOR_7, currentChord.scaleDegree))
-            }
-            
-            // Add suspended chords
-            related.add(Chord(currentChord.root, ChordQuality.SUSPENDED_2, currentChord.scaleDegree))
-            related.add(Chord(currentChord.root, ChordQuality.SUSPENDED_4, currentChord.scaleDegree))
-            
-            return related
-        }
-    }
+@Serializable
+enum class ChordType(val suffix: String, val intervals: List<Int>) {
+    MAJOR("", listOf(0, 4, 7, -12)),
+    MINOR("m", listOf(0, 3, 7, -12)),
+    DIMINISHED("°", listOf(0, 3, 6, -12)),
+    DOMINANT_SEVENTH("7", listOf(0, 4, 7, 10, -12))
 }

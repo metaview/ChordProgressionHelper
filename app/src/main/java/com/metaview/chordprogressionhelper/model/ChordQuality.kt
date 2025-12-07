@@ -12,6 +12,6 @@ enum class ChordQuality(val displaySuffix: String, val intervals: List<Int>) {
     SUSPENDED_4("sus4", listOf(0, 5, 7));
 
     fun getMidiNotes(rootNote: Int): List<Int> {
-        return intervals.map { (rootNote + it) % 12 + 60 } // Start at middle C (60)
+        return intervals.map { (rootNote + it) + 60 } // Start at middle C (60)
     }
 }

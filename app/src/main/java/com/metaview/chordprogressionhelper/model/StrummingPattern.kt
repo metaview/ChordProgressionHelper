@@ -1,35 +1,23 @@
 package com.metaview.chordprogressionhelper.model
 
-enum class StrummingPattern(val displayName: String, val pattern: List<Strum>) {
-    DOWN_DOWN_DOWN_DOWN(
-        "D D D D",
-        listOf(Strum.DOWN, Strum.DOWN, Strum.DOWN, Strum.DOWN)
-    ),
-    DOWN_DOWN_UP_UP_DOWN_UP(
-        "D D U U D U",
-        listOf(Strum.DOWN, Strum.DOWN, Strum.UP, Strum.UP, Strum.DOWN, Strum.UP)
-    ),
-    DOWN_UP_DOWN_UP(
-        "D U D U",
-        listOf(Strum.DOWN, Strum.UP, Strum.DOWN, Strum.UP)
-    ),
-    DOWN_MUTE_UP_DOWN_UP(
-        "D X U D U",
-        listOf(Strum.DOWN, Strum.MUTE, Strum.UP, Strum.DOWN, Strum.UP)
-    ),
-    DOWN(
-        "D",
-        listOf(Strum.DOWN)
-    ),
-    FINGERPICKING(
-        "Fingerpicking",
-        listOf(Strum.ARPEGGIO)
-    );
+import kotlinx.serialization.InternalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
-    enum class Strum {
-        DOWN,
-        UP,
-        MUTE,
-        ARPEGGIO
+@InternalSerializationApi @Serializable
+data class StrummingPattern(val name: String, val strums: List<Strum>) {
+    @Transient
+    val displayName: String = name
+
+    companion object {
+        val DEFAULT = StrummingPattern("DDDDDDDD", List(8) { Strum.DOWN })
+
+        val defaultPatterns = listOf(
+            StrummingPattern("DDDDDDDD", List(8) { Strum.DOWN }),
+            StrummingPattern("UUUUUUUU", List(8) { Strum.UP }),
+            StrummingPattern("DUDUDUDU", List(8) { if (it % 2 == 0) Strum.DOWN else Strum.UP }),
+            StrummingPattern("D U D U ", listOf(Strum.DOWN, Strum.REST, Strum.UP, Strum.REST, Strum.DOWN, Strum.REST, Strum.UP, Strum.REST)),
+            StrummingPattern("D DUD DU", listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP, Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP)),
+        )
     }
 }

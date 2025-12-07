@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:orientation="horizontal"
+    android:padding="8dp"
+    android:gravity="center_vertical"
+    android:background="@android:color/transparent">
+
+    <ImageView
+        android:id="@+id/action_play_pause"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:contentDescription="@string/play_pause_cd"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_play_arrow" />
+
+    <View
+        android:layout_width="12dp"
+        android:layout_height="1dp"
+        android:background="@android:color/transparent" />
+
+    <ImageView
+        android:id="@+id/action_stop"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:contentDescription="@string/stop_cd"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_stop" />
+
+    <View
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:id="@+id/notification_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/notification_playing"
+        android:textAppearance="?android:attr/textAppearanceSmall"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp" />
+
+</LinearLayout>

@@ -1,3 +1,5 @@
+@file:OptIn(InternalSerializationApi::class)
+
 package com.metaview.chordprogressionhelper.util
 
 import android.media.AudioAttributes
@@ -5,129 +7,290 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.ChordProgression
-import com.metaview.chordprogressionhelper.model.StrummingPattern
+import com.metaview.chordprogressionhelper.model.Strum
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.InternalSerializationApi
+import kotlin.math.PI
+import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.random.Random
 
+@OptIn(InternalSerializationApi::class)
 class AudioPlayer {
     private var audioTrack: AudioTrack? = null
     private val sampleRate = 44100
-    private var isPlaying = false
+    @Volatile private var isPlaying = false
 
-    suspend fun playProgression(progression: ChordProgression) = withContext(Dispatchers.IO) {
+    // Live sound parameters (can be changed at runtime)
+    @Volatile var drumLevel: Double = 1.0
+    @Volatile var envelopeScale: Double = 1.0
+    @Volatile var hiHatHighpass: Double = 1.0
+
+    @OptIn(InternalSerializationApi::class)
+    suspend fun playProgression(
+        progression: ChordProgression,
+        shouldLoop: () -> Boolean,
+        pluckStrength: Int,
+        countInBeats: Int,
+        onPositionChanged: (measureIndex: Int, strumIndex: Int) -> Unit,
+        startMeasureIndex: Int = 0,
+        startStrumIndex: Int = 0,
+        isResuming: Boolean = false
+    ) = withContext(Dispatchers.IO) {
+        if (isPlaying) return@withContext
+
         isPlaying = true
-        val beatDuration = 60.0 / progression.tempo // Duration of one beat in seconds
-        
-        try {
-            for (measure in progression.measures) {
+
+        // Create AudioTrack once; we'll write buffers of varying lengths when tempo changes
+        val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        audioTrack = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .setBufferSizeInBytes(minBufferSize * 2)
+            .build()
+        audioTrack?.play()
+
+        var activeStrings: List<KarplusStrongString> = emptyList()
+
+        // Count-in: generate per-beat content using current tempo at each iteration
+        if (countInBeats > 0 && !isResuming) {
+            repeat(countInBeats) {
+                if (!isPlaying) return@repeat
+                val beatDuration = 60.0 / progression.tempo
+                val eighthNoteDuration = beatDuration / 2.0
+                val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
+                val buffer = DoubleArray(eighthNoteSamples * 2)
+                addHiHat(buffer, eighthNoteSamples * 2)
+                val samples = normalizeAndConvertToShort(buffer, 1.0)
+                audioTrack?.write(samples, 0, samples.size)
+            }
+        }
+
+        var isFirstLoop = true
+        do {
+            val loopStartMeasure = if(isFirstLoop) startMeasureIndex else 0
+
+            for (measureIndex in loopStartMeasure until progression.measures.size) {
+                val measure = progression.measures[measureIndex]
                 if (!isPlaying) break
-                
-                // Play each quarter note in the measure
-                for (quarterNote in 0 until 4) {
+
+                val loopStartStrum = if (isFirstLoop && measureIndex == startMeasureIndex) startStrumIndex else 0
+                for (strumIndex in loopStartStrum until measure.strummingPattern.strums.size) {
                     if (!isPlaying) break
-                    
-                    val chord = measure.getChordAt(quarterNote)
-                    if (chord != null) {
-                        playChord(chord, beatDuration, measure.strummingPattern)
-                    } else {
-                        // Rest
-                        Thread.sleep((beatDuration * 1000).toLong())
+
+                    // Read tempo live from progression so changes take effect immediately
+                    val beatDuration = 60.0 / progression.tempo
+                    val eighthNoteDuration = beatDuration / 2.0
+                    val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
+
+                    onPositionChanged(measureIndex, strumIndex)
+
+                    val chord: Chord? = measure.getChordAt(strumIndex)
+                    var currentStrum = measure.strummingPattern.strums[strumIndex]
+
+                    val isNewChordEventAtThisStrum = measure.chordEvents.any { (it.quarterNote * 2) == strumIndex }
+                    if (currentStrum == Strum.REST && isNewChordEventAtThisStrum) {
+                        currentStrum = Strum.DOWN
+                    }
+
+                    when (currentStrum) {
+                        Strum.DOWN, Strum.UP -> {
+                            val frequencies = chord?.getMidiNotes()?.map { midiNoteToFrequency(it) }
+                            activeStrings = if (frequencies != null) {
+                                frequencies.sorted().let { if (currentStrum == Strum.UP) it.asReversed() else it }.map { freq ->
+                                    KarplusStrongString(freq, sampleRate, pluckStrength).apply { pluck() }
+                                }
+                            } else {
+                                emptyList()
+                            }
+                        }
+                        Strum.REST, Strum.MUTE -> activeStrings = emptyList()
+                        Strum.LETRING -> { /* Do nothing, let strings ring */ }
+                    }
+
+                    val buffer = DoubleArray(eighthNoteSamples)
+
+                    if (currentStrum == Strum.MUTE) addMute(buffer)
+                    else {
+                        for (i in buffer.indices) {
+                            var sample = 0.0
+                            for (string in activeStrings) sample += string.tick()
+                            buffer[i] += sample
+                        }
+                    }
+
+                    addHiHat(buffer, eighthNoteSamples)
+                    if (strumIndex % 2 == 0) {
+                        val quarterNoteIndex = strumIndex / 2
+                        if (quarterNoteIndex % 2 == 0) addKick(buffer, eighthNoteSamples * 2)
+                        if (quarterNoteIndex % 2 == 1) addSnare(buffer, eighthNoteSamples * 2)
+                    }
+
+                    val normalizationFactor = (activeStrings.size) * 0.7 + 1.0
+                    val samples = normalizeAndConvertToShort(buffer, normalizationFactor)
+                    audioTrack?.write(samples, 0, samples.size)
+                }
+            }
+            isFirstLoop = false
+            if (!isPlaying) break
+        } while (shouldLoop() && isPlaying)
+
+    }
+
+    private fun normalizeAndConvertToShort(buffer: DoubleArray, normalizationFactor: Double) : ShortArray {
+        val shortArray = ShortArray(buffer.size)
+        for(i in buffer.indices) {
+            val sample = buffer[i] / normalizationFactor
+            shortArray[i] = (sample.coerceIn(-1.0, 1.0) * Short.MAX_VALUE).toInt().toShort()
+        }
+        return shortArray
+    }
+
+    suspend fun previewChord(chord: Chord, pluckStrength: Int) = withContext(Dispatchers.IO) {
+        val previewDuration = 1.0
+        val numSamples = (sampleRate * previewDuration).toInt()
+        val frequencies = chord.getMidiNotes().map { midiNoteToFrequency(it) }
+        val strings = frequencies.map { KarplusStrongString(it, sampleRate, pluckStrength).apply { pluck() } }
+        val buffer = DoubleArray(numSamples)
+        for(i in buffer.indices) {
+            var sample = 0.0
+            for(string in strings) sample += string.tick()
+            buffer[i] = sample
+        }
+
+        val samples = normalizeAndConvertToShort(buffer, (frequencies.size * 0.7) + 1.0)
+
+        var previewAudioTrack: AudioTrack? = null
+        try {
+             val previewMinBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+             previewAudioTrack = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                // samples.size is number of PCM samples (shorts) - convert to bytes; ensure at least min buffer size
+                .setBufferSizeInBytes(maxOf(previewMinBuffer, samples.size * 2))
+                .build()
+
+            previewAudioTrack.play()
+            previewAudioTrack.write(samples, 0, samples.size)
+            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
+        } finally {
+            previewAudioTrack?.stop()
+            previewAudioTrack?.release()
+        }
+    }
+
+    private fun addMute(buffer: DoubleArray) {
+        val muteDuration = (buffer.size * 0.25).toInt()
+        var lastNoise = 0.0
+        for (i in 0 until muteDuration) {
+            val white = Random.nextDouble() * 2 - 1
+            val bandPass = (white + lastNoise) / 2.0
+            lastNoise = white
+            val envelope = (1.0 - i.toDouble() / muteDuration).pow(2)
+            buffer[i] += bandPass * envelope * 0.6
+        }
+    }
+
+    private fun addKick(buffer: DoubleArray, duration: Int) {
+        val freq = 60.0
+        val kickDuration = (duration * 0.5).toInt().coerceAtMost(buffer.size)
+        for (i in 0 until kickDuration) {
+            val progress = i.toDouble() / kickDuration
+            val envelope = (1.0 - progress).pow(4) * envelopeScale
+            val angle = 2.0 * PI * i * (freq * (1.0 - progress * 0.5)) / sampleRate
+            // use live drumLevel
+            buffer[i] += sin(angle) * envelope * 3.6 * drumLevel
+        }
+    }
+
+    private fun addSnare(buffer: DoubleArray, duration: Int) {
+        val snareDuration = (duration * 0.2).toInt().coerceAtMost(buffer.size)
+        for (i in 0 until snareDuration) {
+            val noise = (Random.nextDouble() * 2 - 1)
+            val envelope = (1.0 - i.toDouble() / snareDuration).pow(2) * envelopeScale
+            buffer[i] += noise * envelope * 1.4 * drumLevel
+        }
+    }
+
+    private fun addHiHat(buffer: DoubleArray, duration: Int) {
+        val hiHatDuration = (duration * 0.25).toInt().coerceAtMost(buffer.size)
+        var lastNoise = 0.0
+        for (i in 0 until hiHatDuration) {
+            val white = Random.nextDouble() * 2 - 1
+            val highPass = (white - lastNoise) * hiHatHighpass
+            lastNoise = white
+            val envelope = (1.0 - i.toDouble() / hiHatDuration).pow(2) * envelopeScale
+            buffer[i] += highPass * envelope * 1.2
+        }
+    }
+
+    @Suppress("unused")
+    private class KarplusStrongString(frequency: Double, sampleRate: Int, pluckStrength: Int) {
+        private val frequencyHz = frequency
+        private val sampleRateHz = sampleRate
+        private val pluckStrengthLevel = pluckStrength
+        private val bufferSize = (sampleRateHz / frequencyHz).toInt().coerceAtLeast(1)
+        private val ringBuffer = DoubleArray(bufferSize)
+        private var currentIndex = 0
+        private val decayFactor = 0.998
+
+        fun pluck() {
+            val whiteNoise = DoubleArray(bufferSize) { Random.nextDouble() * 2 - 1 }
+            when (pluckStrengthLevel) {
+                1 -> whiteNoise.copyInto(ringBuffer)
+                3 -> {
+                    for (i in 0 until bufferSize) {
+                        val n1 = whiteNoise.getOrElse(i) { 0.0 }
+                        val n2 = whiteNoise.getOrElse(i - 1) { 0.0 }
+                        val n3 = whiteNoise.getOrElse(i - 2) { 0.0 }
+                        val n4 = whiteNoise.getOrElse(i - 3) { 0.0 }
+                        ringBuffer[i] = (n1 + n2 + n3 + n4) / 4.0
+                    }
+                }
+                else -> {
+                    ringBuffer[0] = whiteNoise[0]
+                    for (i in 1 until bufferSize) {
+                        ringBuffer[i] = (whiteNoise[i] + whiteNoise[i - 1]) / 2.0
                     }
                 }
             }
-        } finally {
-            isPlaying = false
-            audioTrack?.release()
-            audioTrack = null
         }
-    }
 
-    private fun playChord(chord: Chord, duration: Double, pattern: StrummingPattern) {
-        val midiNotes = chord.getMidiNotes()
-        val frequencies = midiNotes.map { midiNoteToFrequency(it) }
-        
-        // Generate audio samples for the chord
-        val samples = generateChordSamples(frequencies, duration)
-        
-        // Create and configure AudioTrack
-        val minBufferSize = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        
-        audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build()
-            )
-            .setBufferSizeInBytes(minBufferSize)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-        
-        audioTrack?.play()
-        audioTrack?.write(samples, 0, samples.size)
-        audioTrack?.stop()
-        audioTrack?.release()
-        audioTrack = null
-    }
-
-    private fun generateChordSamples(frequencies: List<Double>, duration: Double): ShortArray {
-        val numSamples = (sampleRate * duration).toInt()
-        val samples = ShortArray(numSamples)
-        
-        for (i in 0 until numSamples) {
-            var sample = 0.0
-            
-            // Mix all frequencies
-            for (freq in frequencies) {
-                val angle = 2.0 * Math.PI * i * freq / sampleRate
-                sample += sin(angle)
-            }
-            
-            // Apply envelope (ADSR)
-            val envelope = getEnvelope(i, numSamples)
-            sample *= envelope
-            
-            // Normalize and convert to short
-            sample = sample / frequencies.size * 0.3 // Reduce amplitude to avoid clipping
-            samples[i] = (sample * Short.MAX_VALUE).toInt().toShort()
-        }
-        
-        return samples
-    }
-
-    private fun getEnvelope(sample: Int, totalSamples: Int): Double {
-        val attackSamples = (totalSamples * 0.05).toInt()
-        val releaseSamples = (totalSamples * 0.2).toInt()
-        
-        return when {
-            sample < attackSamples -> sample.toDouble() / attackSamples
-            sample > totalSamples - releaseSamples -> 
-                (totalSamples - sample).toDouble() / releaseSamples
-            else -> 1.0
+        fun tick(): Double {
+            val currentSample = ringBuffer[currentIndex]
+            val nextSample = (currentSample + ringBuffer[(currentIndex + 1) % bufferSize]) * 0.5 * decayFactor
+            ringBuffer[currentIndex] = nextSample
+            currentIndex = (currentIndex + 1) % bufferSize
+            return currentSample
         }
     }
 
     private fun midiNoteToFrequency(midiNote: Int): Double {
-        // A4 (MIDI note 69) = 440 Hz
-        return 440.0 * Math.pow(2.0, (midiNote - 69) / 12.0)
+        // Some parts of the app provide only a pitch class (0..11) as midiOffset.
+        // If the midi value looks like an offset (very low), shift it into a usable octave
+        // so we generate audible, correctly pitched tones instead of sub-audio rumble/noise.
+        var midi = midiNote
+        if (midi < 36) {
+            midi += 60 // move into mid register (e.g. C4 = 60)
+        }
+        return 440.0 * 2.0.pow((midi - 69) / 12.0)
     }
 
     fun stop() {
+        if (!isPlaying) return
         isPlaying = false
-        audioTrack?.stop()
-        audioTrack?.release()
+        audioTrack?.let {
+            if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                try {
+                    it.flush()
+                    it.stop()
+                    it.release()
+                } catch (_: IllegalStateException) { /* Can happen if track is already released */ }
+            }
+        }
         audioTrack = null
     }
 }
