@@ -24,21 +24,28 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Measure 1"
+                android:text="@string/measure_example"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/strummingPatternText"
+            <!-- Horizontal scrolling container showing small chips for each strum (D/U/M/_) -->
+            <HorizontalScrollView
+                android:id="@+id/strummingPatternScroll"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:padding="4dp"
-                android:text="D D D D"
-                android:textColor="@android:color/holo_blue_dark"
-                android:textSize="12sp" />
+                android:fillViewport="true"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/strumContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingLeft="4dp"
+                    android:paddingRight="4dp"
+                    android:gravity="center_vertical" />
+
+            </HorizontalScrollView>
 
         </LinearLayout>
 
@@ -54,7 +61,7 @@
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Drag to reorder"
+                android:contentDescription="@string/drag_to_reorder"
                 android:src="@drawable/ic_drag_handle" />
 
             <TextView
@@ -67,7 +74,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="-"
+                android:text="@string/dash"
                 android:textColor="@android:color/black"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -82,7 +89,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="-"
+                android:text="@string/dash"
                 android:textColor="@android:color/black"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -97,7 +104,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="-"
+                android:text="@string/dash"
                 android:textColor="@android:color/black"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -112,7 +119,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:text="-"
+                android:text="@string/dash"
                 android:textColor="@android:color/black"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -122,7 +129,7 @@
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Remove measure"
+                android:contentDescription="@string/remove_measure"
                 android:src="@android:drawable/ic_delete"
                 app:tint="?android:attr/textColorSecondary" />
 

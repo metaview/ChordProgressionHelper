@@ -14,10 +14,11 @@ data class StrummingPattern(val name: String, val strums: List<Strum>) {
 
         val defaultPatterns = listOf(
             StrummingPattern("DDDDDDDD", List(8) { Strum.DOWN }),
-            StrummingPattern("UUUUUUUU", List(8) { Strum.UP }),
             StrummingPattern("DUDUDUDU", List(8) { if (it % 2 == 0) Strum.DOWN else Strum.UP }),
-            StrummingPattern("D U D U ", listOf(Strum.DOWN, Strum.REST, Strum.UP, Strum.REST, Strum.DOWN, Strum.REST, Strum.UP, Strum.REST)),
-            StrummingPattern("D DUD DU", listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP, Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP)),
+            StrummingPattern("D-U-D-U-", listOf(Strum.DOWN, Strum.REST, Strum.UP, Strum.REST, Strum.DOWN, Strum.REST, Strum.UP, Strum.REST)),
+            StrummingPattern("D-DUD-DU", listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP, Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP)),
+            StrummingPattern("-U-U-U-U", listOf(Strum.REST, Strum.UP, Strum.REST, Strum.UP, Strum.REST, Strum.UP, Strum.REST, Strum.UP)),
+            StrummingPattern("D_DUD-DU", listOf(Strum.DOWN, Strum.LETRING, Strum.DOWN, Strum.UP, Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP)),
         )
     }
 }

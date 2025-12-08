@@ -1390,6 +1390,8 @@ color cardview_light_background
 color cardview_shadow_end_color
 color cardview_shadow_start_color
 color chord_text_color
+color colorOnPrimary
+color colorPrimary
 color color_suggestion
 color color_target
 color design_bottom_navigation_shadow_color
@@ -1430,6 +1432,8 @@ color design_fab_stroke_top_inner_color
 color design_fab_stroke_top_outer_color
 color design_icon_tint
 color design_snackbar_background_color
+color dialogBackground
+color dialogOnBackground
 color dim_foreground_disabled_material_dark
 color dim_foreground_disabled_material_light
 color dim_foreground_material_dark
@@ -2119,7 +2123,6 @@ color primary_text_default_material_dark
 color primary_text_default_material_light
 color primary_text_disabled_material_dark
 color primary_text_disabled_material_light
-color purple_200
 color purple_500
 color purple_700
 color ripple_material_dark
@@ -2283,6 +2286,7 @@ dimen design_tab_text_size_2line
 dimen design_textinput_caption_translate_y
 dimen disabled_alpha_material_dark
 dimen disabled_alpha_material_light
+dimen fade_edge_length
 dimen fastscroll_default_thickness
 dimen fastscroll_margin
 dimen fastscroll_minimum_range
@@ -2947,6 +2951,8 @@ dimen notification_small_icon_size_as_large
 dimen notification_subtext_size
 dimen notification_top_pad
 dimen notification_top_pad_large_text
+dimen pattern_icon_size
+dimen strum_chip_size
 dimen tooltip_corner_radius
 dimen tooltip_horizontal_padding
 dimen tooltip_margin
@@ -3041,6 +3047,7 @@ drawable bg_primary_button
 drawable bg_primary_button_ripple
 drawable bg_repeat_toggle
 drawable bg_repeat_toggle_ripple
+drawable bg_strum_chip
 drawable btn_checkbox_checked_mtrl
 drawable btn_checkbox_checked_to_unchecked_mtrl_animation
 drawable btn_checkbox_unchecked_mtrl
@@ -3055,6 +3062,8 @@ drawable design_ic_visibility
 drawable design_ic_visibility_off
 drawable design_password_eye
 drawable design_snackbar_background
+drawable fade_left
+drawable fade_right
 drawable ic_arrow_back_black_24
 drawable ic_arrow_down
 drawable ic_arrow_up
@@ -3257,6 +3266,11 @@ drawable ic_play_arrow
 drawable ic_repeat
 drawable ic_search_black_24
 drawable ic_stop
+drawable ic_strum_down
+drawable ic_strum_letring
+drawable ic_strum_mute
+drawable ic_strum_rest
+drawable ic_strum_up
 drawable ic_unchecked_checkbox
 drawable ic_vol_mute
 drawable ic_vol_type_speaker_dark
@@ -3476,8 +3490,11 @@ id beginOnFirstDraw
 id beginning
 id bestChoice
 id blocking
+id borrowedChordContainer
 id borrowedChordRecyclerView
 id borrowedChordsLabel
+id borrowedFadeLeft
+id borrowedFadeRight
 id bottom
 id bounce
 id bounceBoth
@@ -3504,6 +3521,9 @@ id chain2
 id chains
 id checkbox
 id checked
+id chordContainer
+id chordFadeLeft
+id chordFadeRight
 id chordNameText
 id chordPreviewSwitch
 id chordRecyclerView
@@ -3593,6 +3613,8 @@ id expandRelatedChordsButton
 id expand_activities_button
 id expanded_menu
 id fade
+id fadeLeft
+id fadeRight
 id fill
 id fill_horizontal
 id fill_vertical
@@ -3848,8 +3870,11 @@ id quarterNote4
 id radio
 id ratio
 id rectangles
+id relatedChordContainer
 id relatedChordRecyclerView
 id relatedChordsLabel
+id relatedFadeLeft
+id relatedFadeRight
 id removeMeasureButton
 id repeatButton
 id report_drawn
@@ -3924,8 +3949,12 @@ id status_bar_latest_event_content
 id stop
 id stopButton
 id stretch
+id strumChipIcon
+id strumContainer
+id strumEditorContainer
+id strumEditorScroll
 id strummingPatternEditor
-id strummingPatternText
+id strummingPatternScroll
 id submenuarrow
 id submit_area
 id supportScrollUp
@@ -4145,6 +4174,7 @@ layout ime_secondary_split_test_activity
 layout item_add_measure
 layout item_chord
 layout item_measure
+layout item_strum_chip
 layout m3_alert_dialog
 layout m3_alert_dialog_actions
 layout m3_alert_dialog_title
@@ -4285,8 +4315,12 @@ string character_counter_content_description
 string character_counter_overflowed_content_description
 string character_counter_pattern
 string clear_text_end_icon_content_description
+string dash
 string decrease_bpm
+string default_patterns
+string drag_to_reorder
 string drum_level_format
+string edit_strumming_pattern
 string envelope_scale_format
 string error_a11y_label
 string error_icon_content_description
@@ -4339,6 +4373,8 @@ string material_timepicker_minute
 string material_timepicker_pm
 string material_timepicker_select_time
 string material_timepicker_text_input_mode_description
+string measure_example
+string measure_format
 string menu_cd
 string mr_button_content_description
 string mr_cast_button_connected
@@ -4449,6 +4485,7 @@ string path_password_eye_mask_visible
 string path_password_strike_through
 string play_pause_cd
 string progression_label
+string remove_measure
 string reset_sound_toast
 string search_menu_title
 string searchbar_scrolling_view_behavior
@@ -4459,6 +4496,7 @@ string side_sheet_accessibility_pane_title
 string side_sheet_behavior
 string status_bar_notification_info_overflow
 string stop_cd
+string strum_content_description
 string toggle_repeat
 style AlertDialog_AppCompat
 style AlertDialog_AppCompat_Light
@@ -4802,6 +4840,7 @@ style RtlOverlay_Widget_AppCompat_Search_DropDown_Text
 style RtlOverlay_Widget_AppCompat_SearchView_MagIcon
 style RtlUnderlay_Widget_AppCompat_ActionButton
 style RtlUnderlay_Widget_AppCompat_ActionButton_Overflow
+style ShapeAppearance_ChordProgressionHelper_SmallComponent
 style ShapeAppearance_M3_Comp_Badge_Large_Shape
 style ShapeAppearance_M3_Comp_Badge_Shape
 style ShapeAppearance_M3_Comp_BottomAppBar_Container_Shape
@@ -5114,6 +5153,7 @@ style ThemeOverlay_AppCompat_DayNight_ActionBar
 style ThemeOverlay_AppCompat_Dialog
 style ThemeOverlay_AppCompat_Dialog_Alert
 style ThemeOverlay_AppCompat_Light
+style ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog
 style ThemeOverlay_Design_TextInputEditText
 style ThemeOverlay_Material3
 style ThemeOverlay_Material3_ActionBar
@@ -5294,6 +5334,7 @@ style Widget_AppCompat_TextView
 style Widget_AppCompat_TextView_SpinnerItem
 style Widget_AppCompat_Toolbar
 style Widget_AppCompat_Toolbar_Button_Navigation
+style Widget_ChordProgressionHelper_MaterialButton
 style Widget_Compat_NotificationActionContainer
 style Widget_Compat_NotificationActionText
 style Widget_Design_AppBarLayout

@@ -23,4 +23,12 @@
     <string name="hihat_highpass_format">HiHat Highpass: %d%%</string>
     <string name="reset_sound_toast">Sound settings reset to defaults</string>
     <string name="notification_playing">Playing</string>
+    <string name="measure_format">Measure %d</string>
+    <string name="strum_content_description">Strum %1$s at position %2$d</string>
+    <string name="measure_example">Measure 1</string>
+    <string name="drag_to_reorder">Drag to reorder</string>
+    <string name="dash">-</string>
+    <string name="remove_measure">Remove measure</string>
+    <string name="edit_strumming_pattern">Edit Strumming Pattern</string>
+    <string name="default_patterns">Default Patterns</string>
 </resources>

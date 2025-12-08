@@ -92,8 +92,36 @@ class MeasureAdapter(
 
         @SuppressLint("ClickableViewAccessibility")
         fun bind(measure: Measure, measureIndex: Int) {
-            binding.measureNumberText.text = "Measure ${measure.number}"
-            binding.strummingPatternText.text = measure.strummingPattern.displayName
+            binding.measureNumberText.text = binding.root.context.getString(R.string.measure_format, measure.number)
+
+            // Populate small chips for each strum for improved readability and accessibility
+            val container = binding.strumContainer
+            container.removeAllViews()
+            if (measure.strummingPattern.strums.isNotEmpty()) {
+                measure.strummingPattern.strums.forEachIndexed { idx, strum ->
+                    val chip = LayoutInflater.from(binding.root.context).inflate(R.layout.item_strum_chip, container, false)
+                    val icon = chip.findViewById<android.widget.ImageView>(R.id.strumChipIcon)
+                    val (drawableId, desc) = when (strum) {
+                        com.metaview.chordprogressionhelper.model.Strum.DOWN -> Pair(R.drawable.ic_strum_down, "D")
+                        com.metaview.chordprogressionhelper.model.Strum.UP -> Pair(R.drawable.ic_strum_up, "U")
+                        com.metaview.chordprogressionhelper.model.Strum.MUTE -> Pair(R.drawable.ic_strum_mute, "M")
+                        com.metaview.chordprogressionhelper.model.Strum.LETRING -> Pair(R.drawable.ic_strum_letring, "L")
+                        com.metaview.chordprogressionhelper.model.Strum.REST -> Pair(R.drawable.ic_strum_rest, "-")
+                    }
+                    icon.setImageResource(drawableId)
+                    chip.contentDescription = binding.root.context.getString(R.string.strum_content_description, desc, idx + 1)
+                    chip.setOnClickListener { onStrummingPatternClick(measureIndex) }
+                    container.addView(chip)
+                }
+            } else {
+                // Fallback: show the rest icon and use name as description
+                val chip = LayoutInflater.from(binding.root.context).inflate(R.layout.item_strum_chip, container, false)
+                val icon = chip.findViewById<android.widget.ImageView>(R.id.strumChipIcon)
+                icon.setImageResource(R.drawable.ic_strum_rest)
+                chip.contentDescription = measure.strummingPattern.displayName
+                chip.setOnClickListener { onStrummingPatternClick(measureIndex) }
+                container.addView(chip)
+            }
 
             val quarterNoteSlots = listOf(binding.quarterNote1, binding.quarterNote2, binding.quarterNote3, binding.quarterNote4)
 
@@ -120,9 +148,8 @@ class MeasureAdapter(
                 slot.setOnDragListener(createDragListener(measureIndex, eighthNoteIndex))
             }
 
-            binding.strummingPatternText.setOnClickListener {
-                onStrummingPatternClick(measureIndex)
-            }
+            // Also make the whole scroll area clickable to open the strumming pattern editor
+            binding.strummingPatternScroll.setOnClickListener { onStrummingPatternClick(measureIndex) }
 
             binding.removeMeasureButton.setOnClickListener {
                 onRemoveMeasureClick(measureIndex)

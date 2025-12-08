@@ -339,6 +339,30 @@ class PlaybackService : Service() {
         currentProgression?.let { notificationManager.notify(NOTIFICATION_ID, createNotification(it, _isPlaying.value)) }
     }
 
+    /**
+     * Update a single measure's strumming pattern in the service's in-memory progression.
+     * If playback is active, the change will take effect on the next strum because
+     * playProgression reads the progression object during playback. We also update
+     * the notification so the UI reflects the change.
+     */
+    fun updateStrummingPattern(measureIndex: Int, pattern: com.metaview.chordprogressionhelper.model.StrummingPattern) {
+        try {
+            currentProgression?.let { prog ->
+                if (measureIndex in prog.measures.indices) {
+                    prog.measures[measureIndex].strummingPattern = pattern
+                    // Refresh notification so title/summary reflect current progression
+                    try {
+                        notificationManager.notify(NOTIFICATION_ID, createNotification(prog, _isPlaying.value))
+                    } catch (nfe: Exception) {
+                        Log.w(TAG, "Failed to refresh notification after pattern update: ${nfe.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "updateStrummingPattern failed: ${e.message}")
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_DEFAULT)

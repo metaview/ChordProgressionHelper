@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Set strum chips to 16dp for better touch and readability -->
+    <dimen name="strum_chip_size">16dp</dimen>
+    <dimen name="pattern_icon_size">48dp</dimen>
+    <dimen name="fade_edge_length">18dp</dimen>
+</resources>
