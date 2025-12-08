@@ -14,6 +14,7 @@ import kotlinx.serialization.InternalSerializationApi
 import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.tanh
 import kotlin.random.Random
 
 @OptIn(InternalSerializationApi::class)
@@ -26,6 +27,8 @@ class AudioPlayer {
     @Volatile var drumLevel: Double = 1.0
     @Volatile var envelopeScale: Double = 1.0
     @Volatile var hiHatHighpass: Double = 1.0
+    // Voice preset (CLEAN, OVERDRIVE, PIANO) - default CLEAN
+    @Volatile var voicePreset: com.metaview.chordprogressionhelper.data.SoundPreset = com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN
 
     @OptIn(InternalSerializationApi::class)
     suspend fun playProgression(
@@ -77,6 +80,11 @@ class AudioPlayer {
                 if (!isPlaying) break
 
                 val loopStartStrum = if (isFirstLoop && measureIndex == startMeasureIndex) startStrumIndex else 0
+                // If this is the very first measure/strum we start playing (not resuming mid-measure), ensure no previous strings are ringing
+                if (isFirstLoop && measureIndex == startMeasureIndex && loopStartStrum == 0) {
+                    activeStrings = emptyList()
+                }
+
                 for (strumIndex in loopStartStrum until measure.strummingPattern.strums.size) {
                     if (!isPlaying) break
 
@@ -90,10 +98,9 @@ class AudioPlayer {
                     val chord: Chord? = measure.getChordAt(strumIndex)
                     var currentStrum = measure.strummingPattern.strums[strumIndex]
 
-                    val isNewChordEventAtThisStrum = measure.chordEvents.any { (it.quarterNote * 2) == strumIndex }
-                    if (currentStrum == Strum.REST && isNewChordEventAtThisStrum) {
-                        currentStrum = Strum.DOWN
-                    }
+                    // Note: keep REST silent even if a new chord event starts on that strum.
+                    // Previously we forced REST->DOWN when a chord event started at this strum, but
+                    // users expect a REST to produce silence. Do not override REST here.
 
                     when (currentStrum) {
                         Strum.DOWN, Strum.UP -> {
@@ -114,10 +121,38 @@ class AudioPlayer {
 
                     if (currentStrum == Strum.MUTE) addMute(buffer)
                     else {
-                        for (i in buffer.indices) {
-                            var sample = 0.0
-                            for (string in activeStrings) sample += string.tick()
-                            buffer[i] += sample
+                        when (voicePreset) {
+                            com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> {
+                                for (i in buffer.indices) {
+                                    var sample = 0.0
+                                    for (string in activeStrings) sample += string.tick()
+                                    buffer[i] += sample
+                                }
+                            }
+                            com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> {
+                                // Simple overdrive: sum strings, apply a gain and soft clipping via tanh
+                                val gain = 2.5
+                                for (i in buffer.indices) {
+                                    var sample = 0.0
+                                    for (string in activeStrings) sample += string.tick()
+                                    // apply gain
+                                    val driven = tanh(sample * gain)
+                                    buffer[i] += driven
+                                }
+                            }
+                            com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> {
+                                // Simple piano-ish tone: slightly brighter (filter) and faster decay per string
+                                for (i in buffer.indices) {
+                                    var sample = 0.0
+                                    for (string in activeStrings) {
+                                        // emulate faster decay by calling tick twice for brighter attack
+                                        sample += string.tick() * 1.0
+                                    }
+                                    // apply a mild high-frequency emphasis
+                                    val hf = sample * 1.6
+                                    buffer[i] += hf
+                                }
+                            }
                         }
                     }
 

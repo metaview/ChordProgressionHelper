@@ -43,6 +43,8 @@ class PlaybackService : Service() {
     private var playbackJob: Job? = null
     private var currentProgression: ChordProgression? = null
     private var pausedPosition: Pair<Int, Int>? = null
+    // If true the currently-loaded progression was launched as a temporary preview
+    private var currentIsPreview: Boolean = false
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
 
@@ -70,12 +72,14 @@ class PlaybackService : Service() {
         audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
         audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
         audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
+        audioPlayer.voicePreset = settingsRepository.soundPreset
 
         prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
                 SettingsRepository.KEY_DRUM_LEVEL -> audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
                 SettingsRepository.KEY_ENVELOPE_SCALE -> audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
                 SettingsRepository.KEY_HIHAT_HIGHPASS -> audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
+                SettingsRepository.KEY_SOUND_PRESET -> audioPlayer.voicePreset = settingsRepository.soundPreset
             }
         }
         settingsRepository.registerChangeListener(prefsListener)
@@ -115,6 +119,9 @@ class PlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand: action=${intent?.action}")
+        // Capture preview flag from intent
+        currentIsPreview = intent?.getBooleanExtra(EXTRA_IS_PREVIEW, false) ?: false
+
         // Read progression either from a file path (preferred, avoids large Intent extras)
         var progressionString: String? = null
         // New: try id-based loading first
@@ -229,9 +236,11 @@ class PlaybackService : Service() {
         playbackJob = serviceScope.launch {
             audioPlayer.playProgression(
                 progression = progression,
-                shouldLoop = { settingsRepository.isLoopingEnabled },
+                // If this playback was launched as a preview, never loop (one pass)
+                shouldLoop = { if (currentIsPreview) false else settingsRepository.isLoopingEnabled },
                 pluckStrength = settingsRepository.pluckStrength,
-                countInBeats = settingsRepository.countInBeats,
+                // For previews (Test/Default pattern) we must not perform a count-in
+                countInBeats = if (currentIsPreview) 0 else settingsRepository.countInBeats,
                 onPositionChanged = { measureIndex, strumIndex ->
                     _currentPlaybackPosition.value = Pair(measureIndex, strumIndex)
                 },
@@ -239,6 +248,10 @@ class PlaybackService : Service() {
                 startStrumIndex = startPos?.second ?: 0,
                 isResuming = isResuming
             )
+            // After playProgression returns, if this was a preview we should clear the preview flag
+            if (currentIsPreview) {
+                currentIsPreview = false
+            }
             if (isLastService()) stopPlayback()
         }
     }
@@ -269,6 +282,7 @@ class PlaybackService : Service() {
         _isPlaying.value = false
         _currentPlaybackPosition.value = null
         pausedPosition = null
+        currentIsPreview = false
 
         mediaSession.setPlaybackState(PlaybackStateCompat.Builder()
             .setState(PlaybackStateCompat.STATE_STOPPED, 0L, 0f)
@@ -391,13 +405,14 @@ class PlaybackService : Service() {
         const val EXTRA_PROGRESSION = "com.metaview.chordprogressionhelper.extra.PROGRESSION"
         const val EXTRA_PROGRESSION_PATH = "com.metaview.chordprogressionhelper.extra.PROGRESSION_PATH"
         const val EXTRA_PROGRESSION_ID = "com.metaview.chordprogressionhelper.extra.PROGRESSION_ID"
+        const val EXTRA_IS_PREVIEW = "com.metaview.chordprogressionhelper.extra.IS_PREVIEW"
 
         private const val RC_PLAY = 100
         private const val RC_PAUSE = 101
         private const val RC_STOP = 102
 
         // New: save progression to ProgressionStore and send only the ID to the service (preferred)
-        fun play(context: android.content.Context, progression: ChordProgression) {
+        fun play(context: android.content.Context, progression: ChordProgression, isPreview: Boolean = false) {
             val progressionString = Json.encodeToString(progression)
             val id = try { ProgressionStore.saveProgression(context, null, progressionString) } catch (e: Exception) {
                 Log.w("PlaybackService", "Failed to save progression to store: ${e.message}"); null
@@ -405,6 +420,7 @@ class PlaybackService : Service() {
             val intent = Intent(context, PlaybackService::class.java).apply {
                 action = ACTION_PLAY
                 if (!id.isNullOrEmpty()) putExtra(EXTRA_PROGRESSION_ID, id) else putExtra(EXTRA_PROGRESSION, progressionString)
+                putExtra(EXTRA_IS_PREVIEW, isPreview)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         }

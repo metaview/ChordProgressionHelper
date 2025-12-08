@@ -4,7 +4,7 @@
     <color name="colorOnPrimary">#FFFFFF</color>
     <color name="colorPrimary">#7C4DFF</color>
     <color name="color_suggestion">#FFFF00</color>
-    <color name="color_target">#FFFF00</color>
+    <color name="color_target">#777700</color>
     <color name="dialogBackground">#FF222222</color>
     <color name="dialogOnBackground">#FFFFFFFF</color>
     <color name="purple_500">#7C4DFF</color>

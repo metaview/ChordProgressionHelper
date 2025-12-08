@@ -70,6 +70,8 @@ class MainActivity : AppCompatActivity() {
 
     private var playbackService: PlaybackService? = null
     private var isBound = false
+    // Indicates whether the last started playback was a temporary preview spawned by the dialog
+    private var isDialogPreviewActive = false
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -159,12 +161,20 @@ class MainActivity : AppCompatActivity() {
              val willPlay = playbackService?.isPlaying?.value != true
              animatePlayPause(willPlay)
              if (playbackService?.isPlaying?.value == true) {
-                PlaybackService.pause(this)
+                // If a dialog preview is running, the user's 'play' intent should stop the preview and start the main progression
+                if (isDialogPreviewActive) {
+                    try { PlaybackService.stop(this) } catch (_: Exception) {}
+                    isDialogPreviewActive = false
+                    PlaybackService.play(this, viewModel.progression)
+                } else {
+                    PlaybackService.pause(this)
+                }
             } else {
+                // No playback active -> start main progression
                 PlaybackService.play(this, viewModel.progression)
             }
         }
-        binding.stopButton.setOnClickListener { PlaybackService.stop(this) }
+        binding.stopButton.setOnClickListener { PlaybackService.stop(this); isDialogPreviewActive = false }
         binding.repeatButton.setOnClickListener { viewModel.onRepeatToggle(!(viewModel.isLooping.value ?: false)) }
         binding.expandRelatedChordsButton.setOnClickListener { toggleExtraChordsVisibility() }
     }
@@ -328,9 +338,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerViews() {
-        chordAdapter = ChordAdapter { viewModel.setSelectedChord(it) }
-        relatedChordAdapter = ChordAdapter { viewModel.setSelectedChord(it) }
-        borrowedChordAdapter = ChordAdapter { viewModel.setSelectedChord(it) }
+        chordAdapter = ChordAdapter({ viewModel.setSelectedChord(it) }) { chord ->
+            // Convert chord to power chord and select it
+            try {
+                val powerChord = com.metaview.chordprogressionhelper.model.Chord(chord.root, com.metaview.chordprogressionhelper.model.ChordType.POWER, chord.scaleDegreeName)
+                viewModel.setSelectedChord(powerChord)
+            } catch (e: Exception) {
+                android.util.Log.w("MainActivity", "Failed to make power chord: ${e.message}")
+            }
+        }
+        relatedChordAdapter = ChordAdapter({ viewModel.setSelectedChord(it) }) { chord ->
+            val powerChord = com.metaview.chordprogressionhelper.model.Chord(chord.root, com.metaview.chordprogressionhelper.model.ChordType.POWER, chord.scaleDegreeName)
+            viewModel.setSelectedChord(powerChord)
+        }
+        borrowedChordAdapter = ChordAdapter({ viewModel.setSelectedChord(it) }) { chord ->
+            val powerChord = com.metaview.chordprogressionhelper.model.Chord(chord.root, com.metaview.chordprogressionhelper.model.ChordType.POWER, chord.scaleDegreeName)
+            viewModel.setSelectedChord(powerChord)
+        }
         binding.chordRecyclerView.adapter = chordAdapter
         binding.relatedChordRecyclerView.adapter = relatedChordAdapter
         binding.borrowedChordRecyclerView.adapter = borrowedChordAdapter
@@ -613,8 +637,12 @@ class MainActivity : AppCompatActivity() {
                  // Stop button is always visible; disable (greyed) when not playing
                  binding.stopButton.isEnabled = isPlaying
                  binding.stopButton.alpha = if (isPlaying) 1.0f else 0.4f
-             }
-         }
+                 // If playback stopped, clear any dialog preview flag so UI state stays consistent
+                 if (!isPlaying) {
+                     isDialogPreviewActive = false
+                 }
+              }
+          }
         lifecycleScope.launch {
             playbackService?.currentPlaybackPosition?.collectLatest { position ->
                 measureAdapter.setPlaybackPosition(position)
@@ -810,12 +838,37 @@ class MainActivity : AppCompatActivity() {
                 // apply pattern icons -> set currentStrums to pattern
                 pattern.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
                 updateStrumViews()
-                // Send live preview to playbackService if available
                 try {
                     val livePattern = com.metaview.chordprogressionhelper.model.StrummingPattern(pattern.name, pattern.strums.toList())
-                    playbackService?.updateStrummingPattern(measureIndex, livePattern)
+                    // If service is playing, just send live update
+                    val isPlayingNow = playbackService?.isPlaying?.value == true
+                    if (isPlayingNow) {
+                        playbackService?.updateStrummingPattern(measureIndex, livePattern)
+                    } else {
+                        // Not playing -> start a one-measure preview with the tonic chord
+                        val tonic = viewModel.progression.getScaleDegreeChords().firstOrNull()
+                        if (tonic != null) {
+                            val tempProg = com.metaview.chordprogressionhelper.model.ChordProgression(
+                                name = "Preview",
+                                key = viewModel.key.value ?: com.metaview.chordprogressionhelper.model.Key.C,
+                                mode = viewModel.progression.mode,
+                                tempo = viewModel.tempo.value ?: viewModel.progression.tempo
+                            )
+                            // Replace default measure with one configured measure
+                            try { tempProg.measures.clear() } catch (_: Exception) {}
+                            val m = com.metaview.chordprogressionhelper.model.Measure(1)
+                            try { m.addChord(tonic, 0) } catch (_: Exception) {}
+                            m.strummingPattern = livePattern
+                            tempProg.measures.add(m)
+
+                            // Stop any previous playback/preview first, then start the new temporary progression
+                            try { PlaybackService.stop(this) } catch (_: Exception) {}
+                            PlaybackService.play(this, tempProg, true)
+                            isDialogPreviewActive = true
+                         }
+                    }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to send live pattern selection to service: ${e.message}")
+                    Log.w(TAG, "Failed to handle default pattern click: ${e.message}")
                 }
             }
 
@@ -863,6 +916,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Cancel", null)
+            .setNeutralButton("Test", null)
             .create()
 
         alert.setOnShowListener {
@@ -887,8 +941,58 @@ class MainActivity : AppCompatActivity() {
                 val fadeRight = dialogBinding.root.findViewById<View>(R.id.fadeRight)
                 fadeLeft.background = leftGd
                 fadeRight.background = rightGd
+
+                // Style buttons (force drawable background etc.)
+                try { styleDialogButtons(alert) } catch (_: Exception) {}
+
+                // Neutral 'Test' button: play the current pattern with the tonic chord without dismissing the dialog
+                try {
+                    val testButton = alert.getButton(AlertDialog.BUTTON_NEUTRAL)
+                    testButton?.setOnClickListener {
+                        try {
+                            val livePattern = com.metaview.chordprogressionhelper.model.StrummingPattern("Test", currentStrums.toList())
+                            // Determine tonic chord from current progression
+                            val tonic = viewModel.progression.getScaleDegreeChords().firstOrNull()
+                            if (tonic != null) {
+                                // Create temporary progression with one measure using the selected pattern and tonic chord
+                                val tempProg = com.metaview.chordprogressionhelper.model.ChordProgression(
+                                    name = "Preview",
+                                    key = viewModel.key.value ?: com.metaview.chordprogressionhelper.model.Key.C,
+                                    mode = viewModel.progression.mode,
+                                    tempo = viewModel.tempo.value ?: viewModel.progression.tempo
+                                )
+                                // Replace default measure with one configured measure
+                                try {
+                                    tempProg.measures.clear()
+                                } catch (_: Exception) {}
+                                val m = com.metaview.chordprogressionhelper.model.Measure(1)
+                                try { m.addChord(tonic, 0) } catch (_: Exception) {}
+                                m.strummingPattern = livePattern
+                                tempProg.measures.add(m)
+
+                                // Stop any previous playback/preview first, then start the new temporary progression
+                                try { PlaybackService.stop(this) } catch (_: Exception) {}
+                                PlaybackService.play(this, tempProg, true)
+                                isDialogPreviewActive = true
+                             }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Test button failed to play pattern: ${e.message}")
+                            Toast.makeText(this, "Failed to play pattern: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to setup Test button listener: ${e.message}")
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to apply dialog fade backgrounds on show", e)
+            }
+        }
+
+        // Ensure any dialog-launched preview is stopped when the dialog is dismissed
+        alert.setOnDismissListener {
+            if (isDialogPreviewActive) {
+                try { PlaybackService.stop(this) } catch (_: Exception) {}
+                isDialogPreviewActive = false
             }
         }
 

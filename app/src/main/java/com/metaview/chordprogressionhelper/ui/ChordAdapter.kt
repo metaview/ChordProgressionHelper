@@ -7,6 +7,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -16,7 +17,8 @@ import com.metaview.chordprogressionhelper.databinding.ItemChordBinding
 import com.metaview.chordprogressionhelper.model.Chord
 
 class ChordAdapter(
-    private val onChordClick: (Chord) -> Unit
+    private val onChordClick: (Chord) -> Unit,
+    private val onMakePower: (Chord) -> Unit = {}
 ) : ListAdapter<Chord, ChordAdapter.ChordViewHolder>(ChordDiffCallback()) {
 
     private var selectedChord: Chord? = null
@@ -109,9 +111,26 @@ class ChordAdapter(
             binding.root.setOnClickListener { onChordClick(chord) }
 
             binding.root.setOnLongClickListener { view ->
-                val item = ClipData.Item(chord.getDisplayName())
-                val dragData = ClipData(view.tag as? CharSequence, arrayOf(ClipDescription.MIMETYPE_TEXT_PLAIN), item)
-                view.startDragAndDrop(dragData, View.DragShadowBuilder(view), chord, 0)
+                // Show a small popup menu to either start drag or convert to Power chord
+                val popup = PopupMenu(view.context, view)
+                popup.menu.add("Make Power Chord")
+                popup.menu.add("Drag")
+                popup.setOnMenuItemClickListener { menuItem ->
+                    when (menuItem.title) {
+                        "Make Power Chord" -> {
+                            onMakePower(chord)
+                            true
+                        }
+                        "Drag" -> {
+                            val item = ClipData.Item(chord.getDisplayName())
+                            val dragData = ClipData(view.tag as? CharSequence, arrayOf(ClipDescription.MIMETYPE_TEXT_PLAIN), item)
+                            view.startDragAndDrop(dragData, View.DragShadowBuilder(view), chord, 0)
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                popup.show()
                 true
             }
         }
