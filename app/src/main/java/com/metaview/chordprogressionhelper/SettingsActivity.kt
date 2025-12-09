@@ -2,15 +2,32 @@ package com.metaview.chordprogressionhelper
 
 import android.os.Bundle
 import android.widget.SeekBar
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import android.content.Intent
 import com.metaview.chordprogressionhelper.data.SettingsRepository
+import com.metaview.chordprogressionhelper.data.SoundPreset
 import com.metaview.chordprogressionhelper.databinding.ActivitySettingsBinding
+import com.metaview.chordprogressionhelper.service.PlaybackService
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var settingsRepository: SettingsRepository
+
+    private fun updatePlaybackServiceParams() {
+        // Send an intent to the PlaybackService to apply new live parameters immediately.
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_UPDATE_PARAMS
+            putExtra(PlaybackService.EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
+            putExtra(PlaybackService.EXTRA_ENVELOPE_SCALE, settingsRepository.envelopeScale)
+            putExtra(PlaybackService.EXTRA_HIHAT_HIGHPASS, settingsRepository.hiHatHighpass)
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+        } catch (_: Exception) {
+            // best-effort; service might not be running or start may be restricted — prefs listener still updates service when started
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,13 +42,37 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         binding.chordPreviewSwitch.isChecked = settingsRepository.isChordPreviewEnabled
+        // New: pattern preview switch kept separate from chord preview
+        binding.patternPreviewSwitch.isChecked = settingsRepository.isPatternPreviewEnabled
         binding.loopByDefaultSwitch.isChecked = settingsRepository.isLoopingEnabled
 
-        when (settingsRepository.countInBeats) {
-            0 -> binding.countInNone.isChecked = true
-            2 -> binding.countIn2Beats.isChecked = true
-            4 -> binding.countIn4Beats.isChecked = true
-            8 -> binding.countIn8Beats.isChecked = true
+        // Initialize Count-In spinner (options: No / 2 / 4 / 8)
+        val adapter = android.widget.ArrayAdapter.createFromResource(this, R.array.count_in_options, android.R.layout.simple_spinner_item)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.countInSpinner.adapter = adapter
+        // Map stored beats to spinner index: 0->0, 2->1, 4->2, 8->3
+        val spinnerIndex = when (settingsRepository.countInBeats) {
+            0 -> 0
+            2 -> 1
+            4 -> 2
+            8 -> 3
+            else -> 2
+        }
+        binding.countInSpinner.setSelection(spinnerIndex)
+        // Attach listener after setting selection to avoid immediate callback
+        binding.countInSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                val beats = when (position) {
+                    0 -> 0
+                    1 -> 2
+                    2 -> 4
+                    3 -> 8
+                    else -> 4
+                }
+                settingsRepository.countInBeats = beats
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) { /* no-op */ }
         }
 
         // Pluck strength UI removed; pluck defaults to Soft
@@ -48,26 +89,12 @@ class SettingsActivity : AppCompatActivity() {
         val hiHatPercent = (settingsRepository.hiHatHighpass * 100f).toInt().coerceIn(0, 200)
         binding.hihatHighpassSeekBar.progress = hiHatPercent
         binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, hiHatPercent)
-    }
 
-    private fun setupListeners() {
-        binding.chordPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
-            settingsRepository.isChordPreviewEnabled = isChecked
-        }
-
-        binding.loopByDefaultSwitch.setOnCheckedChangeListener { _, isChecked ->
-            settingsRepository.isLoopingEnabled = isChecked
-        }
-
-        binding.countInRadioGroup.setOnCheckedChangeListener { _, checkedId ->
-            val beats = when (checkedId) {
-                R.id.countInNone -> 0
-                R.id.countIn2Beats -> 2
-                R.id.countIn4Beats -> 4
-                R.id.countIn8Beats -> 8
-                else -> 4
-            }
-            settingsRepository.countInBeats = beats
+        // Sound preset selection
+        when (settingsRepository.soundPreset) {
+            SoundPreset.CLEAN -> binding.soundPresetRadioGroup.check(R.id.soundPresetClean)
+            SoundPreset.OVERDRIVE -> binding.soundPresetRadioGroup.check(R.id.soundPresetOverdrive)
+            SoundPreset.PIANO -> binding.soundPresetRadioGroup.check(R.id.soundPresetPiano)
         }
 
         // Sound SeekBars: write settings already during onProgressChanged when moved by the user
@@ -77,6 +104,8 @@ class SettingsActivity : AppCompatActivity() {
                 if (fromUser) {
                     val value = (progress).toFloat() / 100f
                     settingsRepository.drumLevel = value
+                    // update running playback service immediately
+                    updatePlaybackServiceParams()
                 }
             }
 
@@ -90,6 +119,7 @@ class SettingsActivity : AppCompatActivity() {
                 if (fromUser) {
                     val value = (progress).toFloat() / 100f
                     settingsRepository.envelopeScale = value
+                    updatePlaybackServiceParams()
                 }
             }
 
@@ -103,12 +133,22 @@ class SettingsActivity : AppCompatActivity() {
                 if (fromUser) {
                     val value = (progress).toFloat() / 100f
                     settingsRepository.hiHatHighpass = value
+                    updatePlaybackServiceParams()
                 }
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+
+        // Sound preset radio group: write selection immediately
+        binding.soundPresetRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            when (checkedId) {
+                R.id.soundPresetClean -> settingsRepository.soundPreset = SoundPreset.CLEAN
+                R.id.soundPresetOverdrive -> settingsRepository.soundPreset = SoundPreset.OVERDRIVE
+                R.id.soundPresetPiano -> settingsRepository.soundPreset = SoundPreset.PIANO
+            }
+        }
 
         // Reset button - restore defaults (100% => 1.0)
         binding.resetSoundButton.setOnClickListener {
@@ -118,12 +158,27 @@ class SettingsActivity : AppCompatActivity() {
 
             // Update UI
             binding.drumLevelSeekBar.progress = 100
+            // ensure labels are updated
             binding.drumLevelLabel.text = getString(R.string.drum_level_format, 100)
             binding.envelopeScaleSeekBar.progress = 100
             binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, 100)
             binding.hihatHighpassSeekBar.progress = 100
             binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, 100)
-            Toast.makeText(this, getString(R.string.reset_sound_toast), Toast.LENGTH_SHORT).show()
+            // Apply changes to running playback service as well
+            updatePlaybackServiceParams()
+        }
+    }
+
+    private fun setupListeners() {
+        // Save simple toggles when changed
+        binding.chordPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isChordPreviewEnabled = isChecked
+        }
+        binding.patternPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isPatternPreviewEnabled = isChecked
+        }
+        binding.loopByDefaultSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isLoopingEnabled = isChecked
         }
     }
 }

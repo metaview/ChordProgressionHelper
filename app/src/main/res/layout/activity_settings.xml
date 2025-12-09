@@ -1,132 +1,208 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:fillViewport="true"
     android:padding="16dp"
     tools:context=".SettingsActivity">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Settings"
-        android:textSize="24sp"
-        android:textStyle="bold" />
-
-    <com.google.android.material.switchmaterial.SwitchMaterial
-        android:id="@+id/chordPreviewSwitch"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:minHeight="48dp"
-        android:text="Chord Preview"
-        android:textSize="16sp" />
-        
-    <com.google.android.material.switchmaterial.SwitchMaterial
-        android:id="@+id/loopByDefaultSwitch"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:minHeight="48dp"
-        android:text="Loop by Default"
-        android:textSize="16sp" />
+        android:orientation="vertical">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Count In"
-        android:textSize="16sp" />
-
-    <RadioGroup
-        android:id="@+id/countInRadioGroup"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-
-        <RadioButton
-            android:id="@+id/countInNone"
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="No Count In" />
+            android:text="@string/settings_title"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
 
-        <RadioButton
-            android:id="@+id/countIn2Beats"
-            android:layout_width="wrap_content"
+        <!-- Preview group -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="2 Beats" />
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="12dp"
+            app:cardUseCompatPadding="true">
 
-        <RadioButton
-            android:id="@+id/countIn4Beats"
-            android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <!-- Switches: Chord Preview, Pattern Preview, Loop by Default -->
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/chordPreviewSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chord_preview_label"
+                    android:textSize="16sp"
+                    android:layout_marginBottom="6dp" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/patternPreviewSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/pattern_preview_label"
+                    android:textSize="16sp"
+                    android:layout_marginBottom="6dp" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/loopByDefaultSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/loop_by_default_label"
+                    android:textSize="16sp"
+                    android:layout_marginTop="8dp" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Count-in group -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="4 Beats" />
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="12dp"
+            app:cardUseCompatPadding="true">
 
-        <RadioButton
-            android:id="@+id/countIn8Beats"
-            android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/count_in_label"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Spinner (Auswahlbox) für Count-In: nutzt string-array @array/count_in_options -->
+                <Spinner
+                    android:id="@+id/countInSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/count_in_options" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Sound group -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="8 Beats" />
-    </RadioGroup>
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="12dp"
+            app:cardUseCompatPadding="true">
 
-    <!-- Sound subgroup -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Sound"
-        android:textSize="16sp"
-        android:textStyle="bold" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
 
-    <TextView
-        android:id="@+id/drumLevelLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Drum Level: 100%" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sound_label"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp" />
 
-    <SeekBar
-        android:id="@+id/drumLevelSeekBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="200"
-        android:progress="100" />
+                <TextView
+                    android:id="@+id/drumLevelLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/drum_level_format"
+                    android:layout_marginTop="4dp" />
 
-    <TextView
-        android:id="@+id/envelopeScaleLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Envelope Scale: 100%" />
+                <SeekBar
+                    android:id="@+id/drumLevelSeekBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
 
-    <SeekBar
-        android:id="@+id/envelopeScaleSeekBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="200"
-        android:progress="100" />
+                <TextView
+                    android:id="@+id/envelopeScaleLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/envelope_scale_format"
+                    android:layout_marginTop="4dp" />
 
-    <TextView
-        android:id="@+id/hihatHighpassLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="HiHat Highpass: 100%" />
+                <SeekBar
+                    android:id="@+id/envelopeScaleSeekBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
 
-    <SeekBar
-        android:id="@+id/hihatHighpassSeekBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="200"
-        android:progress="100" />
+                <TextView
+                    android:id="@+id/hihatHighpassLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/hihat_highpass_format"
+                    android:layout_marginTop="4dp" />
 
-    <!-- Reset button for sound settings -->
-    <Button
-        android:id="@+id/resetSoundButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Reset Sound" />
+                <SeekBar
+                    android:id="@+id/hihatHighpassSeekBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100"
+                    android:layout_marginTop="4dp" />
 
-</LinearLayout>
+                <Button
+                    android:id="@+id/resetSoundButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="12dp"
+                    android:text="@string/reset_sound_label" />
+
+                <RadioGroup
+                    android:id="@+id/soundPresetRadioGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/soundPresetClean"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preset_clean"
+                        android:layout_marginEnd="12dp" />
+
+                    <RadioButton
+                        android:id="@+id/soundPresetOverdrive"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preset_overdrive"
+                        android:layout_marginEnd="12dp" />
+
+                    <RadioButton
+                        android:id="@+id/soundPresetPiano"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preset_piano" />
+
+                </RadioGroup>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+</ScrollView>

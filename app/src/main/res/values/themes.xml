@@ -30,6 +30,11 @@
         <item name="android:paddingRight">12dp</item>
         <item name="android:paddingTop">8dp</item>
         <item name="android:paddingBottom">8dp</item>
+        <!-- Make button background darker like chips -->
+        <item name="backgroundTint">@color/purple_700</item>
+        <item name="android:backgroundTint">@color/purple_700</item>
+        <!-- Ripple color slightly lighter for pressed state -->
+        <item name="rippleColor">?attr/colorOnPrimary</item>
     </style>
 
     <!-- Dialog overlay to ensure dialog buttons use material button styles and rounded corners -->
@@ -48,5 +53,16 @@
         <!-- Ensure the dialog uses our materialButtonStyle for buttons -->
         <item name="materialButtonStyle">@style/Widget.ChordProgressionHelper.MaterialButton</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.ChordProgressionHelper.SmallComponent</item>
+    </style>
+
+    <!-- Fullscreen dialog style: non-floating window so we can have a full-screen editor dialog -->
+    <style name="ThemeOverlay.ChordProgressionHelper.FullscreenDialog" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@color/dialogBackground</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+        <!-- ensure Material buttons inside follow the app style -->
+        <item name="materialButtonStyle">@style/Widget.ChordProgressionHelper.MaterialButton</item>
+        <item name="colorSurface">@color/dialogBackground</item>
+        <item name="android:colorBackground">@color/dialogBackground</item>
     </style>
 </resources>

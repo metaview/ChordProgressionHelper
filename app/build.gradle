@@ -30,7 +30,7 @@ android {
     }
     kotlinOptions {
         jvmTarget = '1.8'
-        freeCompilerArgs += ["-Xopt-in=kotlinx.serialization.InternalSerializationApi"]
+        freeCompilerArgs += ["-opt-in=kotlinx.serialization.InternalSerializationApi"]
     }
     buildFeatures {
         viewBinding true

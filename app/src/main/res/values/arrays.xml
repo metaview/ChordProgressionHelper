@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Options for Count-in selection in Settings -->
+    <string-array name="count_in_options">
+        <item>Off</item>
+        <item>2 beats</item>
+        <item>4 beats</item>
+        <item>8 beats</item>
+    </string-array>
+</resources>
+

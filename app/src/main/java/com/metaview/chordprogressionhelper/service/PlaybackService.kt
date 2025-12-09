@@ -15,6 +15,7 @@ import com.metaview.chordprogressionhelper.R
 import com.metaview.chordprogressionhelper.data.ProgressionStore
 import com.metaview.chordprogressionhelper.data.SettingsRepository
 import com.metaview.chordprogressionhelper.model.ChordProgression
+import com.metaview.chordprogressionhelper.model.StrummingPattern
 import com.metaview.chordprogressionhelper.util.AudioPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,7 +105,7 @@ class PlaybackService : Service() {
                     playbackPositionMs = pos
                 }
             })
-            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            // No explicit flags set; default behavior is sufficient and avoids deprecated constants
             isActive = true
         }
     }
@@ -119,6 +120,21 @@ class PlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand: action=${intent?.action}")
+        // If the intent is an update params action, apply parameters and return
+        if (intent?.action == ACTION_UPDATE_PARAMS) {
+            try {
+                val drum = intent.getFloatExtra(EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
+                val env = intent.getFloatExtra(EXTRA_ENVELOPE_SCALE, settingsRepository.envelopeScale)
+                val hh = intent.getFloatExtra(EXTRA_HIHAT_HIGHPASS, settingsRepository.hiHatHighpass)
+                audioPlayer.drumLevel = drum.toDouble()
+                audioPlayer.envelopeScale = env.toDouble()
+                audioPlayer.hiHatHighpass = hh.toDouble()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update params from intent: ${e.message}")
+            }
+            return START_NOT_STICKY
+        }
+
         // Capture preview flag from intent
         currentIsPreview = intent?.getBooleanExtra(EXTRA_IS_PREVIEW, false) ?: false
 
@@ -153,10 +169,10 @@ class PlaybackService : Service() {
         }
         if (progressionString != null) {
             // Remove leading BOM or any garbage characters before the first JSON object/array
-            val cleaned = progressionString.replaceFirst(Regex("^[^\\{\\[]+"), "")
-            if (cleaned != progressionString) {
+            val firstIdx = progressionString.indexOfFirst { c -> c == '{' || c == '[' }
+            if (firstIdx >= 0 && firstIdx > 0) {
                 Log.i(TAG, "Trimmed leading garbage from progression input")
-                progressionString = cleaned
+                progressionString = progressionString.substring(firstIdx)
             }
             try {
                 currentProgression = Json.decodeFromString<ChordProgression>(progressionString)
@@ -167,7 +183,7 @@ class PlaybackService : Service() {
                 try {
                     val normalized = normalizeLooseJson(progressionString)
                     Log.i(TAG, "Attempting to parse normalized JSON: $normalized")
-                    currentProgression = try { Json.decodeFromString<ChordProgression>(normalized) } catch (e2: Exception) { null }
+                    currentProgression = try { Json.decodeFromString<ChordProgression>(normalized) } catch (_: Exception) { null }
                     if (currentProgression == null) {
                         Log.w(TAG, "Normalized JSON still failed to parse")
                     }
@@ -359,7 +375,7 @@ class PlaybackService : Service() {
      * playProgression reads the progression object during playback. We also update
      * the notification so the UI reflects the change.
      */
-    fun updateStrummingPattern(measureIndex: Int, pattern: com.metaview.chordprogressionhelper.model.StrummingPattern) {
+    fun updateStrummingPattern(measureIndex: Int, pattern: StrummingPattern) {
         try {
             currentProgression?.let { prog ->
                 if (measureIndex in prog.measures.indices) {
@@ -401,6 +417,12 @@ class PlaybackService : Service() {
         const val ACTION_PLAY = "com.metaview.chordprogressionhelper.action.PLAY"
         const val ACTION_PAUSE = "com.metaview.chordprogressionhelper.action.PAUSE"
         const val ACTION_STOP = "com.metaview.chordprogressionhelper.action.STOP"
+        // Action to update live playback parameters while service may be running
+        const val ACTION_UPDATE_PARAMS = "com.metaview.chordprogressionhelper.action.UPDATE_PARAMS"
+
+        const val EXTRA_DRUM_LEVEL = "com.metaview.chordprogressionhelper.extra.DRUM_LEVEL"
+        const val EXTRA_ENVELOPE_SCALE = "com.metaview.chordprogressionhelper.extra.ENVELOPE_SCALE"
+        const val EXTRA_HIHAT_HIGHPASS = "com.metaview.chordprogressionhelper.extra.HIHAT_HIGHPASS"
 
         const val EXTRA_PROGRESSION = "com.metaview.chordprogressionhelper.extra.PROGRESSION"
         const val EXTRA_PROGRESSION_PATH = "com.metaview.chordprogressionhelper.extra.PROGRESSION_PATH"
@@ -415,13 +437,17 @@ class PlaybackService : Service() {
         fun play(context: android.content.Context, progression: ChordProgression, isPreview: Boolean = false) {
             val progressionString = Json.encodeToString(progression)
             val id = try { ProgressionStore.saveProgression(context, null, progressionString) } catch (e: Exception) {
-                Log.w("PlaybackService", "Failed to save progression to store: ${e.message}"); null
+                Log.w("PlaybackService", "Failed to save progression to store: ${e.message}")
+                null
             }
-            val intent = Intent(context, PlaybackService::class.java).apply {
-                action = ACTION_PLAY
-                if (!id.isNullOrEmpty()) putExtra(EXTRA_PROGRESSION_ID, id) else putExtra(EXTRA_PROGRESSION, progressionString)
-                putExtra(EXTRA_IS_PREVIEW, isPreview)
+            val intent = Intent(context, PlaybackService::class.java)
+            intent.action = ACTION_PLAY
+            if (!id.isNullOrEmpty()) {
+                intent.putExtra(EXTRA_PROGRESSION_ID, id)
+            } else {
+                intent.putExtra(EXTRA_PROGRESSION, progressionString)
             }
+            intent.putExtra(EXTRA_IS_PREVIEW, isPreview)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         }
 

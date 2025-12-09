@@ -29,6 +29,11 @@
             android:name=".SettingsActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".StrummingPatternActivity"
+            android:exported="false"
+            android:theme="@style/ThemeOverlay.ChordProgressionHelper.FullscreenDialog" />
+
         <!-- Ensure a MediaButtonReceiver exists so MediaButtonReceiver.buildMediaButtonPendingIntent can succeed -->
         <receiver
             android:name="androidx.media.session.MediaButtonReceiver"

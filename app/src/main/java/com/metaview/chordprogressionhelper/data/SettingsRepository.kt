@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 
+// Simple sound preset enum for selectable instrument voice
+enum class SoundPreset { CLEAN, OVERDRIVE, PIANO }
+
 class SettingsRepository(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("settings_prefs", Context.MODE_PRIVATE)
@@ -17,12 +20,24 @@ class SettingsRepository(context: Context) {
         const val KEY_DRUM_LEVEL = "key_drum_level"
         const val KEY_ENVELOPE_SCALE = "key_envelope_scale"
         const val KEY_HIHAT_HIGHPASS = "key_hihat_highpass"
+        const val KEY_SOUND_PRESET = "key_sound_preset"
+        // Per-preset gain multipliers (percent stored as float 0.0..2.0)
+        const val KEY_SOUND_GAIN_CLEAN = "key_sound_gain_clean"
+        const val KEY_SOUND_GAIN_OVERDRIVE = "key_sound_gain_overdrive"
+        const val KEY_SOUND_GAIN_PIANO = "key_sound_gain_piano"
+        // New key: pattern preview toggle
+        const val KEY_PATTERN_PREVIEW = "key_pattern_preview"
     }
 
     // Chord Preview setting
     var isChordPreviewEnabled: Boolean
         get() = prefs.getBoolean(KEY_CHORD_PREVIEW, true)
         set(value) = prefs.edit { putBoolean(KEY_CHORD_PREVIEW, value) }
+
+    // Pattern Preview setting (new)
+    var isPatternPreviewEnabled: Boolean
+        get() = prefs.getBoolean(KEY_PATTERN_PREVIEW, true)
+        set(value) = prefs.edit { putBoolean(KEY_PATTERN_PREVIEW, value) }
 
     // Count In setting (storing number of beats)
     var countInBeats: Int
@@ -54,6 +69,24 @@ class SettingsRepository(context: Context) {
     var hiHatHighpass: Float
         get() = prefs.getFloat(KEY_HIHAT_HIGHPASS, 1.0f)
         set(value) = prefs.edit { putFloat(KEY_HIHAT_HIGHPASS, value) }
+
+    // Sound preset selection persisted as ordinal
+    var soundPreset: SoundPreset
+        get() = SoundPreset.entries.getOrElse(prefs.getInt(KEY_SOUND_PRESET, SoundPreset.CLEAN.ordinal)) { SoundPreset.CLEAN }
+        set(value) = prefs.edit { putInt(KEY_SOUND_PRESET, value.ordinal) }
+
+    // Per-preset gain multipliers (0.0 .. 2.0), defaults to 1.0
+    var soundGainClean: Float
+        get() = prefs.getFloat(KEY_SOUND_GAIN_CLEAN, 1.0f)
+        set(value) = prefs.edit { putFloat(KEY_SOUND_GAIN_CLEAN, value.coerceIn(0.0f, 2.0f)) }
+
+    var soundGainOverdrive: Float
+        get() = prefs.getFloat(KEY_SOUND_GAIN_OVERDRIVE, 1.0f)
+        set(value) = prefs.edit { putFloat(KEY_SOUND_GAIN_OVERDRIVE, value.coerceIn(0.0f, 2.0f)) }
+
+    var soundGainPiano: Float
+        get() = prefs.getFloat(KEY_SOUND_GAIN_PIANO, 1.0f)
+        set(value) = prefs.edit { putFloat(KEY_SOUND_GAIN_PIANO, value.coerceIn(0.0f, 2.0f)) }
 
     // Allow external registration for preference change notifications
     fun registerChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {

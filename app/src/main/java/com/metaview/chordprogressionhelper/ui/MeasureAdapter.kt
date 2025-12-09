@@ -18,6 +18,7 @@ import com.metaview.chordprogressionhelper.databinding.ItemAddMeasureBinding
 import com.metaview.chordprogressionhelper.databinding.ItemMeasureBinding
 import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.Measure
+import com.metaview.chordprogressionhelper.model.Strum
 import kotlinx.serialization.InternalSerializationApi
 
 class MeasureAdapter(
@@ -102,11 +103,11 @@ class MeasureAdapter(
                     val chip = LayoutInflater.from(binding.root.context).inflate(R.layout.item_strum_chip, container, false)
                     val icon = chip.findViewById<android.widget.ImageView>(R.id.strumChipIcon)
                     val (drawableId, desc) = when (strum) {
-                        com.metaview.chordprogressionhelper.model.Strum.DOWN -> Pair(R.drawable.ic_strum_down, "D")
-                        com.metaview.chordprogressionhelper.model.Strum.UP -> Pair(R.drawable.ic_strum_up, "U")
-                        com.metaview.chordprogressionhelper.model.Strum.MUTE -> Pair(R.drawable.ic_strum_mute, "M")
-                        com.metaview.chordprogressionhelper.model.Strum.LETRING -> Pair(R.drawable.ic_strum_letring, "L")
-                        com.metaview.chordprogressionhelper.model.Strum.REST -> Pair(R.drawable.ic_strum_rest, "-")
+                        Strum.DOWN -> Pair(R.drawable.ic_strum_down, "D")
+                        Strum.UP -> Pair(R.drawable.ic_strum_up, "U")
+                        Strum.MUTE -> Pair(R.drawable.ic_strum_mute, "M")
+                        Strum.LETRING -> Pair(R.drawable.ic_strum_letring, "L")
+                        Strum.REST -> Pair(R.drawable.ic_strum_rest, "-")
                     }
                     icon.setImageResource(drawableId)
                     chip.contentDescription = binding.root.context.getString(R.string.strum_content_description, desc, idx + 1)

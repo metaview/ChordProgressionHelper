@@ -1,34 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Chord Progression Helper</string>
-    <string name="key_label">Key:</string>
-    <string name="bpm_label">BPM:</string>
-    <string name="bpm_hint">Enter BPM</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="test">Test</string>
+    <string name="edit_strumming_pattern">Edit Strumming Pattern</string>
+    <string name="default_patterns">Default Patterns</string>
+    <string name="measure_format">Measure %d</string>
+    <string name="strum_content_description">%1$s strum %2$d</string>
+
+    <!-- Additional UI strings referenced in layouts -->
+    <string name="key_label">Key</string>
+    <string name="bpm_label">BPM</string>
+    <string name="bpm_hint">Tempo (beats per minute)</string>
     <string name="bpm_default">120</string>
     <string name="increase_bpm">Increase BPM</string>
     <string name="decrease_bpm">Decrease BPM</string>
-    <string name="available_chords">Available Chords:</string>
-    <string name="secondary_dominants">Secondary Dominants:</string>
-    <string name="parallel_minor_chords">Parallel Minor Chords:</string>
-    <string name="progression_label">Progression:</string>
-    <string name="play_pause_cd">Play or pause playback</string>
-    <string name="stop_cd">Stop playback</string>
-    <string name="toggle_repeat">Toggle repeat</string>
     <string name="menu_cd">Menu</string>
-    <string name="expand_related_cd">Expand related chords</string>
-
-    <!-- Settings sound subgroup formats -->
-    <string name="drum_level_format">Drum Level: %d%%</string>
-    <string name="envelope_scale_format">Envelope Scale: %d%%</string>
-    <string name="hihat_highpass_format">HiHat Highpass: %d%%</string>
-    <string name="reset_sound_toast">Sound settings reset to defaults</string>
+    <string name="available_chords">Available Chords</string>
+    <string name="expand_related_cd">Show Related</string>
+    <string name="secondary_dominants">Secondary Dominants</string>
+    <string name="parallel_minor_chords">Parallel Minor Chords</string>
+    <string name="progression_label">Progression</string>
+    <string name="play_pause_cd">Play/Pause</string>
+    <string name="stop_cd">Stop</string>
+    <string name="toggle_repeat">Toggle Repeat</string>
+    <string name="settings_title">Settings</string>
+    <string name="chord_preview_label">Chord Preview</string>
+    <string name="pattern_preview_label">Pattern Preview</string>
+    <string name="loop_by_default_label">Loop by Default</string>
+    <string name="count_in_label">Count-in</string>
     <string name="notification_playing">Playing</string>
-    <string name="measure_format">Measure %d</string>
-    <string name="strum_content_description">Strum %1$s at position %2$d</string>
-    <string name="measure_example">Measure 1</string>
+    <string name="measure_example">Measure</string>
     <string name="drag_to_reorder">Drag to reorder</string>
     <string name="dash">-</string>
     <string name="remove_measure">Remove measure</string>
-    <string name="edit_strumming_pattern">Edit Strumming Pattern</string>
-    <string name="default_patterns">Default Patterns</string>
+
+    <!-- Accessibility / misc -->
+    <string name="playback_error">Playback error</string>
+    <string name="invalid_progression">Invalid progression provided</string>
+
+    <!-- Settings strings -->
+    <string name="sound_label">Sound</string>
+    <string name="drum_level_format">Drum Level: %1$d%%</string>
+    <string name="envelope_scale_format">Envelope: %1$d%%</string>
+    <string name="hihat_highpass_format">HiHat Highpass: %1$d%%</string>
+    <string name="sound_preset_label">Sound Preset</string>
+    <string name="preset_clean">Clean</string>
+    <string name="preset_overdrive">Overdrive</string>
+    <string name="preset_piano">Piano</string>
+    <string name="reset_sound_label">Reset Values</string>
 </resources>

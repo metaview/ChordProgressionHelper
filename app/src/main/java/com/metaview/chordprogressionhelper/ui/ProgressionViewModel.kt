@@ -24,6 +24,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     private val previewAudioPlayer = AudioPlayer()
     private var previewJob: Job? = null
+    private lateinit var prefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener
 
     private val _scaleDegreeChords = MutableLiveData<List<Chord>>()
     val scaleDegreeChords: LiveData<List<Chord>> = _scaleDegreeChords
@@ -71,6 +72,22 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         isLooping.value = settingsRepository.isLoopingEnabled
         updateAllChords()
         updateMeasures()
+
+        // Listen to settings changes and apply them to previewAudioPlayer in real-time
+        prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                SettingsRepository.KEY_DRUM_LEVEL -> previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
+                SettingsRepository.KEY_ENVELOPE_SCALE -> previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
+                SettingsRepository.KEY_HIHAT_HIGHPASS -> previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
+                SettingsRepository.KEY_SOUND_PRESET -> previewAudioPlayer.voicePreset = settingsRepository.soundPreset
+            }
+        }
+        settingsRepository.registerChangeListener(prefsListener)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try { settingsRepository.unregisterChangeListener(prefsListener) } catch (_: Exception) {}
     }
 
     private fun saveCurrentSession() {
@@ -172,10 +189,11 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         previewJob?.cancel()
         previewJob = viewModelScope.launch {
             // Apply current sound settings to the preview player so changes are audible immediately
+            // Values are kept up-to-date by prefs listener, but ensure current values are set just before preview
             previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
             previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
             previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-            previewAudioPlayer.previewChord(chord, settingsRepository.pluckStrength)
+             previewAudioPlayer.previewChord(chord, settingsRepository.pluckStrength)
         }
     }
 
