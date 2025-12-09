@@ -38,7 +38,18 @@ data class ChordProgression(
     }
 
     fun addMeasure(withChord: Chord? = null) {
+        // Create new measure and copy patterns from the last measure if present.
         val newMeasure = Measure(measures.size + 1)
+        // Copy last measure's patterns if available, otherwise keep defaults on the first measure
+        if (measures.isNotEmpty()) {
+            try {
+                val last = measures.last()
+                // copy StrummingPattern (create new instance to avoid accidental shared mutable refs)
+                try { newMeasure.strummingPattern = StrummingPattern(last.strummingPattern.name, last.strummingPattern.strums.toList()) } catch (_: Exception) {}
+                // copy DrumPattern
+                try { newMeasure.drumPattern = DrumPattern(last.drumPattern.name, last.drumPattern.steps.map { com.metaview.chordprogressionhelper.model.DrumStep(it.kick, it.snare, it.hiHat) }) } catch (_: Exception) {}
+            } catch (_: Exception) {}
+        }
         withChord?.let { newMeasure.addChord(it, 0) }
         measures.add(newMeasure)
     }

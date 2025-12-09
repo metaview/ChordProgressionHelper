@@ -27,6 +27,8 @@ class SettingsRepository(context: Context) {
         const val KEY_SOUND_GAIN_PIANO = "key_sound_gain_piano"
         // New key: pattern preview toggle
         const val KEY_PATTERN_PREVIEW = "key_pattern_preview"
+        // New key: drum preview toggle (controls per-step immediate drum click preview)
+        const val KEY_DRUM_PREVIEW = "key_drum_preview"
     }
 
     // Chord Preview setting
@@ -38,6 +40,11 @@ class SettingsRepository(context: Context) {
     var isPatternPreviewEnabled: Boolean
         get() = prefs.getBoolean(KEY_PATTERN_PREVIEW, true)
         set(value) = prefs.edit { putBoolean(KEY_PATTERN_PREVIEW, value) }
+
+    // Drum Preview setting: controls immediate per-step drum sound when editing patterns
+    var isDrumPreviewEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DRUM_PREVIEW, true)
+        set(value) = prefs.edit { putBoolean(KEY_DRUM_PREVIEW, value) }
 
     // Count In setting (storing number of beats)
     var countInBeats: Int

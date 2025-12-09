@@ -42,12 +42,13 @@
     <string name="settings_title">Settings</string>
     <string name="chord_preview_label">Chord preview</string>
     <string name="pattern_preview_label">Pattern preview</string>
+    <string name="drum_preview_label">Drum preview</string>
     <string name="loop_by_default_label">Loop by default</string>
     <string name="count_in_label">Count-in beats</string>
     <string name="sound_label">Sound preset</string>
-    <string name="drum_level_format">Drum level: %1$.2f</string>
-    <string name="envelope_scale_format">Envelope scale: %1$.2f</string>
-    <string name="hihat_highpass_format">Hi-hat highpass: %1$.2f</string>
+    <string name="drum_level_format">Drum level: %1$d%%</string>
+    <string name="envelope_scale_format">Envelope scale: %1$d%%</string>
+    <string name="hihat_highpass_format">Hi-hat highpass: %1$d%%</string>
     <string name="reset_sound_label">Reset sound</string>
     <string name="preset_clean">Clean</string>
     <string name="preset_overdrive">Overdrive</string>

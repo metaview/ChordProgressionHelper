@@ -44,6 +44,8 @@ class SettingsActivity : AppCompatActivity() {
         binding.chordPreviewSwitch.isChecked = settingsRepository.isChordPreviewEnabled
         // New: pattern preview switch kept separate from chord preview
         binding.patternPreviewSwitch.isChecked = settingsRepository.isPatternPreviewEnabled
+        // New: drum preview switch (per-step immediate drum sounds)
+        binding.drumPreviewSwitch.isChecked = settingsRepository.isDrumPreviewEnabled
         binding.loopByDefaultSwitch.isChecked = settingsRepository.isLoopingEnabled
 
         // Initialize Count-In spinner (options: No / 2 / 4 / 8)
@@ -176,6 +178,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         binding.patternPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isPatternPreviewEnabled = isChecked
+        }
+        binding.drumPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isDrumPreviewEnabled = isChecked
         }
         binding.loopByDefaultSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isLoopingEnabled = isChecked

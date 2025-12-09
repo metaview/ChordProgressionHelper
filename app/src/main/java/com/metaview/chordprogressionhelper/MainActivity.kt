@@ -95,6 +95,9 @@ class MainActivity : AppCompatActivity() {
 
     private var playbackService: PlaybackService? = null
     private var isBound = false
+    // If the user presses Stop while not bound, request a bind+stop via this flag
+    private var pendingStopRequest: Boolean = false
+
     // Indicates whether the last started playback was a temporary preview spawned by the dialog
     private var isDialogPreviewActive = false
 
@@ -104,6 +107,14 @@ class MainActivity : AppCompatActivity() {
             playbackService = binder.getService()
             isBound = true
             observeServiceState()
+            // If a pending Stop was requested while we were unbound, execute it now
+            if (pendingStopRequest) {
+                try {
+                    Log.i(TAG, "Processing pending stop request via bound service")
+                    playbackService?.stopPlayback()
+                } catch (e: Exception) { Log.w(TAG, "pendingStop stopPlayback failed: ${e.message}") }
+                pendingStopRequest = false
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -234,7 +245,30 @@ class MainActivity : AppCompatActivity() {
                 PlaybackService.play(this, viewModel.progression)
             }
         }
-        binding.stopButton.setOnClickListener { PlaybackService.stop(this); isDialogPreviewActive = false }
+        binding.stopButton.setOnClickListener {
+            Log.i(TAG, "Stop button pressed; isBound=$isBound")
+            try {
+                if (isBound && playbackService != null) {
+                    Log.i(TAG, "Stopping via bound service.stopPlayback()")
+                    try { playbackService?.stopPlayback() } catch (e: Exception) { Log.w(TAG, "Bound stopPlayback failed: ${e.message}") }
+                } else {
+                    Log.i(TAG, "Not bound: requesting bind+stop and invoking companion stop() as fallback")
+                    // Remember we want to stop after binding completes
+                    pendingStopRequest = true
+                    try { val bindIntent = Intent(this, PlaybackService::class.java); bindService(bindIntent, connection, BIND_AUTO_CREATE) } catch (e: Exception) { Log.w(TAG, "bindService for pending stop failed: ${e.message}") }
+                    // Also attempt companion stop immediately as a best-effort fallback
+                    try { PlaybackService.stop(this) } catch (e: Exception) { Log.w(TAG, "PlaybackService.stop(context) failed: ${e.message}") }
+                }
+            } catch (e: Exception) { Log.w(TAG, "Stop button handler failed: ${e.message}") }
+
+            // Also send explicit ACTION_STOP as a last-resort fallback
+            try {
+                val stopIntent = Intent(this, PlaybackService::class.java).apply { action = PlaybackService.ACTION_STOP }
+                startService(stopIntent)
+            } catch (e: Exception) { Log.w(TAG, "Failed to start ACTION_STOP intent: ${e.message}") }
+
+            isDialogPreviewActive = false
+        }
         binding.repeatButton.setOnClickListener { viewModel.onRepeatToggle(!(viewModel.isLooping.value ?: false)) }
         binding.expandRelatedChordsButton.setOnClickListener { toggleExtraChordsVisibility() }
     }
@@ -514,16 +548,32 @@ class MainActivity : AppCompatActivity() {
                 strumPatternLauncher.launch(intent)
             },
             onDrumPatternClick = { index ->
-                val intent = Intent(this, DrumPatternActivity::class.java)
-                intent.putExtra(DrumPatternActivity.EXTRA_MEASURE_INDEX, index)
-                // Pass current drum pattern to editor
+                 val intent = Intent(this, DrumPatternActivity::class.java)
+                 intent.putExtra(DrumPatternActivity.EXTRA_MEASURE_INDEX, index)
+                 // Pass current drum pattern to editor
+                 try {
+                     val dp = viewModel.progression.measures.getOrNull(index)?.drumPattern
+                     if (dp != null) {
+                         intent.putExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON, Json.encodeToString(DrumPattern.serializer(), dp))
+                     }
+                 } catch (_: Exception) {}
+                // Also collect all unique drum patterns used in the progression and pass them to the editor
                 try {
-                    val dp = viewModel.progression.measures.getOrNull(index)?.drumPattern
-                    if (dp != null) {
-                        intent.putExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON, Json.encodeToString(DrumPattern.serializer(), dp))
+                    val seen = mutableSetOf<String>()
+                    val patterns = mutableListOf<DrumPattern>()
+                    viewModel.progression.measures.forEach { m ->
+                        try {
+                            val p = m.drumPattern
+                            val key = p.steps.joinToString(";") { s -> "${s.kick}:${s.snare}:${s.hiHat}" }
+                            if (!seen.contains(key)) { seen.add(key); patterns.add(p) }
+                        } catch (_: Exception) {}
+                    }
+                    if (patterns.isNotEmpty()) {
+                        val arrJson = Json.encodeToString(ListSerializer(DrumPattern.serializer()), patterns)
+                        intent.putExtra(DrumPatternActivity.EXTRA_ALL_PATTERNS_JSON, arrJson)
                     }
                 } catch (_: Exception) {}
-                drumPatternLauncher.launch(intent)
+                 drumPatternLauncher.launch(intent)
             },
             onChordDrop = { measureIndex, eighthNoteIndex, chord -> viewModel.addChordToMeasure(measureIndex, eighthNoteIndex, chord) },
             onRemoveMeasureClick = { viewModel.removeMeasure(it) },

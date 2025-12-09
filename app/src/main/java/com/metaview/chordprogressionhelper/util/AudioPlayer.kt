@@ -138,6 +138,11 @@ class AudioPlayer {
                     val chord: Chord? = measure.getChordAt(strumIndex)
                     val currentStrum = measure.strummingPattern.strums[strumIndex]
 
+                    // Debug logging to trace issues where preview doesn't sound the first chord
+                    try {
+                        android.util.Log.d("AudioPlayer", "playProgression: measure=$measureIndex strum=$strumIndex currentStrum=$currentStrum chord=${chord?.getDisplayName()}")
+                    } catch (_: Exception) {}
+
                     // Note: keep REST silent even if a new chord event starts on that strum.
                     // Previously we forced REST->DOWN when a chord event started at this strum, but
                     // users expect a REST to produce silence. Do not override REST here.
@@ -163,6 +168,7 @@ class AudioPlayer {
                             } else {
                                 emptyList()
                             }
+                            try { android.util.Log.d("AudioPlayer", "activeStrings after pluck: ${activeStrings.size}") } catch (_: Exception) {}
                         }
                         Strum.REST, Strum.MUTE -> activeStrings = emptyList()
                         Strum.LETRING -> { /* Do nothing, let strings ring */ }
@@ -241,21 +247,37 @@ class AudioPlayer {
                         }
                     }
 
-                    // Reduce percussion level during REST or LETRING so stopped/letting-ring strings don't make drums appear louder
-                    // Percussion scaling logic
-                    // restPercussionScale: reduce drums when strings are stopped or allowed to ring
-                    // - Applied for Strum.REST and Strum.LETRING to avoid percussion standing out when strings are silent/decaying
-                    // presetPercussionMultiplier: extra reduction for Piano preset because piano should not rely on loud backing drums
-                    val restPercussionScale = 0.25 // 0.25 => drums at 25% of normal level during REST/LETRING
-                    val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
-                    val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
-                    val drumScale = baseDrumScale * presetPercussionMultiplier
-                    addHiHat(buffer, eighthNoteSamples, drumScale)
-                    if (strumIndex % 2 == 0) {
-                        val quarterNoteIndex = strumIndex / 2
-                        // For Piano we further reduce the Kick amplitude (multiply by 0.5) to keep it subtle
-                        if (quarterNoteIndex % 2 == 0) addKick(buffer, eighthNoteSamples * 2, drumScale * if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.5 else 1.0)
-                        if (quarterNoteIndex % 2 == 1) addSnare(buffer, eighthNoteSamples * 2, drumScale)
+                    // Percussion: use the drum pattern attached to the current measure.
+                    // A DrumPattern contains a list of DrumStep for eighth-note positions. Multiple instruments
+                    // (kick/snare/hiHat) may be set on the same eighth; play them together when present.
+                    try {
+                        // Update the drum pattern dynamically during playback
+                        val updatedDrumPattern = progression.measures[measureIndex].drumPattern
+                        // Ensure the updated pattern is used immediately
+                        val stepIndex = if (updatedDrumPattern.steps.isNotEmpty()) (strumIndex % updatedDrumPattern.steps.size) else strumIndex % 8
+                        val drumStep = updatedDrumPattern.steps.getOrNull(stepIndex) ?: com.metaview.chordprogressionhelper.model.DrumStep()
+
+                        // Apply the drum pattern changes dynamically
+                        val restPercussionScale = 0.25
+                        val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
+                        val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
+                        val drumScale = baseDrumScale * presetPercussionMultiplier
+
+                        if (drumStep.hiHat) addHiHat(buffer, eighthNoteSamples, drumScale * drumLevel)
+                        if (drumStep.kick) addKick(buffer, eighthNoteSamples * 2, drumScale * drumLevel)
+                        if (drumStep.snare) addSnare(buffer, eighthNoteSamples * 2, drumScale * drumLevel)
+                    } catch (_: Exception) {
+                        // Fallback to previous simple behaviour if anything goes wrong
+                        val restPercussionScale = 0.25
+                        val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
+                        val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
+                        val drumScale = baseDrumScale * presetPercussionMultiplier
+                        addHiHat(buffer, eighthNoteSamples, drumScale)
+                        if (strumIndex % 2 == 0) {
+                            val quarterNoteIndex = strumIndex / 2
+                            if (quarterNoteIndex % 2 == 0) addKick(buffer, eighthNoteSamples * 2, drumScale * if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.5 else 1.0)
+                            if (quarterNoteIndex % 2 == 1) addSnare(buffer, eighthNoteSamples * 2, drumScale)
+                        }
                     }
 
                     // apply preset gain before normalization
@@ -282,6 +304,10 @@ class AudioPlayer {
 
                     // Final samples: divide by normalizationFactor and apply additional headroom scale
                     val samples = buffer.map { v -> v / normalizationFactor * headroom }.toDoubleArray().toPcmShortArray()
+                    try {
+                        val peakInfo = "measure=$measureIndex strum=$strumIndex activeStrings=${activeStrings.size} normalizationFactor=$normalizationFactor postNormPeak=$postNormPeak headroom=$headroom"
+                        android.util.Log.d("AudioPlayer", "bufferDebug: $peakInfo")
+                    } catch (_: Exception) {}
                      audioTrack?.write(samples, 0, samples.size)
                  }
              }
@@ -341,6 +367,81 @@ class AudioPlayer {
         } finally {
             previewAudioTrack?.stop()
             previewAudioTrack?.release()
+        }
+    }
+
+    // Short percussion preview helpers: generate a short buffer containing the requested percussion
+    suspend fun previewKick(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
+        val previewDuration = 0.25 // 250ms should be enough to hear the transient
+        val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
+        val buffer = DoubleArray(numSamples)
+        try {
+            addKick(buffer, numSamples, levelScale)
+        } catch (_: Exception) {}
+        val samples = buffer.toPcmShortArray()
+        var at: AudioTrack? = null
+        try {
+            val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            at = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
+                .build()
+            at.play()
+            at.write(samples, 0, samples.size)
+            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
+        } finally {
+            try { at?.stop() } catch (_: Exception) {}
+            try { at?.release() } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun previewSnare(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
+        val previewDuration = 0.22
+        val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
+        val buffer = DoubleArray(numSamples)
+        try { addSnare(buffer, numSamples, levelScale) } catch (_: Exception) {}
+        val samples = buffer.toPcmShortArray()
+        var at: AudioTrack? = null
+        try {
+            val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            at = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
+                .build()
+            at.play()
+            at.write(samples, 0, samples.size)
+            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
+        } finally {
+            try { at?.stop() } catch (_: Exception) {}
+            try { at?.release() } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun previewHiHat(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
+        val previewDuration = 0.12
+        val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(32)
+        val buffer = DoubleArray(numSamples)
+        try { addHiHat(buffer, numSamples, levelScale) } catch (_: Exception) {}
+        val samples = buffer.toPcmShortArray()
+        var at: AudioTrack? = null
+        try {
+            val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            at = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
+                .build()
+            at.play()
+            at.write(samples, 0, samples.size)
+            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
+        } finally {
+            try { at?.stop() } catch (_: Exception) {}
+            try { at?.release() } catch (_: Exception) {}
         }
     }
 

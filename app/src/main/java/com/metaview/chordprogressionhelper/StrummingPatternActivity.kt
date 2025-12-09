@@ -533,6 +533,8 @@ class StrummingPatternActivity : AppCompatActivity() {
                     val m = Measure(1)
                     try { tonicChord?.let { m.addChord(it, 0) } } catch (_: Exception) {}
                     m.strummingPattern = livePattern
+                    // Ensure no drums are played during a strumming-only preview
+                    try { m.drumPattern = com.metaview.chordprogressionhelper.model.DrumPattern("Silent", List(8) { com.metaview.chordprogressionhelper.model.DrumStep() }) } catch (_: Exception) {}
                     tempProg.measures.add(m)
                     try { PlaybackService.stop(this) } catch (_: Exception) {}
                     try {
