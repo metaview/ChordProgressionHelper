@@ -606,15 +606,37 @@ class MainActivity : AppCompatActivity() {
                 val fromPosition = viewHolder.bindingAdapterPosition
                 val toPosition = target.bindingAdapterPosition
                 if (target is MeasureAdapter.AddMeasureViewHolder) return false
+                Log.d(TAG, "onMove: from=$fromPosition to=$toPosition")
+                // Update underlying model and let ListAdapter/AsyncListDiffer handle the UI diff
                 viewModel.moveMeasure(fromPosition, toPosition)
-                measureAdapter.notifyItemMoved(fromPosition, toPosition)
                 return true
             }
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+            override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(viewHolder, actionState)
+                // Provide immediate visual feedback for the dragged view
+                viewHolder?.itemView?.let { v ->
+                    if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                        v.alpha = 0.95f
+                        v.elevation = 24f
+                        // Temporarily disable item animator change animations while dragging
+                        binding.measureRecyclerView.itemAnimator?.let { if (it is androidx.recyclerview.widget.SimpleItemAnimator) it.supportsChangeAnimations = false }
+                    }
+                }
+            }
+
             override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
                 super.clearView(recyclerView, viewHolder)
+                // Reset visual state
+                viewHolder.itemView.alpha = 1.0f
+                viewHolder.itemView.elevation = 0f
+                Log.d(TAG, "clearView: finalizing move and saving session")
                 viewModel.finalizeMeasureMove()
+                // Re-enable change animations after the move
+                binding.measureRecyclerView.itemAnimator?.let { if (it is androidx.recyclerview.widget.SimpleItemAnimator) it.supportsChangeAnimations = true }
             }
+
             override fun getDragDirs(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int {
                 if (viewHolder is MeasureAdapter.AddMeasureViewHolder) return 0
                 return super.getDragDirs(recyclerView, viewHolder)

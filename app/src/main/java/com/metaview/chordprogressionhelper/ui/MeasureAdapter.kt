@@ -31,6 +31,11 @@ class MeasureAdapter(
     private val onStartDrag: (viewHolder: RecyclerView.ViewHolder) -> Unit
 ) : ListAdapter<MeasureAdapter.DisplayableItem, RecyclerView.ViewHolder>(MeasureDiffCallback()) {
 
+    init {
+        // Use stable IDs so RecyclerView can keep ViewHolders consistent while items are reordered
+        setHasStableIds(true)
+    }
+
     private var currentPlaybackPosition: Pair<Int, Int>? = null
 
     companion object {
@@ -62,6 +67,15 @@ class MeasureAdapter(
             is DisplayableItem.MeasureItem -> VIEW_TYPE_MEASURE
             is DisplayableItem.AddMeasureItem -> VIEW_TYPE_ADD_MEASURE
             else -> throw IllegalStateException("Null item at position $position")
+        }
+    }
+
+    override fun getItemId(position: Int): Long {
+        // Provide stable, unique id for each displayable item so RecyclerView doesn't confuse items during moves
+        return try {
+            getItem(position).id
+        } catch (e: Exception) {
+            RecyclerView.NO_ID
         }
     }
 
