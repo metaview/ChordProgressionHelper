@@ -3,12 +3,14 @@
 package com.metaview.chordprogressionhelper.model
 
 import kotlinx.serialization.Serializable
+import com.metaview.chordprogressionhelper.model.DrumPattern
 
 @Serializable
 data class Measure(
     var number: Int,
     val chordEvents: MutableList<ChordEvent> = mutableListOf(),
     var strummingPattern: StrummingPattern = StrummingPattern.DEFAULT,
+    var drumPattern: DrumPattern = DrumPattern.DEFAULT,
     val id: Long = java.util.UUID.randomUUID().mostSignificantBits
 ) {
     @Serializable

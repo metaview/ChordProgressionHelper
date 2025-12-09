@@ -239,6 +239,15 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    @OptIn(InternalSerializationApi::class)
+    fun setDrumPattern(measureIndex: Int, pattern: DrumPattern) {
+        if (measureIndex in progression.measures.indices) {
+            progression.measures[measureIndex].drumPattern = pattern
+            updateMeasures()
+            saveCurrentSession()
+        }
+    }
+
     fun addMeasure() {
         progression.addMeasure(withChord = _selectedChord.value)
         updateMeasures()

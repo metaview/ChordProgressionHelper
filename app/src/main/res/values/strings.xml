@@ -25,6 +25,11 @@
     <string name="test">Test</string>
     <string name="cancel">Cancel</string>
     <string name="ok">OK</string>
+    <string name="drums_label">Drums</string>
+    <string name="test_preview_failed">Preview failed</string>
+    <string name="stop">Stop</string>
+    <string name="pattern_saved">Pattern saved</string>
+    <string name="save_failed">Save failed</string>
 
     <!-- Settings / Notification / other ui strings referenced in layouts -->
     <string name="secondary_dominants">Secondary dominants</string>

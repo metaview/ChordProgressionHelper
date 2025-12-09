@@ -50,6 +50,9 @@ class StrummingPatternActivity : AppCompatActivity() {
     // Bind to PlaybackService to check if main playback is running
     private var playbackService: PlaybackService? = null
     private var isServiceBound = false
+    // If a preview is requested before the service is bound, store it here and start when bound
+    private var pendingPreviewProgression: ChordProgression? = null
+    private var pendingPreviewLooping: Boolean = false
     private var playbackStateJob: Job? = null
     // When false previews are suppressed and UI disabled
     private var previewsAllowed: Boolean = true
@@ -62,9 +65,32 @@ class StrummingPatternActivity : AppCompatActivity() {
             playbackStateJob?.cancel()
             playbackStateJob = lifecycleScope.launch {
                 playbackService?.isPlaying?.collectLatest { playing ->
-                    setPreviewsAllowed(!playing)
+                    // Keep Test enabled while a local preview (isPreviewActive) is running.
+                    // Only disable previews when the service is playing something that is not a local preview.
+                    setPreviewsAllowed(!playing || isPreviewActive)
                 }
             }
+            // If a preview was requested before binding completed, start it now
+            try {
+                val pending = pendingPreviewProgression
+                // If the activity is finishing or destroyed, don't start a pending preview; just clear it
+                if (isFinishing || isDestroyed) {
+                    pendingPreviewProgression = null
+                    pendingPreviewLooping = false
+                } else if (pending != null) {
+                    Log.i(TAG, "Service bound: starting pending preview")
+                    PlaybackService.play(this@StrummingPatternActivity, pending, true, pendingPreviewLooping)
+                    pendingPreviewProgression = null
+                    pendingPreviewLooping = false
+                    isPreviewActive = true
+                    setPreviewsAllowed(previewsAllowed)
+                    try {
+                        val btnTest = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
+                        btnTest.setIconResource(R.drawable.ic_stop)
+                        btnTest.contentDescription = getString(R.string.stop)
+                    } catch (_: Exception) {}
+                }
+            } catch (e: Exception) { Log.w(TAG, "Failed to start pending preview: ${e.message}") }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -81,14 +107,17 @@ class StrummingPatternActivity : AppCompatActivity() {
         // Disable/enable Test button
         try {
             val btnTest = binding.root.findViewById<MaterialButton>(R.id.btnTest)
-            btnTest.isEnabled = allowed
-            btnTest.alpha = if (allowed) 1.0f else 0.45f
+            // Keep Test enabled while a local preview is active so the user can stop it
+            val testEnabled = allowed || isPreviewActive
+            btnTest.isEnabled = testEnabled
+            btnTest.alpha = if (testEnabled) 1.0f else 0.45f
         } catch (_: Exception) {}
         // Disable/enable chips
         try {
             val editor = binding.strummingPatternEditor
             for (i in 0 until editor.childCount) {
                 val child = editor.getChildAt(i)
+                // Keep editor chips disabled when previews are not allowed
                 child.isEnabled = allowed
                 child.alpha = if (allowed) 1.0f else 0.45f
             }
@@ -141,6 +170,24 @@ class StrummingPatternActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Ensure any active preview is stopped immediately when dialog is left
+        if (isPreviewActive) {
+            try {
+                if (isServiceBound && playbackService != null) playbackService?.stopPlayback() else PlaybackService.stop(this)
+            } catch (_: Exception) {}
+            isPreviewActive = false
+            // update UI after stopping preview
+            setPreviewsAllowed(previewsAllowed)
+            try {
+                val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
+                btn.setIconResource(R.drawable.ic_play_arrow)
+                btn.contentDescription = getString(R.string.test)
+            } catch (_: Exception) {}
+        }
+        // If binding is in progress but a pending preview was set, clear it so it won't start after onStop
+        pendingPreviewProgression = null
+        pendingPreviewLooping = false
+
         if (isServiceBound) {
             try { unbindService(serviceConnection) } catch (_: Exception) {}
             isServiceBound = false
@@ -301,9 +348,11 @@ class StrummingPatternActivity : AppCompatActivity() {
                                     try { PlaybackService.stop(this) } catch (_: Exception) {}
                                     PlaybackService.play(this, tempProg, true)
                                     isPreviewActive = true
-                                }
-                            } catch (e: Exception) { Log.w(TAG, "Failed to handle pattern click: ${e.message}") }
-                        }
+                                    // re-evaluate preview-enabled UI so Test button remains enabled for local preview
+                                    setPreviewsAllowed(previewsAllowed)
+                                 }
+                             } catch (e: Exception) { Log.w(TAG, "Failed to handle pattern click: ${e.message}") }
+                         }
 
                         binding.defaultPatternsLayout.addView(row)
                     } catch (_: Exception) {}
@@ -413,6 +462,8 @@ class StrummingPatternActivity : AppCompatActivity() {
                         try { PlaybackService.stop(this) } catch (_: Exception) {}
                         PlaybackService.play(this, tempProg, true)
                         isPreviewActive = true
+                        // ensure UI reflects that a local preview is active (keeps Test enabled)
+                        setPreviewsAllowed(previewsAllowed)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to handle default pattern click: ${e.message}")
@@ -471,24 +522,63 @@ class StrummingPatternActivity : AppCompatActivity() {
 
         btnTest.setOnClickListener {
             try {
-                if (!previewsAllowed) return@setOnClickListener
+                // Allow interacting with the Test toggle when a local preview is active
+                if (!previewsAllowed && !isPreviewActive) return@setOnClickListener
 
-                val livePattern = StrummingPattern("Test", currentStrums.toList())
-                val chord = tonicChord
-                if (chord != null) {
+                if (!isPreviewActive) {
+                    // start looping preview
+                    val livePattern = StrummingPattern("Test", currentStrums.toList())
                     val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
                     tempProg.measures.clear()
                     val m = Measure(1)
-                    try { m.addChord(chord, 0) } catch (_: Exception) {}
+                    try { tonicChord?.let { m.addChord(it, 0) } } catch (_: Exception) {}
                     m.strummingPattern = livePattern
                     tempProg.measures.add(m)
                     try { PlaybackService.stop(this) } catch (_: Exception) {}
-                    PlaybackService.play(this, tempProg, true)
-                    isPreviewActive = true
+                    try {
+                        if (isServiceBound) {
+                            // start immediately via companion
+                            PlaybackService.play(this, tempProg, true, true)
+                            isPreviewActive = true
+                        } else {
+                            // Save pending preview and bind; it will start in onServiceConnected
+                            pendingPreviewProgression = tempProg
+                            pendingPreviewLooping = true
+                            try { val bindIntent = Intent(this, PlaybackService::class.java); bindService(bindIntent, serviceConnection, BIND_AUTO_CREATE) } catch (_: Exception) {}
+                            isPreviewActive = true
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "PlaybackService.play failed: ${e.message}")
+                    }
+                    // ensure UI reflects that a local preview is active (keeps Test enabled)
+                    setPreviewsAllowed(previewsAllowed)
+                    try {
+                        (btnTest as? com.google.android.material.button.MaterialButton)?.apply {
+                            setIconResource(R.drawable.ic_stop)
+                            contentDescription = getString(R.string.stop)
+                        }
+                    } catch (_: Exception) {}
+                } else {
+                    // stop looping preview - prefer bound stop to avoid timing foreground issues
+                    try {
+                        if (isServiceBound && playbackService != null) {
+                            playbackService?.stopPlayback()
+                        } else {
+                            PlaybackService.stop(this)
+                        }
+                    } catch (e: Exception) { Log.w(TAG, "Failed to stop preview: ${e.message}") }
+                    isPreviewActive = false
+                    // update UI after stopping preview
+                    setPreviewsAllowed(previewsAllowed)
+                    try {
+                        (btnTest as? com.google.android.material.button.MaterialButton)?.apply {
+                            setIconResource(R.drawable.ic_play_arrow)
+                            contentDescription = getString(R.string.test)
+                        }
+                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Test button failed to play pattern: ${e.message}")
-                // Do not show Toasts per request; just log
+                Log.w(TAG, "Test toggle failed: ${e.message}")
             }
         }
     }
@@ -508,6 +598,14 @@ class StrummingPatternActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
+        // Ensure nothing is left playing and clear pending previews
+        try {
+            if (isPreviewActive) {
+                if (isServiceBound && playbackService != null) playbackService?.stopPlayback() else PlaybackService.stop(this)
+            }
+        } catch (_: Exception) {}
+        isPreviewActive = false
+        pendingPreviewProgression = null
+        pendingPreviewLooping = false
     }
 }

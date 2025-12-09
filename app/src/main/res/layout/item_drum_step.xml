@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="4dp"
+    android:gravity="center_horizontal">
+
+    <TextView
+        android:id="@+id/stepLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="1"
+        android:textSize="12sp"
+        android:layout_marginBottom="4dp" />
+
+    <ImageView
+        android:id="@+id/kickIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_kick"
+        android:contentDescription="Kick" />
+
+    <ImageView
+        android:id="@+id/snareIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_snare"
+        android:contentDescription="Snare"
+        android:layout_marginTop="4dp" />
+
+    <ImageView
+        android:id="@+id/hihatIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_hihat"
+        android:contentDescription="HiHat"
+        android:layout_marginTop="4dp" />
+
+</LinearLayout>

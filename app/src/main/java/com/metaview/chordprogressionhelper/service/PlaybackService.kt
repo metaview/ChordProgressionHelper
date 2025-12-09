@@ -45,6 +45,7 @@ class PlaybackService : Service() {
     private var pausedPosition: Pair<Int, Int>? = null
     // If true the currently-loaded progression was launched as a temporary preview
     private var currentIsPreview: Boolean = false
+    private var currentIsLoopingPreview: Boolean = false
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
 
@@ -60,6 +61,8 @@ class PlaybackService : Service() {
     private lateinit var mediaSession: MediaSessionCompat
     private var playbackPositionMs: Long = 0L
 
+    private var isForegroundStarted = false
+
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "onCreate: initializing PlaybackService")
@@ -67,6 +70,16 @@ class PlaybackService : Service() {
         settingsRepository = SettingsRepository(this)
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
+        // Ensure we register as a foreground service quickly to satisfy platform timing rules.
+        try {
+            val preparing = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Playback service")
+                .setContentText("Ready")
+                .setSmallIcon(R.drawable.ic_music_note)
+                .setOngoing(true)
+                .build()
+            try { startForeground(NOTIFICATION_ID, preparing) } catch (e: Exception) { Log.w(TAG, "early startForeground in onCreate failed: ${e.message}") }
+        } catch (e: Exception) { Log.w(TAG, "failed to build early notification: ${e.message}") }
 
         // Initialize audioPlayer live params from settings
         audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
@@ -113,13 +126,37 @@ class PlaybackService : Service() {
         super.onDestroy()
         settingsRepository.unregisterChangeListener(prefsListener)
         try {
+            // Ensure audio and jobs are stopped when service is destroyed
+            stopPlayback()
+        } catch (e: Exception) {
+            Log.w(TAG, "onDestroy: stopPlayback failed: ${e.message}")
+        }
+        try {
             mediaSession.release()
         } catch (_: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand: action=${intent?.action}")
-        // If the intent is an update params action, apply parameters and return
+        // Ensure we call startForeground as soon as possible (only once) to satisfy platform timing.
+        if (!isForegroundStarted) {
+            try {
+                createNotificationChannel()
+                val preparing = NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("Playback service")
+                    .setContentText("Starting...")
+                    .setSmallIcon(R.drawable.ic_music_note)
+                    .setOngoing(true)
+                    .build()
+                startForeground(NOTIFICATION_ID, preparing)
+                isForegroundStarted = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to start foreground early: ${e.message}")
+                // If startForeground fails, still continue; the system may still enforce the rule, but we try our best.
+            }
+        }
+
+        // If the intent is an update params action, apply parameters and return quickly
         if (intent?.action == ACTION_UPDATE_PARAMS) {
             try {
                 val drum = intent.getFloatExtra(EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
@@ -134,91 +171,74 @@ class PlaybackService : Service() {
             return START_NOT_STICKY
         }
 
-        // Capture preview flag from intent
-        currentIsPreview = intent?.getBooleanExtra(EXTRA_IS_PREVIEW, false) ?: false
-
-        // Read progression either from a file path (preferred, avoids large Intent extras)
-        var progressionString: String? = null
-        // New: try id-based loading first
-        val progressionId = intent?.getStringExtra(EXTRA_PROGRESSION_ID)
-        if (!progressionId.isNullOrEmpty()) {
-            progressionString = ProgressionStore.loadProgression(this, progressionId)
-            if (progressionString == null) {
-                Log.w(TAG, "Progression ID $progressionId not found in store")
-            } else {
-                // Clean up the stored temp file after reading
-                try { ProgressionStore.deleteProgression(this, progressionId) } catch (_: Exception) {}
-            }
-        }
-        val progressionPath = intent?.getStringExtra(EXTRA_PROGRESSION_PATH)
-        if (!progressionPath.isNullOrEmpty()) {
-            try {
-                val f = java.io.File(progressionPath)
-                if (f.exists()) {
-                    progressionString = f.readText()
-                    // Clean up temp file after reading
-                    try { f.delete() } catch (_: Exception) {}
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to read progression from path: $progressionPath -> ${e.message}")
-            }
-        }
-        if (progressionString == null) {
-            progressionString = intent?.getStringExtra(EXTRA_PROGRESSION)
-        }
-        if (progressionString != null) {
-            // Remove leading BOM or any garbage characters before the first JSON object/array
-            val firstIdx = progressionString.indexOfFirst { c -> c == '{' || c == '[' }
-            if (firstIdx >= 0 && firstIdx > 0) {
-                Log.i(TAG, "Trimmed leading garbage from progression input")
-                progressionString = progressionString.substring(firstIdx)
-            }
-            try {
-                currentProgression = Json.decodeFromString<ChordProgression>(progressionString)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse progression JSON: ${e.message}")
-                Log.w(TAG, "JSON input: $progressionString")
-                // Try a tolerant normalization for loose JSON (e.g. {name:Test,...} without quotes)
-                try {
-                    val normalized = normalizeLooseJson(progressionString)
-                    Log.i(TAG, "Attempting to parse normalized JSON: $normalized")
-                    currentProgression = try { Json.decodeFromString<ChordProgression>(normalized) } catch (_: Exception) { null }
-                    if (currentProgression == null) {
-                        Log.w(TAG, "Normalized JSON still failed to parse")
-                    }
-                } catch (e2: Exception) {
-                    Log.w(TAG, "Normalization failed: ${e2.message}")
-                }
-            }
-        }
-
-        // If parsing failed entirely, publish a minimal foreground notification and stop the service
-        if (currentProgression == null && intent?.action == ACTION_PLAY) {
-            Log.e(TAG, "No valid progression provided, stopping service to avoid crash")
-            // Ensure notification channel exists
-            createNotificationChannel()
-            val fallbackNotif = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Playback error")
-                .setContentText("Invalid progression provided")
-                .setSmallIcon(R.drawable.ic_music_note)
-                .setOngoing(false)
-                .build()
-            try {
-                startForeground(NOTIFICATION_ID, fallbackNotif)
-            } catch (e: Exception) {
-                Log.w(TAG, "startForeground failed for fallback notification: ${e.message}")
-            }
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
+        // Dispatch play handling onto a coroutine so onStartCommand returns promptly after calling startForeground
         when (intent?.action) {
-            ACTION_PLAY -> currentProgression?.let { startPlayback(it) }
-            ACTION_PAUSE -> pausePlayback()
-            ACTION_STOP -> stopPlayback()
-        }
-        return START_NOT_STICKY
-    }
+            ACTION_PLAY -> {
+                // capture preview flag and then parse/load progression in background
+                currentIsPreview = intent.getBooleanExtra(EXTRA_IS_PREVIEW, false)
+                currentIsLoopingPreview = intent.getBooleanExtra(EXTRA_IS_LOOPING_PREVIEW, false)
+                serviceScope.launch {
+                    // Read progression either from stored id, path or intent extra
+                    var progressionString: String? = null
+                    val progressionId = intent.getStringExtra(EXTRA_PROGRESSION_ID)
+                    if (!progressionId.isNullOrEmpty()) {
+                        progressionString = try { ProgressionStore.loadProgression(this@PlaybackService, progressionId) } catch (e: Exception) { Log.w(TAG, "ProgressionStore load failed: ${e.message}"); null }
+                        if (!progressionString.isNullOrEmpty()) {
+                            try { ProgressionStore.deleteProgression(this@PlaybackService, progressionId) } catch (_: Exception) {}
+                        }
+                    }
+                    val progressionPath = intent.getStringExtra(EXTRA_PROGRESSION_PATH)
+                    if (progressionString.isNullOrEmpty() && !progressionPath.isNullOrEmpty()) {
+                        try {
+                            val f = java.io.File(progressionPath)
+                            if (f.exists()) progressionString = f.readText()
+                        } catch (e: Exception) { Log.w(TAG, "Failed to read progression from path: $progressionPath -> ${e.message}") }
+                    }
+                    if (progressionString.isNullOrEmpty()) progressionString = intent.getStringExtra(EXTRA_PROGRESSION)
+                    if (!progressionString.isNullOrEmpty()) {
+                        val firstIdx = progressionString.indexOfFirst { c -> c == '{' || c == '[' }
+                        if (firstIdx >= 0 && firstIdx > 0) progressionString = progressionString.substring(firstIdx)
+                        try {
+                            currentProgression = Json.decodeFromString<ChordProgression>(progressionString)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to parse progression JSON: ${e.message}")
+                            try {
+                                val normalized = normalizeLooseJson(progressionString)
+                                currentProgression = try { Json.decodeFromString<ChordProgression>(normalized) } catch (_: Exception) { null }
+                            } catch (e2: Exception) { Log.w(TAG, "Normalization failed: ${e2.message}") }
+                        }
+                    }
+
+                    if (currentProgression == null) {
+                        Log.e(TAG, "No valid progression provided for ACTION_PLAY")
+                        // Show a minimal fallback notification and stop service
+                        createNotificationChannel()
+                        val fallbackNotif = NotificationCompat.Builder(this@PlaybackService, CHANNEL_ID)
+                            .setContentTitle("Playback error")
+                            .setContentText("Invalid progression provided")
+                            .setSmallIcon(R.drawable.ic_music_note)
+                            .setOngoing(false)
+                            .build()
+                        try { startForeground(NOTIFICATION_ID, fallbackNotif) } catch (e: Exception) { Log.w(TAG, "startForeground fallback failed: ${e.message}") }
+                        stopSelf()
+                        return@launch
+                    }
+
+                    // Start playback with parsed progression
+                    try { startPlayback(currentProgression!!) } catch (e: Exception) { Log.w(TAG, "startPlayback failed: ${e.message}") }
+                 }
+                 return START_NOT_STICKY
+             }
+            ACTION_PAUSE -> { pausePlayback(); return START_NOT_STICKY }
+            ACTION_STOP -> {
+                Log.i(TAG, "onStartCommand: received ACTION_STOP")
+                stopPlayback()
+                Log.i(TAG, "onStartCommand: stopPlayback invoked via ACTION_STOP")
+                return START_NOT_STICKY
+            }
+         }
+         return START_NOT_STICKY
+     }
 
     fun startPlayback(progression: ChordProgression) {
         // Ensure there's at least one measure to play; prevents silent no-op when progression.measures is empty
@@ -251,8 +271,15 @@ class PlaybackService : Service() {
         playbackJob = serviceScope.launch {
             audioPlayer.playProgression(
                 progression = progression,
-                // If this playback was launched as a preview, never loop (one pass)
-                shouldLoop = { if (currentIsPreview) false else settingsRepository.isLoopingEnabled },
+                // Looping behavior:
+                // - if currentIsLoopingPreview => true (loop preview)
+                // - else if currentIsPreview => false (single preview)
+                // - else follow settings
+                shouldLoop = { when {
+                    currentIsLoopingPreview -> true
+                    currentIsPreview -> false
+                    else -> settingsRepository.isLoopingEnabled
+                } },
                 pluckStrength = settingsRepository.pluckStrength,
                 // For previews (Test/Default pattern) we must not perform a count-in
                 countInBeats = if (currentIsPreview) 0 else settingsRepository.countInBeats,
@@ -266,6 +293,7 @@ class PlaybackService : Service() {
             // After playProgression returns, if this was a preview we should clear the preview flag
             if (currentIsPreview) {
                 currentIsPreview = false
+                currentIsLoopingPreview = false
             }
             if (isLastService()) stopPlayback()
         }
@@ -291,19 +319,31 @@ class PlaybackService : Service() {
     }
 
     fun stopPlayback() {
-        Log.i(TAG, "stopPlayback")
-        playbackJob?.cancel()
-        audioPlayer.stop()
+        Log.i(TAG, "stopPlayback - begin (isPlaying=${_isPlaying.value}, currentIsPreview=$currentIsPreview, currentIsLoopingPreview=$currentIsLoopingPreview)")
+        try {
+            // First stop audio output to unblock any blocking writes
+            audioPlayer.stop()
+        } catch (e: Exception) { Log.w(TAG, "stopPlayback: audioPlayer.stop failed: ${e.message}") }
+        try {
+            playbackJob?.cancel()
+            playbackJob = null
+        } catch (e: Exception) { Log.w(TAG, "stopPlayback: cancel playbackJob failed: ${e.message}") }
         _isPlaying.value = false
         _currentPlaybackPosition.value = null
         pausedPosition = null
         currentIsPreview = false
+        currentIsLoopingPreview = false
 
         mediaSession.setPlaybackState(PlaybackStateCompat.Builder()
             .setState(PlaybackStateCompat.STATE_STOPPED, 0L, 0f)
             .build())
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) { Log.w(TAG, "stopPlayback: stopForeground failed: ${e.message}") }
+        try {
+            stopSelf()
+        } catch (e: Exception) { Log.w(TAG, "stopPlayback: stopSelf failed: ${e.message}") }
+        Log.i(TAG, "stopPlayback - end (cleared flags)")
     }
 
     private fun createPendingIntentForAction(action: String, requestCode: Int): PendingIntent {
@@ -410,6 +450,7 @@ class PlaybackService : Service() {
     }
 
     companion object {
+        const val EXTRA_IS_LOOPING_PREVIEW = "com.metaview.chordprogressionhelper.extra.IS_LOOPING_PREVIEW"
         const val CHANNEL_ID = "PlaybackServiceChannel"
         const val NOTIFICATION_ID = 1
 
@@ -433,7 +474,7 @@ class PlaybackService : Service() {
         private const val RC_STOP = 102
 
         // New: save progression to ProgressionStore and send only the ID to the service (preferred)
-        fun play(context: android.content.Context, progression: ChordProgression, isPreview: Boolean = false) {
+        fun play(context: android.content.Context, progression: ChordProgression, isPreview: Boolean = false, isLoopingPreview: Boolean = false) {
             val progressionString = Json.encodeToString(progression)
             val id = try { ProgressionStore.saveProgression(context, null, progressionString) } catch (e: Exception) {
                 Log.w("PlaybackService", "Failed to save progression to store: ${e.message}")
@@ -447,6 +488,7 @@ class PlaybackService : Service() {
                 intent.putExtra(EXTRA_PROGRESSION, progressionString)
             }
             intent.putExtra(EXTRA_IS_PREVIEW, isPreview)
+            intent.putExtra(EXTRA_IS_LOOPING_PREVIEW, isLoopingPreview)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
         }
 
@@ -456,10 +498,22 @@ class PlaybackService : Service() {
         }
 
         fun stop(context: android.content.Context) {
-            val intent = Intent(context, PlaybackService::class.java).apply { action = ACTION_STOP }
-            context.startService(intent)
-        }
-    }
+            val intent = Intent(context, PlaybackService::class.java)
+            try {
+                // Request the system to stop the service outright; onDestroy will call stopPlayback()
+                context.stopService(intent)
+            } catch (e: Exception) {
+                Log.w("PlaybackService", "stop(context) failed to call stopService: ${e.message}")
+                // Fallback: try to send ACTION_STOP intent in case stopService did not work
+                try {
+                    val stopIntent = Intent(context, PlaybackService::class.java).apply { action = ACTION_STOP }
+                    context.startService(stopIntent)
+                } catch (e2: Exception) {
+                    Log.w("PlaybackService", "stop(context) fallback failed: ${e2.message}")
+                }
+            }
+         }
+     }
 
     // Tolerant helper: quote simple unquoted keys/values to allow parsing of malformed JSON-like input.
     private fun normalizeLooseJson(input: String): String {

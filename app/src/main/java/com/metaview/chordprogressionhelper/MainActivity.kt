@@ -18,6 +18,8 @@ import android.text.TextWatcher
 import android.util.Log
 import android.util.TypedValue
 import android.content.res.ColorStateList
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.MotionEvent
@@ -43,6 +45,7 @@ import com.metaview.chordprogressionhelper.model.Key
 import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.ChordType
 import com.metaview.chordprogressionhelper.model.StrummingPattern
+import com.metaview.chordprogressionhelper.model.DrumPattern
 import com.metaview.chordprogressionhelper.service.PlaybackService
 import com.metaview.chordprogressionhelper.ui.ChordAdapter
 import com.metaview.chordprogressionhelper.ui.MeasureAdapter
@@ -66,6 +69,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var measureAdapter: MeasureAdapter
     private lateinit var itemTouchHelper: ItemTouchHelper
     private lateinit var strumPatternLauncher: ActivityResultLauncher<Intent>
+    private lateinit var drumPatternLauncher: ActivityResultLauncher<Intent>
+    // Fallback receiver for DrumPattern updates (sent by DrumPatternActivity before finish)
+    private val drumPatternReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            try {
+                if (intent == null) return
+                val action = intent.action ?: return
+                if (action == "com.metaview.chordprogressionhelper.ACTION_DRUM_PATTERN_UPDATED") {
+                    val mIndex = intent.getIntExtra(DrumPatternActivity.EXTRA_MEASURE_INDEX, -1)
+                    val json = intent.getStringExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON)
+                    if (mIndex >= 0 && !json.isNullOrEmpty()) {
+                        try {
+                            val pattern = Json.decodeFromString(com.metaview.chordprogressionhelper.model.DrumPattern.serializer(), json)
+                            viewModel.setDrumPattern(mIndex, pattern)
+                        } catch (e: Exception) { Log.w(TAG, "drumPatternReceiver: failed to decode pattern: ${e.message}") }
+                    }
+                }
+            } catch (e: Exception) { Log.w(TAG, "drumPatternReceiver onReceive failed: ${e.message}") }
+        }
+    }
 
     private var areExtraChordsExpanded = false
     private var lastScrolledMeasure = -1
@@ -118,6 +141,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Register launcher to receive DrumPatternActivity results
+        drumPatternLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val data = result.data
+                val mIndex = data?.getIntExtra(DrumPatternActivity.EXTRA_MEASURE_INDEX, -1) ?: -1
+                val json = data?.getStringExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON)
+                if (mIndex >= 0 && !json.isNullOrEmpty()) {
+                    try {
+                        val pattern = Json.decodeFromString(DrumPattern.serializer(), json)
+                        viewModel.setDrumPattern(mIndex, pattern)
+                    } catch (e: Exception) { Log.w(TAG, "Failed to decode DrumPattern from activity result: ${e.message}") }
+                }
+            }
+        }
+
         setupControls()
         setupRecyclerViews()
         setupDragAndDrop()
@@ -129,6 +167,10 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, BIND_AUTO_CREATE)
+        try {
+            val filter = IntentFilter("com.metaview.chordprogressionhelper.ACTION_DRUM_PATTERN_UPDATED")
+            registerReceiver(drumPatternReceiver, filter)
+        } catch (_: Exception) {}
     }
 
     override fun onStop() {
@@ -137,6 +179,7 @@ class MainActivity : AppCompatActivity() {
             unbindService(connection)
             isBound = false
         }
+        try { unregisterReceiver(drumPatternReceiver) } catch (_: Exception) {}
     }
 
     private fun askForNotificationPermission() {
@@ -453,12 +496,10 @@ class MainActivity : AppCompatActivity() {
                     viewModel.progression.measures.forEach { m ->
                         try {
                             val p = m.strummingPattern
-                            if (p != null) {
-                                val key = p.strums.joinToString(",") { it.name }
-                                if (!seen.contains(key)) {
-                                    seen.add(key)
-                                    patterns.add(p)
-                                }
+                            val key = p.strums.joinToString(",") { it.name }
+                            if (!seen.contains(key)) {
+                                seen.add(key)
+                                patterns.add(p)
                             }
                         } catch (_: Exception) {}
                     }
@@ -471,6 +512,18 @@ class MainActivity : AppCompatActivity() {
                 intent.putExtra("extra_mode", viewModel.progression.mode.name)
                 intent.putExtra("extra_tempo", viewModel.tempo.value ?: viewModel.progression.tempo)
                 strumPatternLauncher.launch(intent)
+            },
+            onDrumPatternClick = { index ->
+                val intent = Intent(this, DrumPatternActivity::class.java)
+                intent.putExtra(DrumPatternActivity.EXTRA_MEASURE_INDEX, index)
+                // Pass current drum pattern to editor
+                try {
+                    val dp = viewModel.progression.measures.getOrNull(index)?.drumPattern
+                    if (dp != null) {
+                        intent.putExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON, Json.encodeToString(DrumPattern.serializer(), dp))
+                    }
+                } catch (_: Exception) {}
+                drumPatternLauncher.launch(intent)
             },
             onChordDrop = { measureIndex, eighthNoteIndex, chord -> viewModel.addChordToMeasure(measureIndex, eighthNoteIndex, chord) },
             onRemoveMeasureClick = { viewModel.removeMeasure(it) },

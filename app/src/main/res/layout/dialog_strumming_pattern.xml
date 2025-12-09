@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -100,7 +101,12 @@
             style="@style/Widget.ChordProgressionHelper.MaterialButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/test" />
+            android:contentDescription="@string/test"
+            app:icon="@drawable/ic_play_arrow"
+            app:iconTint="?attr/colorOnSurface"
+            app:iconPadding="0dp"
+            app:iconGravity="textStart"
+            android:padding="8dp" />
 
         <!-- flexible spacer pushes the following buttons to the right -->
         <View

@@ -34,6 +34,11 @@
             android:exported="false"
             android:theme="@style/ThemeOverlay.ChordProgressionHelper.FullscreenDialog" />
 
+        <activity
+            android:name=".DrumPatternActivity"
+            android:exported="false"
+            android:theme="@style/ThemeOverlay.ChordProgressionHelper.FullscreenDialog" />
+
         <!-- Ensure a MediaButtonReceiver exists so MediaButtonReceiver.buildMediaButtonPendingIntent can succeed -->
         <receiver
             android:name="androidx.media.session.MediaButtonReceiver"
