@@ -67,7 +67,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
-        android:text="@string/default_patterns"
+        android:text="@string/suggested_patterns"
         android:textSize="16sp"
         android:textStyle="bold" />
 

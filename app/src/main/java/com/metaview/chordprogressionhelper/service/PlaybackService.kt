@@ -10,6 +10,12 @@ import android.os.Build
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.media.app.NotificationCompat.MediaStyle
+import androidx.media.session.MediaButtonReceiver
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
+import android.support.v4.media.MediaMetadataCompat
+import android.util.Log
 import com.metaview.chordprogressionhelper.MainActivity
 import com.metaview.chordprogressionhelper.R
 import com.metaview.chordprogressionhelper.data.ProgressionStore
@@ -25,13 +31,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import androidx.media.app.NotificationCompat.MediaStyle
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
-import android.support.v4.media.MediaMetadataCompat
-import androidx.media.MediaBrowserServiceCompat
-import androidx.media.session.MediaButtonReceiver
-import android.util.Log
 
 class PlaybackService : Service() {
     private val TAG = "PlaybackService"
@@ -462,15 +461,19 @@ class PlaybackService : Service() {
         }
     }
 
-    // Try to convert very loosely-formatted JSON like {name:Test,key:C,...} into valid JSON with quoted keys and string values.
+    // Tolerant helper: quote simple unquoted keys/values to allow parsing of malformed JSON-like input.
     private fun normalizeLooseJson(input: String): String {
         var out = input.trim()
         // Strip common BOM / garbage characters before the first JSON token
-        out = out.replaceFirst(Regex("^[^\\{\\[]+"), "")
-        // 1) Quote unquoted keys: {name: or ,name: -> "name":
-        out = out.replace(Regex("(?<=\\{|,)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*:"), """$1":""")
-        // 2) Quote unquoted string values: "name":Test, "key":C -> "name":"Test", "key":"C"
-        out = out.replace(Regex("""(?<=":\s*)([A-Za-z_][A-Za-z0-9_]*)(?=,|\})"""), """"$1"""")
+        out = out.replaceFirst(Regex("""^[^{\[]+"""), "")
+        try {
+            // 1) Quote simple unquoted keys appearing after '{', '[' or ','
+            out = out.replace(Regex("""([\{\[,]\s*)([A-Za-z_][A-ZaZ0-9_]*)\s*:"""), "$1\"$2\":")
+            // 2) Quote simple unquoted identifier-like values (not numbers/booleans) followed by , or ] or }
+            out = out.replace(Regex("""(:\s*)([A-Za-z_][A-ZaZ0-9_]*)(?=\s*(,|\]|\}))"""), "$1\"$2\"")
+        } catch (e: Exception) {
+            Log.w(TAG, "normalizeLooseJson failed: ${e.message}")
+        }
         return out
     }
 }

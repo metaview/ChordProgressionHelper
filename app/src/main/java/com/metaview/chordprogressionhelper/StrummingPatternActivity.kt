@@ -14,14 +14,13 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
-import android.os.Handler
-import android.os.Looper
 import com.google.android.material.button.MaterialButton
 import com.metaview.chordprogressionhelper.databinding.DialogStrummingPatternBinding
 import com.metaview.chordprogressionhelper.model.*
 import com.metaview.chordprogressionhelper.service.PlaybackService
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.builtins.ListSerializer
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -32,6 +31,7 @@ class StrummingPatternActivity : AppCompatActivity() {
         const val EXTRA_MEASURE_INDEX = "extra_measure_index"
         const val EXTRA_STRUMMING_PATTERN_JSON = "extra_strumming_pattern_json"
         const val EXTRA_TONIC_CHORD_JSON = "extra_tonic_chord_json"
+        const val EXTRA_ALL_PATTERNS_JSON = "extra_all_patterns_json"
         private const val TAG = "StrummingPatternActivity"
     }
 
@@ -44,6 +44,8 @@ class StrummingPatternActivity : AppCompatActivity() {
     private var keyVal: Key = Key.C
     private var modeVal: Mode = Mode.MAJOR
     private var tempoVal: Int = 120
+    // Patterns provided externally (e.g. all patterns used in song)
+    private var extraPatterns: List<StrummingPattern> = emptyList()
 
     // Bind to PlaybackService to check if main playback is running
     private var playbackService: PlaybackService? = null
@@ -73,8 +75,6 @@ class StrummingPatternActivity : AppCompatActivity() {
             setPreviewsAllowed(true)
         }
     }
-
-    private fun isPlaybackActive(): Boolean = playbackService?.isPlaying?.value == true
 
     private fun setPreviewsAllowed(allowed: Boolean) {
         previewsAllowed = allowed
@@ -114,6 +114,14 @@ class StrummingPatternActivity : AppCompatActivity() {
         tempoVal = intent?.getIntExtra("extra_tempo", 120) ?: 120
 
         currentStrums = startPattern.strums.toMutableList()
+
+        // Parse any externally-provided list of all patterns used in the progression
+        try {
+            val allJson = intent?.getStringExtra(EXTRA_ALL_PATTERNS_JSON)
+            if (!allJson.isNullOrEmpty()) {
+                extraPatterns = try { Json.decodeFromString(ListSerializer(StrummingPattern.serializer()), allJson) } catch (_: Exception) { emptyList() }
+            }
+        } catch (_: Exception) { extraPatterns = emptyList() }
 
         setupFadesAndScroll()
         setupStrumChips()
@@ -215,8 +223,123 @@ class StrummingPatternActivity : AppCompatActivity() {
         val iconSize = (20 * resources.displayMetrics.density).toInt()
         val rowMargin = (1 * resources.displayMetrics.density).toInt()
         val iconMargin = 0
+        val nameMargin = resources.getDimensionPixelSize(R.dimen.pattern_name_margin)
+
+        // Build sets to avoid duplicates
+        val seen = mutableSetOf<String>()
+        fun keyOf(p: StrummingPattern) = p.strums.joinToString(",") { it.name }
+
+        // If there are extraPatterns (from the progression) show them first with a header
+        try {
+            if (extraPatterns.isNotEmpty()) {
+                val header = TextView(this).apply {
+                    text = getString(R.string.used_patterns_header)
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 4)
+                    try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
+                    try { typeface = ResourcesCompat.getFont(context, R.font.roboto_mono) } catch (_: Exception) {}
+                }
+                binding.defaultPatternsLayout.addView(header)
+
+                extraPatterns.forEach { p ->
+                    try {
+                        val k = keyOf(p)
+                        if (seen.contains(k)) return@forEach
+                        seen.add(k)
+                        // create row for this pattern (reuse existing row-building code below)
+                        val row = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(rowMargin, rowMargin, rowMargin, rowMargin) }
+                            setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 2)
+                            isClickable = true
+                            isFocusable = true
+                            val tv = android.util.TypedValue()
+                            if (theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) foreground = ContextCompat.getDrawable(context, tv.resourceId)
+                        }
+                        p.strums.forEach { s ->
+                            val iv = ImageView(this).apply {
+                                setImageResource(strumToDrawable(s))
+                                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply { setMargins(iconMargin, 0, iconMargin, 0) }
+                                try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data) } catch (_: Exception) {}
+                            }
+                            row.addView(iv)
+                        }
+                        val safeName = p.name
+                            .replace('\u2013', '-')
+                            .replace('\u2014', '-')
+                            .replace('\u2010', '-')
+                            .replace('\u2011', '-')
+                        val nameTv = TextView(this).apply {
+                            text = safeName
+                            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(nameMargin, 0, 0, 0) }
+                            textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+                            isSingleLine = true
+                            ellipsize = android.text.TextUtils.TruncateAt.END
+                            setHorizontallyScrolling(true)
+                            includeFontPadding = false
+                            letterSpacing = 0f
+                            try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
+                        }
+                        try { val embedded = ResourcesCompat.getFont(this, R.font.roboto_mono); if (embedded != null) nameTv.typeface = embedded } catch (_: Exception) {}
+                        row.addView(nameTv)
+
+                        row.setOnClickListener {
+                            if (!previewsAllowed) return@setOnClickListener
+                            p.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
+                            updateStrumViews()
+                            try {
+                                val livePattern = StrummingPattern(p.name, p.strums.toList())
+                                val chord = tonicChord
+                                if (chord != null) {
+                                    val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
+                                    try { tempProg.measures.clear() } catch (_: Exception) {}
+                                    val m = Measure(1)
+                                    try { m.addChord(chord, 0) } catch (_: Exception) {}
+                                    m.strummingPattern = livePattern
+                                    tempProg.measures.add(m)
+                                    try { PlaybackService.stop(this) } catch (_: Exception) {}
+                                    PlaybackService.play(this, tempProg, true)
+                                    isPreviewActive = true
+                                }
+                            } catch (e: Exception) { Log.w(TAG, "Failed to handle pattern click: ${e.message}") }
+                        }
+
+                        binding.defaultPatternsLayout.addView(row)
+                    } catch (_: Exception) {}
+                }
+
+                // add a thin divider before defaults
+                val divider = View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * resources.displayMetrics.density).toInt())
+                    try {
+                        val tv = android.util.TypedValue()
+                        val color = if (theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) tv.data else android.graphics.Color.WHITE
+                        setBackgroundColor(color)
+                    } catch (_: Exception) {}
+                }
+                binding.defaultPatternsLayout.addView(divider)
+            }
+        } catch (_: Exception) {}
+
+        // Now render default patterns with a header (skip those already seen)
+        try {
+            val headerDefaults = TextView(this).apply {
+                text = getString(R.string.other_patterns_header)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+                setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 4)
+                try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
+                try { typeface = ResourcesCompat.getFont(context, R.font.roboto_mono) } catch (_: Exception) {}
+            }
+            binding.defaultPatternsLayout.addView(headerDefaults)
+        } catch (_: Exception) {}
 
         StrummingPattern.defaultPatterns.forEach { pattern ->
+            try {
+                val k = keyOf(pattern)
+                if (seen.contains(k)) return@forEach
+                seen.add(k)
+            } catch (_: Exception) {}
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(rowMargin, rowMargin, rowMargin, rowMargin) }
@@ -246,7 +369,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     // set sanitized text
                     text = safeName
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(nameMargin, 0, 0, 0) }
                     textAlignment = View.TEXT_ALIGNMENT_VIEW_END
                     isSingleLine = true
                     ellipsize = android.text.TextUtils.TruncateAt.END
@@ -331,7 +454,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                 val intent = intent
                 intent.putExtra(EXTRA_MEASURE_INDEX, measureIndex)
                 intent.putExtra(EXTRA_STRUMMING_PATTERN_JSON, json)
-                setResult(Activity.RESULT_OK, intent)
+                setResult(RESULT_OK, intent)
                 if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
                 finish()
             } catch (e: Exception) {
@@ -342,7 +465,7 @@ class StrummingPatternActivity : AppCompatActivity() {
 
         btnCancel.setOnClickListener {
             if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
-            setResult(Activity.RESULT_CANCELED)
+            setResult(RESULT_CANCELED)
             finish()
         }
 

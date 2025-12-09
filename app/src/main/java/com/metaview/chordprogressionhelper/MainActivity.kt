@@ -4,7 +4,6 @@ package com.metaview.chordprogressionhelper
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -25,10 +24,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
-import android.widget.ImageView
 import android.widget.PopupMenu
 import android.widget.Toast
-import android.widget.LinearLayout
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -42,11 +39,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.metaview.chordprogressionhelper.databinding.ActivityMainBinding
 import com.metaview.chordprogressionhelper.databinding.DialogSaveProgressionBinding
-import com.metaview.chordprogressionhelper.databinding.DialogStrummingPatternBinding
 import com.metaview.chordprogressionhelper.model.Key
 import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.ChordType
-import com.metaview.chordprogressionhelper.model.Strum
 import com.metaview.chordprogressionhelper.model.StrummingPattern
 import com.metaview.chordprogressionhelper.service.PlaybackService
 import com.metaview.chordprogressionhelper.ui.ChordAdapter
@@ -57,6 +52,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.serialization.InternalSerializationApi
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 @OptIn(InternalSerializationApi::class)
 class MainActivity : AppCompatActivity() {
@@ -108,13 +105,13 @@ class MainActivity : AppCompatActivity() {
 
         // Register ActivityResult launcher to receive StrummingPatternActivity results
         strumPatternLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
+            if (result.resultCode == RESULT_OK) {
                 val data = result.data
                 val mIndex = data?.getIntExtra(StrummingPatternActivity.EXTRA_MEASURE_INDEX, -1) ?: -1
                 val json = data?.getStringExtra(StrummingPatternActivity.EXTRA_STRUMMING_PATTERN_JSON)
                 if (mIndex >= 0 && !json.isNullOrEmpty()) {
                     try {
-                        val pattern = kotlinx.serialization.json.Json.decodeFromString(com.metaview.chordprogressionhelper.model.StrummingPattern.serializer(), json)
+                        val pattern = Json.decodeFromString(StrummingPattern.serializer(), json)
                         viewModel.setStrummingPattern(mIndex, pattern)
                     } catch (e: Exception) { Log.w(TAG, "Failed to decode StrummingPattern from activity result: ${e.message}") }
                 }
@@ -437,8 +434,37 @@ class MainActivity : AppCompatActivity() {
                 val tonic = viewModel.progression.getScaleDegreeChords().firstOrNull()
                 try {
                     if (tonic != null) {
-                        val tonicJson = kotlinx.serialization.json.Json.encodeToString(com.metaview.chordprogressionhelper.model.Chord.serializer(), tonic)
+                        val tonicJson = Json.encodeToString(Chord.serializer(), tonic)
                         intent.putExtra(StrummingPatternActivity.EXTRA_TONIC_CHORD_JSON, tonicJson)
+                    }
+                } catch (_: Exception) {}
+                // Pass the current measure's strumming pattern so the editor shows it
+                try {
+                    val measurePattern = viewModel.progression.measures.getOrNull(index)?.strummingPattern
+                    if (measurePattern != null) {
+                        val patternJson = Json.encodeToString(StrummingPattern.serializer(), measurePattern)
+                        intent.putExtra(StrummingPatternActivity.EXTRA_STRUMMING_PATTERN_JSON, patternJson)
+                    }
+                } catch (_: Exception) {}
+                // Also collect all unique strumming patterns used in the progression and pass them to the editor
+                try {
+                    val seen = mutableSetOf<String>()
+                    val patterns = mutableListOf<StrummingPattern>()
+                    viewModel.progression.measures.forEach { m ->
+                        try {
+                            val p = m.strummingPattern
+                            if (p != null) {
+                                val key = p.strums.joinToString(",") { it.name }
+                                if (!seen.contains(key)) {
+                                    seen.add(key)
+                                    patterns.add(p)
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    if (patterns.isNotEmpty()) {
+                        val arrJson = Json.encodeToString(ListSerializer(StrummingPattern.serializer()), patterns)
+                        intent.putExtra(StrummingPatternActivity.EXTRA_ALL_PATTERNS_JSON, arrJson)
                     }
                 } catch (_: Exception) {}
                 intent.putExtra("extra_key", viewModel.key.value?.name ?: viewModel.progression.key.name)
