@@ -21,6 +21,11 @@ class SettingsActivity : AppCompatActivity() {
             putExtra(PlaybackService.EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
             putExtra(PlaybackService.EXTRA_ENVELOPE_SCALE, settingsRepository.envelopeScale)
             putExtra(PlaybackService.EXTRA_HIHAT_HIGHPASS, settingsRepository.hiHatHighpass)
+            // new strum timing params
+            putExtra(PlaybackService.EXTRA_UP_STROKE_OFFSET_MS, settingsRepository.strokeOffsetMs)
+            putExtra(PlaybackService.EXTRA_UP_STRING_STAGGER_MS, settingsRepository.stringStaggerMs)
+            putExtra(PlaybackService.EXTRA_DOWN_STROKE_OFFSET_MS, settingsRepository.downStrokeOffsetMs)
+            putExtra(PlaybackService.EXTRA_DOWN_STRING_STAGGER_MS, settingsRepository.downStringStaggerMs)
         }
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
@@ -99,6 +104,26 @@ class SettingsActivity : AppCompatActivity() {
             SoundPreset.PIANO -> binding.soundPresetRadioGroup.check(R.id.soundPresetPiano)
         }
 
+        // Ensure strum timing controls are enabled/disabled according to current preset
+        setStrumSeekbarsEnabled(settingsRepository.soundPreset != SoundPreset.PIANO)
+
+        // Initialize strumming timing seekbars and labels (ms values)
+        val upOffset = settingsRepository.strokeOffsetMs.coerceIn(0, 200)
+        binding.upStrokeOffsetSeekBar.progress = upOffset
+        binding.upStrokeOffsetValue.text = getString(R.string.ms_format, upOffset)
+
+        val upStagger = settingsRepository.stringStaggerMs.coerceIn(0, 100)
+        binding.upStringStaggerSeekBar.progress = upStagger
+        binding.upStringStaggerValue.text = getString(R.string.ms_format, upStagger)
+
+        val downOffset = settingsRepository.downStrokeOffsetMs.coerceIn(0, 200)
+        binding.downStrokeOffsetSeekBar.progress = downOffset
+        binding.downStrokeOffsetValue.text = getString(R.string.ms_format, downOffset)
+
+        val downStagger = settingsRepository.downStringStaggerMs.coerceIn(0, 100)
+        binding.downStringStaggerSeekBar.progress = downStagger
+        binding.downStringStaggerValue.text = getString(R.string.ms_format, downStagger)
+
         // Sound SeekBars: write settings already during onProgressChanged when moved by the user
         binding.drumLevelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -143,6 +168,59 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
+        // New: up/down stroke offset and string stagger SeekBars
+        binding.upStrokeOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                binding.upStrokeOffsetValue.text = getString(R.string.ms_format, progress)
+                if (fromUser) {
+                    settingsRepository.strokeOffsetMs = progress
+                    updatePlaybackServiceParams()
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        binding.upStringStaggerSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                binding.upStringStaggerValue.text = getString(R.string.ms_format, progress)
+                if (fromUser) {
+                    settingsRepository.stringStaggerMs = progress
+                    updatePlaybackServiceParams()
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        binding.downStrokeOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                binding.downStrokeOffsetValue.text = getString(R.string.ms_format, progress)
+                if (fromUser) {
+                    settingsRepository.downStrokeOffsetMs = progress
+                    updatePlaybackServiceParams()
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        binding.downStringStaggerSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                binding.downStringStaggerValue.text = getString(R.string.ms_format, progress)
+                if (fromUser) {
+                    settingsRepository.downStringStaggerMs = progress
+                    updatePlaybackServiceParams()
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
         // Sound preset radio group: write selection immediately
         binding.soundPresetRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
@@ -150,6 +228,8 @@ class SettingsActivity : AppCompatActivity() {
                 R.id.soundPresetOverdrive -> settingsRepository.soundPreset = SoundPreset.OVERDRIVE
                 R.id.soundPresetPiano -> settingsRepository.soundPreset = SoundPreset.PIANO
             }
+            // Enable/disable the strum timing seekbars based on the chosen preset
+            setStrumSeekbarsEnabled(settingsRepository.soundPreset != SoundPreset.PIANO)
         }
 
         // Reset button - restore defaults (100% => 1.0)
@@ -157,18 +237,41 @@ class SettingsActivity : AppCompatActivity() {
             settingsRepository.drumLevel = 1.0f
             settingsRepository.envelopeScale = 1.0f
             settingsRepository.hiHatHighpass = 1.0f
+            settingsRepository.strokeOffsetMs = 25
+            settingsRepository.stringStaggerMs = 20
+            settingsRepository.downStrokeOffsetMs = 0
+            settingsRepository.downStringStaggerMs = 20
 
             // Update UI
-            binding.drumLevelSeekBar.progress = 100
-            // ensure labels are updated
-            binding.drumLevelLabel.text = getString(R.string.drum_level_format, 100)
-            binding.envelopeScaleSeekBar.progress = 100
-            binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, 100)
-            binding.hihatHighpassSeekBar.progress = 100
-            binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, 100)
+            binding.drumLevelSeekBar.progress = kotlin.math.floor(settingsRepository.drumLevel * 100).toInt()
+            binding.drumLevelLabel.text = getString(R.string.drum_level_format, binding.drumLevelSeekBar.progress)
+            binding.envelopeScaleSeekBar.progress = kotlin.math.floor(settingsRepository.envelopeScale * 100).toInt()
+            binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, binding.envelopeScaleSeekBar.progress)
+            binding.hihatHighpassSeekBar.progress = kotlin.math.floor(settingsRepository.hiHatHighpass * 100).toInt()
+            binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, binding.hihatHighpassSeekBar.progress)
+            binding.upStrokeOffsetSeekBar.progress = settingsRepository.strokeOffsetMs
+            binding.upStringStaggerSeekBar.progress = settingsRepository.stringStaggerMs
+            binding.downStrokeOffsetSeekBar.progress = settingsRepository.downStrokeOffsetMs
+            binding.downStringStaggerSeekBar.progress = settingsRepository.downStringStaggerMs
             // Apply changes to running playback service as well
             updatePlaybackServiceParams()
         }
+    }
+
+    // Enable or disable the four strum timing seekbars (and visually dim their value labels)
+    private fun setStrumSeekbarsEnabled(enabled: Boolean) {
+        val alpha = if (enabled) 1.0f else 0.45f
+        binding.upStrokeOffsetSeekBar.isEnabled = enabled
+        binding.upStrokeOffsetValue.alpha = alpha
+
+        binding.upStringStaggerSeekBar.isEnabled = enabled
+        binding.upStringStaggerValue.alpha = alpha
+
+        binding.downStrokeOffsetSeekBar.isEnabled = enabled
+        binding.downStrokeOffsetValue.alpha = alpha
+
+        binding.downStringStaggerSeekBar.isEnabled = enabled
+        binding.downStringStaggerValue.alpha = alpha
     }
 
     private fun setupListeners() {

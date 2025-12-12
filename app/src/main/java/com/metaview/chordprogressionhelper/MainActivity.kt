@@ -46,6 +46,7 @@ import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.ChordType
 import com.metaview.chordprogressionhelper.model.StrummingPattern
 import com.metaview.chordprogressionhelper.model.DrumPattern
+import com.metaview.chordprogressionhelper.model.PianoPattern
 import com.metaview.chordprogressionhelper.service.PlaybackService
 import com.metaview.chordprogressionhelper.ui.ChordAdapter
 import com.metaview.chordprogressionhelper.ui.MeasureAdapter
@@ -574,6 +575,34 @@ class MainActivity : AppCompatActivity() {
                     }
                 } catch (_: Exception) {}
                  drumPatternLauncher.launch(intent)
+            },
+            onPianoPatternClick = { index ->
+                val intent = Intent(this, PianoPatternActivity::class.java)
+                intent.putExtra(PianoPatternActivity.EXTRA_MEASURE_INDEX, index)
+                // Pass current drum pattern to editor
+                try {
+                    val pp = viewModel.progression.measures.getOrNull(index)?.pianoPattern
+                    if (pp != null) {
+                        intent.putExtra(PianoPatternActivity.EXTRA_PIANO_PATTERN_JSON, Json.encodeToString(PianoPattern.serializer(), pp))
+                    }
+                } catch (_: Exception) {}
+                // Also collect all unique piano patterns used in the progression and pass them to the editor
+                try {
+                    val seen = mutableSetOf<String>()
+                    val patterns = mutableListOf<PianoPattern>()
+                    viewModel.progression.measures.forEach { m ->
+                        try {
+                            val p = m.pianoPattern
+                            val key = p.notes.joinToString(",") { it.toString() }
+                            if (!seen.contains(key)) { seen.add(key); patterns.add(p) }
+                        } catch (_: Exception) {}
+                    }
+                    if (patterns.isNotEmpty()) {
+                        val arrJson = Json.encodeToString(ListSerializer(PianoPattern.serializer()), patterns)
+                        intent.putExtra(PianoPatternActivity.EXTRA_ALL_PATTERNS_JSON, arrJson)
+                    }
+                } catch (_: Exception) {}
+                drumPatternLauncher.launch(intent)
             },
             onChordDrop = { measureIndex, eighthNoteIndex, chord -> viewModel.addChordToMeasure(measureIndex, eighthNoteIndex, chord) },
             onRemoveMeasureClick = { viewModel.removeMeasure(it) },

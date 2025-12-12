@@ -89,6 +89,11 @@ class PlaybackService : Service() {
         audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
         audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
         audioPlayer.voicePreset = settingsRepository.soundPreset
+        // stroke offset (ms) for UP strokes
+        try { audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs } catch (_: Exception) {}
+        try { audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs } catch (_: Exception) {}
+        try { audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs } catch (_: Exception) {}
+        try { audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs } catch (_: Exception) {}
 
         prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
@@ -96,6 +101,11 @@ class PlaybackService : Service() {
                 SettingsRepository.KEY_ENVELOPE_SCALE -> audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
                 SettingsRepository.KEY_HIHAT_HIGHPASS -> audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
                 SettingsRepository.KEY_SOUND_PRESET -> audioPlayer.voicePreset = settingsRepository.soundPreset
+                SettingsRepository.KEY_STROKE_OFFSET_MS -> audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs
+                SettingsRepository.KEY_STRING_STAGGER_MS -> audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs
+                SettingsRepository.KEY_DOWN_STROKE_OFFSET_MS -> audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs
+                SettingsRepository.KEY_DOWN_STRING_STAGGER_MS -> audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs
+
             }
         }
         settingsRepository.registerChangeListener(prefsListener)
@@ -161,18 +171,23 @@ class PlaybackService : Service() {
 
         // If the intent is an update params action, apply parameters and return quickly
         if (intent?.action == ACTION_UPDATE_PARAMS) {
-            try {
-                val drum = intent.getFloatExtra(EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
-                val env = intent.getFloatExtra(EXTRA_ENVELOPE_SCALE, settingsRepository.envelopeScale)
-                val hh = intent.getFloatExtra(EXTRA_HIHAT_HIGHPASS, settingsRepository.hiHatHighpass)
-                audioPlayer.drumLevel = drum.toDouble()
-                audioPlayer.envelopeScale = env.toDouble()
-                audioPlayer.hiHatHighpass = hh.toDouble()
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to update params from intent: ${e.message}")
-            }
-            return START_NOT_STICKY
-        }
+             try {
+                 val drum = intent.getFloatExtra(EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
+                 val env = intent.getFloatExtra(EXTRA_ENVELOPE_SCALE, settingsRepository.envelopeScale)
+                 val hh = intent.getFloatExtra(EXTRA_HIHAT_HIGHPASS, settingsRepository.hiHatHighpass)
+                 audioPlayer.drumLevel = drum.toDouble()
+                 audioPlayer.envelopeScale = env.toDouble()
+                 audioPlayer.hiHatHighpass = hh.toDouble()
+                // strum timing params (ms)
+                try { audioPlayer.upStrokeOffsetMs = intent.getIntExtra(EXTRA_UP_STROKE_OFFSET_MS, settingsRepository.strokeOffsetMs) } catch (_: Exception) {}
+                try { audioPlayer.upStringStaggerMs = intent.getIntExtra(EXTRA_UP_STRING_STAGGER_MS, settingsRepository.stringStaggerMs) } catch (_: Exception) {}
+                try { audioPlayer.downStrokeOffsetMs = intent.getIntExtra(EXTRA_DOWN_STROKE_OFFSET_MS, settingsRepository.downStrokeOffsetMs) } catch (_: Exception) {}
+                try { audioPlayer.downStringStaggerMs = intent.getIntExtra(EXTRA_DOWN_STRING_STAGGER_MS, settingsRepository.downStringStaggerMs) } catch (_: Exception) {}
+             } catch (e: Exception) {
+                 Log.w(TAG, "Failed to update params from intent: ${e.message}")
+             }
+             return START_NOT_STICKY
+         }
 
         // If the intent is an updated progression, parse and replace the current progression so
         // live edits from editors (e.g. Drum/Strum editors) take effect immediately.
@@ -193,69 +208,9 @@ class PlaybackService : Service() {
                         } catch (e2: Exception) { Log.w(TAG, "updateProgression normalization failed: ${e2.message}") }
                     }
                     if (parsed != null) {
-                        // If playback is active and we have an existing progression, merge the drum patterns
-                        // into the running progression object so the playing coroutine sees the changes.
-                        if (_isPlaying.value && currentProgression != null) {
-                            try {
-                                val target = currentProgression!!
-                                // Ensure target has at least as many measures
-                                if (parsed.measures.size > target.measures.size) {
-                                    parsed.measures.subList(target.measures.size, parsed.measures.size).forEach { m ->
-                                        target.measures.add(m)
-                                    }
-                                }
-                                // Merge drumPattern (and optionally strumming) per measure
-                                parsed.measures.forEachIndexed { idx, srcMeasure ->
-                                  if (idx in target.measures.indices) {
-                                      try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
-                                      try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
-                                      // If chords were edited we could also merge them; keep it minimal for preview
-                                  } else {
-                                      target.measures.add(srcMeasure)
-                                  }
-                                }
-                                try { notificationManager.notify(NOTIFICATION_ID, createNotification(target, _isPlaying.value)) } catch (_: Exception) {}
-                                Log.i(TAG, "updateProgression: merged into running progression (measures=${target.measures.size})")
-                                // Restart playback job from current position to ensure the audio thread picks up changes immediately.
-                                try {
-                                    val currentPos = _currentPlaybackPosition.value ?: Pair(0, 0)
-                                    Log.i(TAG, "updateProgression: restarting playback to apply live changes at pos=$currentPos")
-                                    playbackJob?.cancel()
-                                    playbackJob = serviceScope.launch {
-                                        audioPlayer.playProgression(
-                                            progression = target,
-                                            shouldLoop = { when {
-                                                currentIsLoopingPreview -> true
-                                                currentIsPreview -> false
-                                                else -> settingsRepository.isLoopingEnabled
-                                            } },
-                                            pluckStrength = settingsRepository.pluckStrength,
-                                            countInBeats = if (currentIsPreview) 0 else settingsRepository.countInBeats,
-                                            onPositionChanged = { measureIndex, strumIndex -> _currentPlaybackPosition.value = Pair(measureIndex, strumIndex) },
-                                            startMeasureIndex = currentPos.first,
-                                            startStrumIndex = currentPos.second,
-                                            isResuming = true
-                                        )
-                                        if (currentIsPreview) {
-                                            currentIsPreview = false
-                                            currentIsLoopingPreview = false
-                                        }
-                                        if (isLastService()) stopPlayback()
-                                    }
-                                } catch (e: Exception) { Log.w(TAG, "updateProgression: failed to restart playback: ${e.message}") }
-                             } catch (e: Exception) {
-                                 Log.w(TAG, "updateProgression: merge failed: ${e.message}")
-                                 currentProgression = parsed
-                                 try { notificationManager.notify(NOTIFICATION_ID, createNotification(parsed, _isPlaying.value)) } catch (_: Exception) {}
-                             }
-                        } else {
-                            // Not playing: replace the stored progression
-                            currentProgression = parsed
-                            try { notificationManager.notify(NOTIFICATION_ID, createNotification(parsed, _isPlaying.value)) } catch (_: Exception) {}
-                            Log.i(TAG, "updateProgression: currentProgression replaced (measures=${parsed.measures.size})")
-                        }
-                    } else {
-                        Log.w(TAG, "updateProgression: parsed progression was null")
+                        // Delegate to helper that applies updates to either previewProgression
+                        // or currentProgression depending on what is playing.
+                        applyUpdatedProgression(parsed)
                     }
                 }
             } catch (e: Exception) {
@@ -331,8 +286,10 @@ class PlaybackService : Service() {
                         }
                     }
 
-                    if (currentProgression == null) {
-                        Log.e(TAG, "No valid progression provided for ACTION_PLAY")
+                    // Determine which progression we will play: previewProgression if preview, else currentProgression
+                    val toPlayCandidate = if (currentIsPreview) previewProgression else currentProgression
+                    if (toPlayCandidate == null) {
+                        Log.e(TAG, "No valid progression provided for ACTION_PLAY (isPreview=$currentIsPreview)")
                         // Show a minimal fallback notification and stop service
                         createNotificationChannel()
                         val fallbackNotif = NotificationCompat.Builder(this@PlaybackService, CHANNEL_ID)
@@ -350,10 +307,7 @@ class PlaybackService : Service() {
                     try {
                         // If this play call is a preview, do not resume from any paused position
                         if (currentIsPreview) pausedPosition = null
-                        // For previews, play the previewProgression without replacing currentProgression
-                        val toPlay = if (currentIsPreview) previewProgression else currentProgression
-                        if (toPlay == null) throw IllegalStateException("No progression to play")
-                        startPlayback(toPlay)
+                        startPlayback(toPlayCandidate)
                     } catch (e: Exception) { Log.w(TAG, "startPlayback failed: ${e.message}") }
                  }
                  return START_NOT_STICKY
@@ -546,22 +500,18 @@ class PlaybackService : Service() {
      * the notification so the UI reflects the change.
      */
     fun updateStrummingPattern(measureIndex: Int, pattern: StrummingPattern) {
-        try {
-            currentProgression?.let { prog ->
+         try {
+            val target = if (currentIsPreview && previewProgression != null) previewProgression else currentProgression
+            target?.let { prog ->
                 if (measureIndex in prog.measures.indices) {
                     prog.measures[measureIndex].strummingPattern = pattern
-                    // Refresh notification so title/summary reflect current progression
-                    try {
-                        notificationManager.notify(NOTIFICATION_ID, createNotification(prog, _isPlaying.value))
-                    } catch (nfe: Exception) {
-                        Log.w(TAG, "Failed to refresh notification after pattern update: ${nfe.message}")
-                    }
+                    try { notificationManager.notify(NOTIFICATION_ID, createNotification(prog, _isPlaying.value)) } catch (nfe: Exception) { Log.w(TAG, "Failed to refresh notification after pattern update: ${nfe.message}") }
                 }
             }
-        } catch (e: Exception) {
+         } catch (e: Exception) {
             Log.w(TAG, "updateStrummingPattern failed: ${e.message}")
-        }
-    }
+         }
+     }
 
     /**
      * Update a single measure's drum pattern in the service's in-memory progression.
@@ -570,121 +520,67 @@ class PlaybackService : Service() {
      * the notification so the UI reflects the change.
      */
     fun updateDrumPattern(measureIndex: Int, pattern: DrumPattern) {
-        try {
-            currentProgression?.let { prog ->
+         try {
+            val target = if (currentIsPreview && previewProgression != null) previewProgression else currentProgression
+            target?.let { prog ->
                 if (measureIndex in prog.measures.indices) {
                     prog.measures[measureIndex].drumPattern = pattern
-                    // Refresh notification so title/summary reflect current progression
-                    try {
-                        notificationManager.notify(NOTIFICATION_ID, createNotification(prog, _isPlaying.value))
-                    } catch (nfe: Exception) {
-                        Log.w(TAG, "Failed to refresh notification after drum pattern update: ${nfe.message}")
-                    }
+                    try { notificationManager.notify(NOTIFICATION_ID, createNotification(prog, _isPlaying.value)) } catch (nfe: Exception) { Log.w(TAG, "Failed to refresh notification after drum pattern update: ${nfe.message}") }
                 }
             }
-        } catch (e: Exception) {
+         } catch (e: Exception) {
             Log.w(TAG, "updateDrumPattern failed: ${e.message}")
-        }
+         }
     }
 
     // Helper to apply live progression updates (used by ACTION_UPDATE_PROGRESSION)
     private fun applyUpdatedProgression(parsed: ChordProgression) {
-        try {
-            if (_isPlaying.value) {
-                if (currentIsPreview) {
-                    // Merge into previewProgression so the running preview reflects edits
-                    val target = previewProgression ?: run {
-                        previewProgression = parsed
-                        return
-                    }
-                    if (parsed.measures.size > target.measures.size) {
-                        parsed.measures.subList(target.measures.size, parsed.measures.size).forEach { m -> target.measures.add(m) }
-                    }
-                    parsed.measures.forEachIndexed { idx, srcMeasure ->
-                        if (idx in target.measures.indices) {
-                            try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
-                            try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
-                        } else {
-                            target.measures.add(srcMeasure)
-                        }
-                    }
-                    try { notificationManager.notify(NOTIFICATION_ID, createNotification(target, _isPlaying.value)) } catch (_: Exception) {}
-                    // Restart playback from current position to apply changes immediately
-                    try {
-                        val currentPos = _currentPlaybackPosition.value ?: Pair(0, 0)
-                        playbackJob?.cancel()
-                        playbackJob = serviceScope.launch {
-                            audioPlayer.playProgression(
-                                progression = target,
-                                shouldLoop = { when {
-                                    currentIsLoopingPreview -> true
-                                    currentIsPreview -> false
-                                    else -> settingsRepository.isLoopingEnabled
-                                } },
-                                pluckStrength = settingsRepository.pluckStrength,
-                                countInBeats = if (currentIsPreview) 0 else settingsRepository.countInBeats,
-                                onPositionChanged = { measureIndex, strumIndex -> _currentPlaybackPosition.value = Pair(measureIndex, strumIndex) },
-                                startMeasureIndex = currentPos.first,
-                                startStrumIndex = currentPos.second,
-                                isResuming = true
-                            )
-                            if (currentIsPreview) {
-                                currentIsPreview = false
-                                currentIsLoopingPreview = false
-                            }
-                            if (isLastService()) stopPlayback()
-                        }
-                    } catch (e: Exception) { Log.w(TAG, "applyUpdatedProgression: failed to restart playback: ${e.message}") }
-                } else {
-                    // Merge into main progression
-                    val target = currentProgression ?: run { currentProgression = parsed; return }
-                    if (parsed.measures.size > target.measures.size) {
-                        parsed.measures.subList(target.measures.size, parsed.measures.size).forEach { m -> target.measures.add(m) }
-                    }
-                    parsed.measures.forEachIndexed { idx, srcMeasure ->
-                        if (idx in target.measures.indices) {
-                            try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
-                            try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
-                        } else {
-                            target.measures.add(srcMeasure)
-                        }
-                    }
-                    try { notificationManager.notify(NOTIFICATION_ID, createNotification(target, _isPlaying.value)) } catch (_: Exception) {}
-                    try {
-                        val currentPos = _currentPlaybackPosition.value ?: Pair(0, 0)
-                        playbackJob?.cancel()
-                        playbackJob = serviceScope.launch {
-                            audioPlayer.playProgression(
-                                progression = target,
-                                shouldLoop = { when {
-                                    currentIsLoopingPreview -> true
-                                    currentIsPreview -> false
-                                    else -> settingsRepository.isLoopingEnabled
-                                } },
-                                pluckStrength = settingsRepository.pluckStrength,
-                                countInBeats = if (currentIsPreview) 0 else settingsRepository.countInBeats,
-                                onPositionChanged = { measureIndex, strumIndex -> _currentPlaybackPosition.value = Pair(measureIndex, strumIndex) },
-                                startMeasureIndex = currentPos.first,
-                                startStrumIndex = currentPos.second,
-                                isResuming = true
-                            )
-                            if (currentIsPreview) {
-                                currentIsPreview = false
-                                currentIsLoopingPreview = false
-                            }
-                            if (isLastService()) stopPlayback()
-                        }
-                    } catch (e: Exception) { Log.w(TAG, "applyUpdatedProgression: failed to restart playback: ${e.message}") }
+         try {
+            // Merge parsed progression into either the previewProgression (if preview running) or
+            // into currentProgression. playProgression reads the progression object during playback,
+            // so we can safely update the in-memory progression in-place and the running audio will
+            // reflect the changes without cancelling/restarting the playback coroutine.
+            if (currentIsPreview) {
+                val target = previewProgression ?: run {
+                    previewProgression = parsed
+                    try { notificationManager.notify(NOTIFICATION_ID, createNotification(parsed, _isPlaying.value)) } catch (_: Exception) {}
+                    return
                 }
+                if (parsed.measures.size > target.measures.size) {
+                    parsed.measures.subList(target.measures.size, parsed.measures.size).forEach { m -> target.measures.add(m) }
+                }
+                parsed.measures.forEachIndexed { idx, srcMeasure ->
+                    if (idx in target.measures.indices) {
+                        try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
+                        try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                    } else {
+                        target.measures.add(srcMeasure)
+                    }
+                }
+                try { notificationManager.notify(NOTIFICATION_ID, createNotification(target, _isPlaying.value)) } catch (_: Exception) {}
             } else {
-                // Not playing: store parsed progression in main slot
-                currentProgression = parsed
-                try { notificationManager.notify(NOTIFICATION_ID, createNotification(parsed, _isPlaying.value)) } catch (_: Exception) {}
+                val target = currentProgression ?: run {
+                    currentProgression = parsed
+                    try { notificationManager.notify(NOTIFICATION_ID, createNotification(parsed, _isPlaying.value)) } catch (_: Exception) {}
+                    return
+                }
+                if (parsed.measures.size > target.measures.size) {
+                    parsed.measures.subList(target.measures.size, parsed.measures.size).forEach { m -> target.measures.add(m) }
+                }
+                parsed.measures.forEachIndexed { idx, srcMeasure ->
+                    if (idx in target.measures.indices) {
+                        try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
+                        try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                    } else {
+                        target.measures.add(srcMeasure)
+                    }
+                }
+                try { notificationManager.notify(NOTIFICATION_ID, createNotification(target, _isPlaying.value)) } catch (_: Exception) {}
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "applyUpdatedProgression failed: ${e.message}")
-        }
-    }
+         } catch (e: Exception) {
+             Log.w(TAG, "applyUpdatedProgression failed: ${e.message}")
+         }
+     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -718,6 +614,10 @@ class PlaybackService : Service() {
         const val EXTRA_DRUM_LEVEL = "com.metaview.chordprogressionhelper.extra.DRUM_LEVEL"
         const val EXTRA_ENVELOPE_SCALE = "com.metaview.chordprogressionhelper.extra.ENVELOPE_SCALE"
         const val EXTRA_HIHAT_HIGHPASS = "com.metaview.chordprogressionhelper.extra.HIHAT_HIGHPASS"
+        const val EXTRA_UP_STROKE_OFFSET_MS = "com.metaview.chordprogressionhelper.extra.UP_STROKE_OFFSET_MS"
+        const val EXTRA_UP_STRING_STAGGER_MS = "com.metaview.chordprogressionhelper.extra.UP_STRING_STAGGER_MS"
+        const val EXTRA_DOWN_STROKE_OFFSET_MS = "com.metaview.chordprogressionhelper.extra.DOWN_STROKE_OFFSET_MS"
+        const val EXTRA_DOWN_STRING_STAGGER_MS = "com.metaview.chordprogressionhelper.extra.DOWN_STRING_STAGGER_MS"
 
         const val EXTRA_PROGRESSION = "com.metaview.chordprogressionhelper.extra.PROGRESSION"
         const val EXTRA_PROGRESSION_PATH = "com.metaview.chordprogressionhelper.extra.PROGRESSION_PATH"

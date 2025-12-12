@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple piano keyboard: 4 white keys full height and 3 black keys positioned above the gaps.
+     White keys span full height; black keys are 80% of white key height and top-aligned. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="32dp"
+    android:viewportWidth="40"
+    android:viewportHeight="32">
+
+    <!-- white keys (4) -->
+    <path android:fillColor="#FFFFFFFF" android:strokeColor="#FF000000" android:strokeWidth="0.6"
+        android:pathData="M0,0 H10 V32 H0 Z" />
+    <path android:fillColor="#FFFFFFFF" android:strokeColor="#FF000000" android:strokeWidth="0.6"
+        android:pathData="M10,0 H20 V32 H10 Z" />
+    <path android:fillColor="#FFFFFFFF" android:strokeColor="#FF000000" android:strokeWidth="0.6"
+        android:pathData="M20,0 H30 V32 H20 Z" />
+    <path android:fillColor="#FFFFFFFF" android:strokeColor="#FF000000" android:strokeWidth="0.6"
+        android:pathData="M30,0 H40 V32 H30 Z" />
+
+    <!-- black keys (3) - 80% height -> 0.8 * 32 = 25.6 -> use 26 -->
+    <!-- positions roughly centered over the gaps: x ~7, 17, 27; width ~6 -->
+    <path android:fillColor="#FF000000" android:pathData="M7,0 H13 V26 H7 Z" />
+    <path android:fillColor="#FF000000" android:pathData="M17,0 H23 V26 H17 Z" />
+    <path android:fillColor="#FF000000" android:pathData="M27,0 H33 V26 H27 Z" />
+
+</vector>

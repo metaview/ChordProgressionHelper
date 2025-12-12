@@ -10,11 +10,11 @@ data class StrummingPattern(val name: String, val strums: List<Strum>) {
     val displayName: String = name
 
     companion object {
-        val DEFAULT = StrummingPattern("DDDDDDDD", List(8) { Strum.DOWN })
+        val DEFAULT = StrummingPattern("DUDUDUDU", List(8) { if (it % 2 == 0) Strum.DOWN else Strum.UP })
 
         val defaultPatterns = listOf(
+            DEFAULT,
             StrummingPattern("DDDDDDDD", List(8) { Strum.DOWN }),
-            StrummingPattern("DUDUDUDU", List(8) { if (it % 2 == 0) Strum.DOWN else Strum.UP }),
             StrummingPattern("D-U-D-U-", listOf(Strum.DOWN, Strum.REST, Strum.UP, Strum.REST, Strum.DOWN, Strum.REST, Strum.UP, Strum.REST)),
             StrummingPattern("D-DUD-DU", listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP, Strum.DOWN, Strum.REST, Strum.DOWN, Strum.UP)),
             StrummingPattern("-U-U-U-U", listOf(Strum.REST, Strum.UP, Strum.REST, Strum.UP, Strum.REST, Strum.UP, Strum.REST, Strum.UP)),

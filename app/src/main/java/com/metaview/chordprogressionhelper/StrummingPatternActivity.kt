@@ -1,6 +1,7 @@
+@file:Suppress("RedundantInitializer")
+
 package com.metaview.chordprogressionhelper
 
-import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -14,7 +15,6 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
-import com.google.android.material.button.MaterialButton
 import com.metaview.chordprogressionhelper.databinding.DialogStrummingPatternBinding
 import com.metaview.chordprogressionhelper.model.*
 import com.metaview.chordprogressionhelper.service.PlaybackService
@@ -25,6 +25,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
+import androidx.activity.OnBackPressedCallback
 
 class StrummingPatternActivity : AppCompatActivity() {
     companion object {
@@ -56,7 +57,19 @@ class StrummingPatternActivity : AppCompatActivity() {
     private var playbackStateJob: Job? = null
     // When false previews are suppressed and UI disabled
     private var previewsAllowed: Boolean = true
+    // When true we started a single (non-looping) preview via a pattern click and want
+    // the editor chips to remain enabled so repeated clicks can replay the pattern.
+    private var singlePlayInFlight: Boolean = false
+
     private val serviceConnection = object : ServiceConnection {
+        /**
+         * serviceConnection: Lifecycle hook zum Binden an den PlaybackService.
+         * onServiceConnected: Wird aufgerufen, wenn die Service-Bindung fertig ist. Hier holen
+         * wir das PlaybackService-Objekt, starten einen Coroutine-Listener auf den Playing-Status
+         * und starten ggf. eine zuvor angeforderte Vorschau (pendingPreviewProgression).
+         * onServiceDisconnected: Wird aufgerufen, wenn die Verbindung abbricht; räumt lokale
+         * Referenzen/Jobs auf und reaktiviert UI-Controls.
+         */
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as? PlaybackService.LocalBinder
             playbackService = binder?.getService()
@@ -65,9 +78,11 @@ class StrummingPatternActivity : AppCompatActivity() {
             playbackStateJob?.cancel()
             playbackStateJob = lifecycleScope.launch {
                 playbackService?.isPlaying?.collectLatest { playing ->
+                    // When playing becomes false, clear any single-play-in-flight marker
+                    if (!playing) singlePlayInFlight = false
                     // Keep Test enabled while a local preview (isPreviewActive) is running.
-                    // Only disable previews when the service is playing something that is not a local preview.
-                    setPreviewsAllowed(!playing || isPreviewActive)
+                    // Also keep editor chips enabled during a single non-loop play so repeated clicks replay.
+                    setPreviewsAllowed(!playing || isPreviewActive || singlePlayInFlight)
                 }
             }
             // If a preview was requested before binding completed, start it now
@@ -85,12 +100,13 @@ class StrummingPatternActivity : AppCompatActivity() {
                     isPreviewActive = true
                     setPreviewsAllowed(previewsAllowed)
                     try {
-                        val btnTest = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
-                        btnTest.setIconResource(R.drawable.ic_stop)
-                        btnTest.contentDescription = getString(R.string.stop)
+                        binding.btnTest.setIconResource(R.drawable.ic_stop)
+                        binding.btnTest.contentDescription = getString(R.string.stop)
                     } catch (_: Exception) {}
                 }
-            } catch (e: Exception) { Log.w(TAG, "Failed to start pending preview: ${e.message}") }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to start pending preview: ${e.message}")
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -103,14 +119,21 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     private fun setPreviewsAllowed(allowed: Boolean) {
+        /**
+         * setPreviewsAllowed(allowed)
+         * Zweck: Schaltet die UI-Elemente für Preview-Interaktion ein/aus.
+         * Eingabe: allowed — ob Preview-Interaktionen grundsätzlich erlaubt sind.
+         * Seiteneffekte: aktualisiert die interne Flag `previewsAllowed`, aktiviert/deaktiviert
+         * den Test-Button und die Pattern-Chips (visuell über alpha). Berücksichtigt, dass
+         * ein bereits laufender Preview-Loop nicht ausgegraut werden darf.
+         */
         previewsAllowed = allowed
         // Disable/enable Test button
         try {
-            val btnTest = binding.root.findViewById<MaterialButton>(R.id.btnTest)
             // Keep Test enabled while a local preview is active so the user can stop it
             val testEnabled = allowed || isPreviewActive
-            btnTest.isEnabled = testEnabled
-            btnTest.alpha = if (testEnabled) 1.0f else 0.45f
+            binding.btnTest.isEnabled = testEnabled
+            binding.btnTest.alpha = if (testEnabled) 1.0f else 0.45f
         } catch (_: Exception) {}
         // Disable/enable chips
         try {
@@ -125,6 +148,12 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        /**
+         * onCreate(savedInstanceState)
+         * Initialisiert die Activity: ViewBinding aufbauen, Intent-Extras lesen (Start-Pattern,
+         * Tonika, Key/Mode/Tempo), lokale State-Variablen setzen und die UI-Setup-Methoden
+         * (Fades, Chips, Pattern-Listen, Buttons) aufrufen.
+         */
         // Use the fullscreen dialog theme via manifest/theme. setTheme not required here.
         super.onCreate(savedInstanceState)
         binding = DialogStrummingPatternBinding.inflate(layoutInflater)
@@ -157,9 +186,28 @@ class StrummingPatternActivity : AppCompatActivity() {
         setupDefaultPatterns()
         setupButtons()
         updateStrumViews()
+
+        // Handle back press via OnBackPressedDispatcher to show save dialog
+        try {
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    try {
+                        performCancel()
+                    } catch (_: Exception) {
+                        // fallback: close activity safely from the callback
+                        try { this@StrummingPatternActivity.finish() } catch (_: Exception) { /* best-effort */ }
+                    }
+                }
+            })
+        } catch (_: Exception) {}
     }
 
     override fun onStart() {
+        /**
+         * onStart()
+         * Lifecycle: bei Start versuchen wir die Bindung an den PlaybackService herzustellen,
+         * damit wir Playback-Zustand abfragen und Previews starten/stoppen können.
+         */
         super.onStart()
         // Bind to playback service to query playing state
         try {
@@ -169,6 +217,12 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        /**
+         * onStop()
+         * Lifecycle: beim Verlassen der Activity/Dialogs sicherstellen, dass laufende Preview-Loops
+         * gestoppt werden, ausstehende pendingPreview-Aufträge verworfen werden und die Service-Bindung
+         * (falls vorhanden) aufgehoben wird.
+         */
         super.onStop()
         // Ensure any active preview is stopped immediately when dialog is left
         if (isPreviewActive) {
@@ -179,9 +233,8 @@ class StrummingPatternActivity : AppCompatActivity() {
             // update UI after stopping preview
             setPreviewsAllowed(previewsAllowed)
             try {
-                val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
-                btn.setIconResource(R.drawable.ic_play_arrow)
-                btn.contentDescription = getString(R.string.test)
+                binding.btnTest.setIconResource(R.drawable.ic_play_arrow)
+                binding.btnTest.contentDescription = getString(R.string.test)
             } catch (_: Exception) {}
         }
         // If binding is in progress but a pending preview was set, clear it so it won't start after onStop
@@ -199,10 +252,16 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     private fun setupFadesAndScroll() {
+        /**
+         * setupFadesAndScroll()
+         * Aufgabe: Initialisiert die seitlichen Fade-Overlays im Dialog (links/rechts) und
+         * registriert Scroll-Listener, um Ein-/Ausblenden je nach Scroll-Position zu steuern.
+         * Keine Eingaben/Outputs; reagiert auf Layout-Events.
+         */
         try {
             val scroll = binding.strumEditorScroll
-            val fadeLeft = binding.root.findViewById<View>(R.id.fadeLeft)
-            val fadeRight = binding.root.findViewById<View>(R.id.fadeRight)
+            val fadeLeft = binding.fadeLeft
+            val fadeRight = binding.fadeRight
             fadeLeft.visibility = View.GONE
             fadeRight.visibility = View.GONE
 
@@ -233,6 +292,11 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     private fun setupStrumChips() {
+        /**
+         * setupStrumChips()
+         * Baut die 8 Strum-Chips (Buttons) auf, setzt deren Klick-Handler zum toggeln der
+         * Strum-Enum-Werte und sendet bei Binding ein Update an den Service (falls measureIndex >= 0).
+         */
         val inflater = layoutInflater
         binding.strummingPatternEditor.removeAllViews()
         val size = resources.getDimensionPixelSize(R.dimen.pattern_icon_size)
@@ -264,12 +328,20 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     private fun setupDefaultPatterns() {
+        /**
+         * setupDefaultPatterns()
+         * Rendert die Listen der verwendeten und der vordefinierten Strumming-Pattern.
+         * Fügt Headers (Used / Other) hinzu, baut Zeilen mit Icons und click-Handlern.
+         * Klick auf ein Pattern aktualisiert die UI (chips) und startet eine Einmal-Wiedergabe
+         * oder aktualisiert eine laufende Preview via PlaybackService.updateProgression/updateStrummingPattern.
+         */
         binding.defaultPatternsLayout.removeAllViews()
         try { binding.defaultPatternsLayout.orientation = LinearLayout.VERTICAL } catch (_: Exception) {}
+        // Increase vertical spacing: itemPadding controls internal vertical padding of the card,
+        // rowMargin controls space between rows. Raise to provide clearer separation.
         val itemPadding = (2 * resources.displayMetrics.density).toInt()
         val iconSize = (20 * resources.displayMetrics.density).toInt()
-        val rowMargin = (1 * resources.displayMetrics.density).toInt()
-        val iconMargin = 0
+        val rowMargin = (4 * resources.displayMetrics.density).toInt()
         val nameMargin = resources.getDimensionPixelSize(R.dimen.pattern_name_margin)
 
         // Build sets to avoid duplicates
@@ -293,67 +365,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                         val k = keyOf(p)
                         if (seen.contains(k)) return@forEach
                         seen.add(k)
-                        // create row for this pattern (reuse existing row-building code below)
-                        val row = LinearLayout(this).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(rowMargin, rowMargin, rowMargin, rowMargin) }
-                            setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 2)
-                            isClickable = true
-                            isFocusable = true
-                            val tv = android.util.TypedValue()
-                            if (theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) foreground = ContextCompat.getDrawable(context, tv.resourceId)
-                        }
-                        p.strums.forEach { s ->
-                            val iv = ImageView(this).apply {
-                                setImageResource(strumToDrawable(s))
-                                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply { setMargins(iconMargin, 0, iconMargin, 0) }
-                                try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data) } catch (_: Exception) {}
-                            }
-                            row.addView(iv)
-                        }
-                        val safeName = p.name
-                            .replace('\u2013', '-')
-                            .replace('\u2014', '-')
-                            .replace('\u2010', '-')
-                            .replace('\u2011', '-')
-                        val nameTv = TextView(this).apply {
-                            text = safeName
-                            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(nameMargin, 0, 0, 0) }
-                            textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-                            isSingleLine = true
-                            ellipsize = android.text.TextUtils.TruncateAt.END
-                            setHorizontallyScrolling(true)
-                            includeFontPadding = false
-                            letterSpacing = 0f
-                            try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
-                        }
-                        try { val embedded = ResourcesCompat.getFont(this, R.font.roboto_mono); if (embedded != null) nameTv.typeface = embedded } catch (_: Exception) {}
-                        row.addView(nameTv)
-
-                        row.setOnClickListener {
-                            if (!previewsAllowed) return@setOnClickListener
-                            p.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
-                            updateStrumViews()
-                            try {
-                                val livePattern = StrummingPattern(p.name, p.strums.toList())
-                                val chord = tonicChord
-                                if (chord != null) {
-                                    val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
-                                    try { tempProg.measures.clear() } catch (_: Exception) {}
-                                    val m = Measure(1)
-                                    try { m.addChord(chord, 0) } catch (_: Exception) {}
-                                    m.strummingPattern = livePattern
-                                    tempProg.measures.add(m)
-                                    try { PlaybackService.stop(this) } catch (_: Exception) {}
-                                    PlaybackService.play(this, tempProg, true)
-                                    isPreviewActive = true
-                                    // re-evaluate preview-enabled UI so Test button remains enabled for local preview
-                                    setPreviewsAllowed(previewsAllowed)
-                                 }
-                             } catch (e: Exception) { Log.w(TAG, "Failed to handle pattern click: ${e.message}") }
-                         }
-
+                        val row = createPatternRow(p, showName = false, iconSize = iconSize, nameMargin = nameMargin, itemPadding = itemPadding, rowMargin = rowMargin)
                         binding.defaultPatternsLayout.addView(row)
                     } catch (_: Exception) {}
                 }
@@ -386,94 +398,21 @@ class StrummingPatternActivity : AppCompatActivity() {
         StrummingPattern.defaultPatterns.forEach { pattern ->
             try {
                 val k = keyOf(pattern)
-                if (seen.contains(k)) return@forEach
+                //if (seen.contains(k)) return@forEach
                 seen.add(k)
             } catch (_: Exception) {}
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(rowMargin, rowMargin, rowMargin, rowMargin) }
-                setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 2)
-                isClickable = true
-                isFocusable = true
-                val tv = android.util.TypedValue()
-                if (theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) foreground = ContextCompat.getDrawable(context, tv.resourceId)
-            }
-            pattern.strums.forEach { s ->
-                val iv = ImageView(this).apply {
-                    setImageResource(strumToDrawable(s))
-                    layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply { setMargins(iconMargin, 0, iconMargin, 0) }
-                    try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data) } catch (_: Exception) {}
-                }
-                row.addView(iv)
-            }
-            // Add pattern name on the right side of the row (takes remaining space, right-aligned)
-            try {
-                // sanitize name to avoid font-fallback for special dashes/characters
-                val safeName = pattern.name
-                    .replace('\u2013', '-') // en dash
-                    .replace('\u2014', '-') // em dash
-                    .replace('\u2010', '-') // hyphen
-                    .replace('\u2011', '-') // non-breaking hyphen
-                val nameTv = TextView(this).apply {
-                    // set sanitized text
-                    text = safeName
-                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(nameMargin, 0, 0, 0) }
-                    textAlignment = View.TEXT_ALIGNMENT_VIEW_END
-                    isSingleLine = true
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                    setHorizontallyScrolling(true)
-                    includeFontPadding = false
-                    letterSpacing = 0f
-                    try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
-                }
-                // Request the monospace font via the Google Fonts provider and apply it when ready.
-                // Prefer an embedded TTF if present (place RobotoMono-Regular.ttf as res/font/roboto_mono.ttf)
-                try {
-                    val embedded = ResourcesCompat.getFont(this, R.font.roboto_mono)
-                    if (embedded != null) {
-                        nameTv.typeface = embedded
-                    } else {
-                        requestAndApplyMonospace(nameTv)
-                    }
-                } catch (_: Exception) {
-                    requestAndApplyMonospace(nameTv)
-                }
-                row.addView(nameTv)
-            } catch (_: Exception) {}
-
-            row.setOnClickListener {
-                // If previews are not allowed, ignore the click
-                if (!previewsAllowed) return@setOnClickListener
-
-                pattern.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
-                updateStrumViews()
-                // play preview with tonic if available
-                try {
-                    val livePattern = StrummingPattern(pattern.name, pattern.strums.toList())
-                    val chord = tonicChord
-                    if (chord != null) {
-                        val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
-                        try { tempProg.measures.clear() } catch (_: Exception) {}
-                        val m = Measure(1)
-                        try { m.addChord(chord, 0) } catch (_: Exception) {}
-                        m.strummingPattern = livePattern
-                        tempProg.measures.add(m)
-                        try { PlaybackService.stop(this) } catch (_: Exception) {}
-                        PlaybackService.play(this, tempProg, true)
-                        isPreviewActive = true
-                        // ensure UI reflects that a local preview is active (keeps Test enabled)
-                        setPreviewsAllowed(previewsAllowed)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to handle default pattern click: ${e.message}")
-                }
-            }
+            val row = createPatternRow(pattern, showName = true, iconSize = iconSize, nameMargin = nameMargin, itemPadding = itemPadding, rowMargin = rowMargin)
             binding.defaultPatternsLayout.addView(row)
         }
+
+        // Rows use container padding to ensure correct visible width; no programmatic width adjustment needed
     }
 
     private fun strumToDrawable(s: Strum): Int = when (s) {
+        /**
+         * strumToDrawable(s)
+         * Hilfsfunktion: mappt ein Strum-Enum auf das korrespondierende Drawable-Resource-ID.
+         */
         Strum.DOWN -> R.drawable.ic_strum_down
         Strum.UP -> R.drawable.ic_strum_up
         Strum.MUTE -> R.drawable.ic_strum_mute
@@ -482,6 +421,11 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     private fun updateStrumViews() {
+        /**
+         * updateStrumViews()
+         * Aktualisiert die Darstellung der Strum-Chips entsprechend der aktuellen
+         * `currentStrums`-Liste (Icon + contentDescription für Accessibility).
+         */
         val views = binding.strummingPatternEditor
         for (i in 0 until views.childCount) {
             val view = views.getChildAt(i)
@@ -494,31 +438,16 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-        val btnOk = binding.root.findViewById<MaterialButton>(R.id.btnOk)
-        val btnCancel = binding.root.findViewById<MaterialButton>(R.id.btnCancel)
-        val btnTest = binding.root.findViewById<MaterialButton>(R.id.btnTest)
+        /**
+         * setupButtons()
+         * Initialisiert die OK/Test Buttons und ihre Click-Handler.
+         * - Ok: speichert das Pattern als Activity-Result
+         * - Test: startet/stoppt eine loopende Preview via PlaybackService (oder setzt pendingPreview)
+         */
+        val btnOk = binding.btnOk
+        val btnTest = binding.btnTest
 
-        btnOk.setOnClickListener {
-            try {
-                val pattern = StrummingPattern("Custom", currentStrums.toList())
-                val json = Json.encodeToString(pattern)
-                val intent = intent
-                intent.putExtra(EXTRA_MEASURE_INDEX, measureIndex)
-                intent.putExtra(EXTRA_STRUMMING_PATTERN_JSON, json)
-                setResult(RESULT_OK, intent)
-                if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
-                finish()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to save strumming pattern", e)
-                Log.w(TAG, "Failed to save strumming pattern: ${e.message}")
-            }
-        }
-
-        btnCancel.setOnClickListener {
-            if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
-            setResult(RESULT_CANCELED)
-            finish()
-        }
+        btnOk.setOnClickListener { performOk() }
 
         btnTest.setOnClickListener {
             try {
@@ -534,7 +463,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     try { tonicChord?.let { m.addChord(it, 0) } } catch (_: Exception) {}
                     m.strummingPattern = livePattern
                     // Ensure no drums are played during a strumming-only preview
-                    try { m.drumPattern = com.metaview.chordprogressionhelper.model.DrumPattern("Silent", List(8) { com.metaview.chordprogressionhelper.model.DrumStep() }) } catch (_: Exception) {}
+                    try { m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() }) } catch (_: Exception) {}
                     tempProg.measures.add(m)
                     try { PlaybackService.stop(this) } catch (_: Exception) {}
                     try {
@@ -555,7 +484,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     // ensure UI reflects that a local preview is active (keeps Test enabled)
                     setPreviewsAllowed(previewsAllowed)
                     try {
-                        (btnTest as? com.google.android.material.button.MaterialButton)?.apply {
+                        binding.btnTest.apply {
                             setIconResource(R.drawable.ic_stop)
                             contentDescription = getString(R.string.stop)
                         }
@@ -573,7 +502,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     // update UI after stopping preview
                     setPreviewsAllowed(previewsAllowed)
                     try {
-                        (btnTest as? com.google.android.material.button.MaterialButton)?.apply {
+                        binding.btnTest.apply {
                             setIconResource(R.drawable.ic_play_arrow)
                             contentDescription = getString(R.string.test)
                         }
@@ -585,7 +514,44 @@ class StrummingPatternActivity : AppCompatActivity() {
         }
     }
 
+    private fun performOk() {
+        /**
+         * performOk()
+         * Speichert das aktuell editierte Strumming-Pattern als Ergebnis (Intent-Extras) und
+         * beendet die Activity mit RESULT_OK; stoppt ggf. aktive Previews.
+         */
+        try {
+            val pattern = StrummingPattern("Custom", currentStrums.toList())
+            val json = Json.encodeToString(pattern)
+            val intent = intent
+            intent.putExtra(EXTRA_MEASURE_INDEX, measureIndex)
+            intent.putExtra(EXTRA_STRUMMING_PATTERN_JSON, json)
+            setResult(RESULT_OK, intent)
+            if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
+            finish()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save strumming pattern", e)
+            Log.w(TAG, "Failed to save strumming pattern: ${e.message}")
+        }
+    }
+
+    private fun performCancel() {
+        /**
+         * performCancel()
+         * Verwirft Änderungen, beendet die Activity mit RESULT_CANCELED und stoppt ggf. aktive Previews.
+         */
+        if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
+        setResult(RESULT_CANCELED)
+        finish()
+    }
+
+
     private fun requestAndApplyMonospace(textView: TextView) {
+        /**
+         * requestAndApplyMonospace(textView)
+         * Fallback-Helper für die Monospace-Schrift: setzt eine System-Monospace-Schrift auf das
+         * übergebene TextView, wenn die Google-Font-Anfrage nicht greift.
+         */
         // Fallback: Verwende die System-Monospace-Schrift. Die eingebettete Roboto-Mono wird
         // bereits an den Aufrufstellen bevorzugt geladen (ResourcesCompat.getFont).
         // Entferne die ursprüngliche FontRequest.Builder-Verwendung, die in diesem Projekt
@@ -599,6 +565,11 @@ class StrummingPatternActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        /**
+         * onDestroy()
+         * Säubert beim Zerstören der Activity alle verbleibenden Previews und Service-Referenzen.
+         * Wird automatisch vom Framework aufgerufen.
+         */
         super.onDestroy()
         // Ensure nothing is left playing and clear pending previews
         try {
@@ -609,5 +580,148 @@ class StrummingPatternActivity : AppCompatActivity() {
         isPreviewActive = false
         pendingPreviewProgression = null
         pendingPreviewLooping = false
+    }
+
+    // Helper: create a pattern row (used for both 'Used' and 'Other' lists)
+    private fun createPatternRow(
+        pattern: StrummingPattern,
+        showName: Boolean,
+        iconSize: Int,
+        nameMargin: Int,
+        itemPadding: Int,
+        rowMargin: Int
+    ): LinearLayout {
+        val horizontalMargin = (12 * resources.displayMetrics.density).toInt() // small inset from dialog edges (was removed earlier)
+        val extraLeftPadding = (6 * resources.displayMetrics.density).toInt()   // push content a bit to the right
+        val extraRightPadding = (2 * resources.displayMetrics.density).toInt()
+
+        // Outer container: use padding so the visible inner card width becomes parentWidth - 2*horizontalMargin
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            // use padding (not margins) so the inner card's background fills the padded area correctly
+            // horizontalMargin ensures visible card width == parentWidth - 2*horizontalMargin
+            setPadding(horizontalMargin, rowMargin, horizontalMargin, rowMargin)
+            isClickable = false
+            isFocusable = false
+        }
+
+        // Inner card: gets rounded background and padding; fills the container width
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            setPadding(itemPadding + extraLeftPadding, itemPadding / 2, itemPadding + extraRightPadding, itemPadding / 2)
+            isClickable = true
+            isFocusable = true
+            val tv = android.util.TypedValue()
+            if (theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) foreground = ContextCompat.getDrawable(context, tv.resourceId)
+        }
+
+        // Subtle background/stroke using theme colors (semi-transparent stroke, light bg tint)
+        try {
+            val tvSurface = android.util.TypedValue()
+            val surfaceColor = if (theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceBright, tvSurface, true)) tvSurface.data else android.graphics.Color.WHITE
+            val tvOn = android.util.TypedValue()
+            val onColor = if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tvOn, true)) tvOn.data else android.graphics.Color.DKGRAY
+            val strokeAlpha = 0x40 // ~25% alpha
+            val bgAlpha = 0x40
+            val strokeColor = (onColor and 0x00FFFFFF) or (strokeAlpha shl 24)
+            val bgColor = (surfaceColor and 0x00FFFFFF) or (bgAlpha shl 24)
+            val radius = (8 * resources.displayMetrics.density)
+            val strokePx = (1 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
+            val gd = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = radius
+                setColor(bgColor)
+                setStroke(strokePx, strokeColor)
+            }
+            card.background = gd
+        } catch (_: Exception) {}
+
+        // Add icons into the inner card
+        pattern.strums.forEach { s ->
+            val iv = ImageView(this).apply {
+                setImageResource(strumToDrawable(s))
+                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply { setMargins(0, 0, 0, 0) }
+                try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data) } catch (_: Exception) {}
+            }
+            card.addView(iv)
+        }
+
+        // Name (right aligned) or empty if showName=false
+        val nameText = if (showName) pattern.name else ""
+        val nameTv = TextView(this).apply {
+            text = nameText
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(nameMargin, 0, 0, 0) }
+            textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setHorizontallyScrolling(true)
+            includeFontPadding = false
+            letterSpacing = 0f
+            try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
+        }
+        try { val embedded = ResourcesCompat.getFont(this, R.font.roboto_mono); if (embedded != null) nameTv.typeface = embedded } catch (_: Exception) { requestAndApplyMonospace(nameTv) }
+        card.addView(nameTv)
+
+        // Click handler: unified behavior for preview/update — attach to card so clicks inside card trigger
+        card.setOnClickListener {
+            if (!previewsAllowed) return@setOnClickListener
+            pattern.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
+            updateStrumViews()
+
+            val isPatternPreviewEnabled = try { (application as MyApplication).settingsRepository.isPatternPreviewEnabled } catch (_: Exception) { true }
+            if (!isPatternPreviewEnabled) return@setOnClickListener
+
+            try {
+                val livePattern = StrummingPattern(pattern.name, pattern.strums.toList())
+                val chord = tonicChord
+                if (chord != null) {
+                    if (isPreviewActive) {
+                        try {
+                            if (isServiceBound && playbackService != null) {
+                                try { playbackService?.updateStrummingPattern(0, livePattern) } catch (_: Exception) {}
+                            } else {
+                                try {
+                                    if (pendingPreviewProgression != null) {
+                                        try { pendingPreviewProgression?.measures?.getOrNull(0)?.let { it.strummingPattern = livePattern } } catch (_: Exception) {}
+                                        try { PlaybackService.updateProgression(this, pendingPreviewProgression!!) } catch (_: Exception) {}
+                                    } else {
+                                        val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
+                                        try { tempProg.measures.clear() } catch (_: Exception) {}
+                                        val m = Measure(1)
+                                        try { m.addChord(chord, 0) } catch (_: Exception) {}
+                                        m.strummingPattern = livePattern
+                                        tempProg.measures.add(m)
+                                        try { m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() }) } catch (_: Exception) {}
+                                        try { PlaybackService.updateProgression(this, tempProg) } catch (_: Exception) {}
+                                        pendingPreviewProgression = tempProg
+                                        pendingPreviewLooping = true
+                                    }
+                                } catch (e: Exception) { Log.w(TAG, "Failed to send updateProgression for pending preview: ${e.message}") }
+                            }
+                            setPreviewsAllowed(previewsAllowed)
+                        } catch (e: Exception) { Log.w(TAG, "Failed to update running preview: ${e.message}") }
+                    } else {
+                        val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
+                        try { tempProg.measures.clear() } catch (_: Exception) {}
+                        val m = Measure(1)
+                        try { m.addChord(chord, 0) } catch (_: Exception) {}
+                        m.strummingPattern = livePattern
+                        try { m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() }) } catch (_: Exception) {}
+                        tempProg.measures.add(m)
+                        try { PlaybackService.stop(this) } catch (_: Exception) {}
+                        try { PlaybackService.play(this, tempProg, true) } catch (e: Exception) { Log.w(TAG, "Failed to start single-play preview: ${e.message}") }
+                    }
+                }
+            } catch (e: Exception) { Log.w(TAG, "Failed to handle pattern click: ${e.message}") }
+        }
+
+        // Add card into container; matching layout params (MATCH_PARENT + margins) ensure
+        // visible card width equals parent width minus 2*horizontalMargin.
+        container.addView(card)
+
+        return container
     }
 }

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Drumset icon: hi-hat (left), cymbal (right), snare & kick in center. Kick is larger and slightly overlaps the snare. Theme-tintable colors. Wider viewport to allow a slightly wider icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="24dp"
+    android:viewportWidth="32"
+    android:viewportHeight="24">
+
+    <!-- cymbal (right) -->
+    <path
+        android:name="cymbal_right"
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M23.5,5.5c1-0.6,2.5-1.0,3.7-1.0c0.5,0,0.8,0.2,0.8,0.5c0,0.6-1.4,1.4-4,1.4c-1.4,0-2.1-0.2-3.2-0.9z" />
+
+    <!-- hi-hat (left) -->
+    <path
+        android:name="hihat_left"
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6.5,5.5c-1-0.6-2.5-1.0-3.7-1.0C2.3,4.1,2,4.4,2,4.7c0,0.6,1.4,1.4,4,1.4c1.4,0,2.1-0.2,3.2-0.9z" />
+
+    <!-- snare (center) moved down by ~30% so the kick overlaps more -->
+    <path
+        android:name="snare"
+        android:fillColor="?attr/colorOnPrimary"
+        android:pathData="M10,9.9h12v2.6c0,0.3-1.6,0.8-5,0.8s-5-0.5-5-0.8V9.9z" />
+
+    <!-- kick (center) enlarged by ~20% so it slightly overlaps the snare -->
+    <path
+        android:name="kick"
+        android:fillColor="?attr/colorSecondary"
+        android:pathData="M16,14.42c-4.32,0-7.8,1.92-7.8,4.56S11.68,23.78,16,23.78s7.8-1.92,7.8-4.56S20.32,14.42,16,14.42z" />
+
+    <!-- small stands / accents (thin lines) -->
+    <path
+        android:name="stand_left"
+        android:strokeColor="?attr/colorOnPrimary"
+        android:strokeWidth="0.6"
+        android:pathData="M8.5,8 L8.5,12" />
+    <path
+        android:name="stand_right"
+        android:strokeColor="?attr/colorOnPrimary"
+        android:strokeWidth="0.6"
+        android:pathData="M23.5,8 L23.5,12" />
+
+</vector>

@@ -34,7 +34,7 @@
         android:textSize="14sp"
         android:textStyle="bold" />
 
-    <HorizontalScrollView
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp">
@@ -45,7 +45,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal" />
 
-    </HorizontalScrollView>
+    </ScrollView>
 
     <TextView
         android:layout_width="wrap_content"
@@ -55,18 +55,19 @@
         android:textSize="14sp"
         android:textStyle="bold" />
 
-    <HorizontalScrollView
+    <!-- Other patterns: vertical list with preview on the left like Strums -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp">
 
         <LinearLayout
             android:id="@+id/otherPatternsLayout"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal" />
+            android:orientation="vertical" />
 
-    </HorizontalScrollView>
+    </ScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -90,19 +91,11 @@
         <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnCancel"
-            style="@style/Widget.ChordProgressionHelper.MaterialButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/cancel"
-            android:layout_marginEnd="8dp" />
-
-        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnOk"
             style="@style/Widget.ChordProgressionHelper.MaterialButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/ok" />
+            android:text="@string/save" />
     </LinearLayout>
 
 </LinearLayout>

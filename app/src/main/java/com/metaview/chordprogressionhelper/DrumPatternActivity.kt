@@ -20,15 +20,18 @@ import kotlinx.serialization.json.Json
 import android.widget.Toast
 import android.content.res.ColorStateList
 import android.util.TypedValue
+import androidx.activity.OnBackPressedCallback
 import kotlinx.serialization.InternalSerializationApi
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import com.metaview.chordprogressionhelper.data.SettingsRepository
+import com.metaview.chordprogressionhelper.databinding.DialogDrumPatternBinding
 import com.metaview.chordprogressionhelper.util.AudioPlayer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import com.metaview.chordprogressionhelper.model.StrummingPattern
 import com.metaview.chordprogressionhelper.model.Strum
+import androidx.appcompat.app.AlertDialog
 
 @OptIn(InternalSerializationApi::class)
 class DrumPatternActivity : AppCompatActivity() {
@@ -51,6 +54,7 @@ class DrumPatternActivity : AppCompatActivity() {
     private var modeVal: Mode = Mode.MAJOR
     private var tempoVal: Int = 120
 
+    private lateinit var binding: DialogDrumPatternBinding
     private var isPreviewActive = false
 
     // Bind to PlaybackService to check if main playback is running
@@ -62,6 +66,12 @@ class DrumPatternActivity : AppCompatActivity() {
     private var previewsAllowed: Boolean = true
     private var playbackStateJob: Job? = null
 
+    /**
+     * serviceConnection: verwaltet die Bindung an den PlaybackService.
+     * onServiceConnected: erhält das Binder-Objekt, startet einen Listener auf den Play-Status
+     * und startet ggf. eine zuvor gespeicherte pending-Preview.
+     * onServiceDisconnected: räumt Referenzen auf und reaktiviert UI-Controls.
+     */
     private val serviceConnection = object : android.content.ServiceConnection {
         override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
             val binder = service as? PlaybackService.LocalBinder
@@ -91,24 +101,22 @@ class DrumPatternActivity : AppCompatActivity() {
                     pendingPreviewLooping = false
                 }
                 try {
-                    val btnTest = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
-                    btnTest.setIconResource(R.drawable.ic_stop)
-                    btnTest.contentDescription = getString(R.string.stop)
+                    binding.btnTest.setIconResource(R.drawable.ic_stop)
+                    binding.btnTest.contentDescription = getString(R.string.stop)
                 } catch (_: Exception) {}
             }
 
             // enable Test button now that service is bound
             try {
-                val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
-                btn.isEnabled = true
-                btn.isClickable = true
-                btn.isFocusable = true
-                btn.alpha = 1.0f
+                binding.btnTest.isEnabled = true
+                binding.btnTest.isClickable = true
+                binding.btnTest.isFocusable = true
+                binding.btnTest.alpha = 1.0f
                 try {
                     val tv = TypedValue()
                     val resolved = theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, tv, true)
                     val color = if (resolved) tv.data else 0xFF000000.toInt()
-                    btn.iconTint = ColorStateList.valueOf(color)
+                    binding.btnTest.iconTint = ColorStateList.valueOf(color)
                 } catch (_: Exception) {}
             } catch (_: Exception) {}
         }
@@ -119,28 +127,39 @@ class DrumPatternActivity : AppCompatActivity() {
             playbackStateJob?.cancel()
             playbackStateJob = null
             try {
-                val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
-                btn.isEnabled = true
-                btn.isClickable = true
-                btn.isFocusable = true
-                btn.alpha = 1.0f
+                binding.btnTest.isEnabled = true
+                binding.btnTest.isClickable = true
+                binding.btnTest.isFocusable = true
+                binding.btnTest.alpha = 1.0f
             } catch (_: Exception) {}
         }
     }
 
+    /**
+     * setPreviewsAllowed(allowed)
+     * Zweck: aktiviert/deaktiviert UI-Elemente für Previews (Test-Button) basierend auf
+     * erlaubtem Zustand und laufender lokaler Preview.
+     * Eingabe: allowed — generell erlauben; Seiteneffekt: ändert Button-Enabled/Alpha.
+     */
     private fun setPreviewsAllowed(allowed: Boolean) {
         previewsAllowed = allowed
         try {
-            val btnTest = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
             val testEnabled = allowed || isPreviewActive
-            btnTest.isEnabled = testEnabled
-            btnTest.alpha = if (testEnabled) 1.0f else 0.45f
+            binding.btnTest.isEnabled = testEnabled
+            binding.btnTest.alpha = if (testEnabled) 1.0f else 0.45f
         } catch (_: Exception) {}
     }
 
+    /**
+     * onCreate(savedInstanceState)
+     * Initialisiert die Activity: ViewBinding, SettingsRepository, Eingabe-Extras (Pattern,
+     * Tempo/Key/Mode) parsen und UI-Aufbau (Chips, Pattern-Listen, Buttons) ausführen.
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.dialog_drum_pattern)
+        //setContentView(R.layout.dialog_drum_pattern)
+        binding = DialogDrumPatternBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         settingsRepository = (application as MyApplication).settingsRepository
 
@@ -166,10 +185,31 @@ class DrumPatternActivity : AppCompatActivity() {
         setupDrumChips()
         setupDefaultPatterns(extraPatterns)
         setupButtons()
+
+        // Handle back press via OnBackPressedDispatcher
+        try {
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    try {
+                        performCancel()
+                    } catch (_: Exception) {
+                        // fallback: close activity safely from the callback
+                        try { this@DrumPatternActivity.finish() } catch (_: Exception) { /* best-effort */ }
+                    }
+                }
+            })
+        } catch (_: Exception) {}
     }
 
+    /**
+     * setupDrumChips()
+     * Baut die UI-Reihen für die Drum-Schritte auf.
+     * Für jeden Schritt werden Kick/Snare/HiHat-Icons erzeugt, Klicks toggeln die Zustände,
+     * aktualisieren das temporäre Preview-Progression-Objekt und spielen optional einen
+     * Einzelklang als Preview (abhängig von Settings.isDrumPreviewEnabled).
+     */
     private fun setupDrumChips() {
-        val container = findViewById<LinearLayout>(R.id.drumStepsContainer)
+        val container = binding.drumStepsContainer
         container.removeAllViews()
         val inflater = LayoutInflater.from(this)
 
@@ -197,7 +237,7 @@ class DrumPatternActivity : AppCompatActivity() {
                             if (isServiceBound && playbackService != null) {
                                 try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
                             } else {
-                                try { PlaybackService.updateProgression(this@DrumPatternActivity, tp) } catch (_: Exception) {}
+                                try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
                             }
                         }
                     }
@@ -223,7 +263,7 @@ class DrumPatternActivity : AppCompatActivity() {
                             if (isServiceBound && playbackService != null) {
                                 try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
                             } else {
-                                try { PlaybackService.updateProgression(this@DrumPatternActivity, tp) } catch (_: Exception) {}
+                                try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
                             }
                         }
                     }
@@ -249,7 +289,7 @@ class DrumPatternActivity : AppCompatActivity() {
                             if (isServiceBound && playbackService != null) {
                                 try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
                             } else {
-                                try { PlaybackService.updateProgression(this@DrumPatternActivity, tp) } catch (_: Exception) {}
+                                try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
                             }
                         }
                     }
@@ -271,37 +311,28 @@ class DrumPatternActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * setupDefaultPatterns(extraPatterns)
+     * Wrapper: initialisiert die Anzeige der verwendeten und vorgeschlagenen Drum-Pattern.
+     * Eingabe: Liste zusätzlicher Pattern aus der Progression; ruft renderPatterns zur Darstellung auf.
+     */
     private fun setupDefaultPatterns(extraPatterns: List<DrumPattern>) {
         // Reuse existing renderPatterns to populate Used/Other lists; wrapper for parity with Strumming
         renderPatterns(extraPatterns)
     }
 
+    /**
+     * setupButtons()
+     * Initialisiert OK/Test Buttons und deren Handler.
+     * - Ok: speichert das Pattern als Activity-Result
+     * Test: startet/stoppt eine loopende Drum-Preview über den PlaybackService; berücksichtigt
+     * die Service-Bindung und speichert ggf. eine pending-Preview.
+     */
     private fun setupButtons() {
-        val btnOk = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnOk)
-        val btnCancel = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnCancel)
-        val btnTest = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
+        val btnOk = binding.btnOk
+        val btnTest = binding.btnTest
 
-        btnOk.setOnClickListener {
-            try {
-                val jsonOut = Json.encodeToString(DrumPattern.serializer(), currentPattern)
-                val out = Intent().apply {
-                    putExtra(EXTRA_MEASURE_INDEX, measureIndex)
-                    putExtra(EXTRA_DRUM_PATTERN_JSON, jsonOut)
-                }
-                setResult(RESULT_OK, out)
-                if (isPreviewActive) try { PlaybackService.stop(this@DrumPatternActivity) } catch (_: Exception) {}
-                finish()
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to serialize DrumPattern on OK: ${e.message}")
-                Toast.makeText(this@DrumPatternActivity, getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        btnCancel.setOnClickListener {
-            if (isPreviewActive) try { PlaybackService.stop(this@DrumPatternActivity) } catch (_: Exception) {}
-            setResult(RESULT_CANCELED)
-            finish()
-        }
+        btnOk.setOnClickListener { performOk() }
 
         btnTest.isEnabled = true
         btnTest.setOnClickListener {
@@ -321,10 +352,19 @@ class DrumPatternActivity : AppCompatActivity() {
                             PlaybackService.play(this, tempProg, true, true)
                             tempPreviewProgression = tempProg
                         } else {
-                            pendingPreviewProgression = tempProg
-                            pendingPreviewLooping = true
-                            tempPreviewProgression = tempProg
-                            try { val bindIntent = Intent(this, PlaybackService::class.java); bindService(bindIntent, serviceConnection, BIND_AUTO_CREATE) } catch (_: Exception) {}
+                            // Start service immediately to avoid silent preview when not bound, then bind to receive updates
+                            try {
+                                PlaybackService.play(this, tempProg, true, true)
+                                tempPreviewProgression = tempProg
+                                val bindIntent = Intent(this, PlaybackService::class.java)
+                                bindService(bindIntent, serviceConnection, BIND_AUTO_CREATE)
+                            } catch (_: Exception) {
+                                // Fallback to pending path if immediate start fails for some reason
+                                pendingPreviewProgression = tempProg
+                                pendingPreviewLooping = true
+                                tempPreviewProgression = tempProg
+                                try { val bindIntent = Intent(this, PlaybackService::class.java); bindService(bindIntent, serviceConnection, BIND_AUTO_CREATE) } catch (_: Exception) {}
+                            }
                         }
                     } catch (e: Exception) { Log.w(TAG, "PlaybackService.play failed: ${e.message}") }
                     setPreviewsAllowed(previewsAllowed)
@@ -342,9 +382,47 @@ class DrumPatternActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * performOk()
+     * Serialisiert das aktuelle DrumPattern und liefert es als Activity-Result zurück.
+     * Bei aktiver Preview wird diese gestoppt. Auf Fehler wird ein Toast angezeigt.
+     */
+    private fun performOk() {
+        try {
+            val jsonOut = Json.encodeToString(DrumPattern.serializer(), currentPattern)
+            val out = Intent().apply {
+                putExtra(EXTRA_MEASURE_INDEX, measureIndex)
+                putExtra(EXTRA_DRUM_PATTERN_JSON, jsonOut)
+            }
+            setResult(RESULT_OK, out)
+            if (isPreviewActive) try { PlaybackService.stop(this@DrumPatternActivity) } catch (_: Exception) {}
+            finish()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to serialize DrumPattern on OK: ${e.message}")
+            Toast.makeText(this@DrumPatternActivity, "Failed to serialize DrumPattern on OK: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * performCancel()
+     * Verwirft Änderungen und beendet die Activity mit RESULT_CANCELED; stoppt Preview falls aktiv.
+     */
+    private fun performCancel() {
+        if (isPreviewActive) try { PlaybackService.stop(this@DrumPatternActivity) } catch (_: Exception) {}
+        setResult(RESULT_CANCELED)
+        finish()
+    }
+
+    /**
+     * renderPatterns(extraPatterns)
+     * Rendert die 'Used' und 'Other' Drum-Pattern-Listen in den entsprechenden Containern.
+     * Klick auf ein Pattern setzt das aktuelle Pattern und aktualisiert die UI/Preview.
+     */
     private fun renderPatterns(extraPatterns: List<DrumPattern>) {
-        val usedContainer = findViewById<LinearLayout>(R.id.defaultPatternsLayout)
-        val otherContainer = findViewById<LinearLayout>(R.id.otherPatternsLayout)
+        val usedContainer = binding.defaultPatternsLayout
+        val otherContainer = binding.otherPatternsLayout
+        // Ensure used patterns are displayed vertically (user requested vertical layout)
+        try { usedContainer.orientation = LinearLayout.VERTICAL } catch (_: Exception) {}
         usedContainer.removeAllViews()
         otherContainer.removeAllViews()
         val inflater = LayoutInflater.from(this)
@@ -362,11 +440,42 @@ class DrumPatternActivity : AppCompatActivity() {
                 seen.add(k)
                 val chip = inflater.inflate(R.layout.item_drum_pattern_chip, usedContainer, false)
                 val label = chip.findViewById<TextView>(R.id.patternName)
-                label.text = p.name
+                // For used patterns we hide the name to keep the UI compact (user requested no name shown)
+                try { label.visibility = View.GONE } catch (_: Exception) { label.text = "" }
+                // Populate preview strip for used patterns
+                try {
+                    val preview = chip.findViewById<LinearLayout>(R.id.previewContainer)
+                    preview.removeAllViews()
+                    p.steps.forEach { step ->
+                        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; val lp = LinearLayout.LayoutParams(24, LinearLayout.LayoutParams.WRAP_CONTENT); lp.setMargins(2,0,2,0); layoutParams = lp; gravity = android.view.Gravity.CENTER }
+                        val kick = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.kick) 1.0f else 0.25f }
+                        val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.snare) 1.0f else 0.25f }
+                        val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.25f }
+                        // apply theme color
+                        try { val tv = TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) { val color = tv.data; (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } } catch (_: Exception) {}
+                        col.addView(kick); col.addView(snare); col.addView(hihat)
+                        preview.addView(col)
+                    }
+                } catch (_: Exception) {}
                 chip.setOnClickListener {
                     currentPattern = p
                     setupDrumChips()
-                    Toast.makeText(this, "Selected pattern: ${p.name}", Toast.LENGTH_SHORT).show()
+                    // If a preview is active, update the running preview immediately
+                    try {
+                        tempPreviewProgression?.let { tp ->
+                            if (tp.measures.isNotEmpty()) {
+                                tp.measures[0].drumPattern = currentPattern
+                                if (isPreviewActive) {
+                                    if (isServiceBound && playbackService != null) {
+                                        try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
+                                    } else {
+                                        // Do not call updateProgression here; instead store as pending to be applied when bound
+                                        try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
                 }
                 usedContainer.addView(chip)
             } catch (_: Exception) {}
@@ -375,21 +484,53 @@ class DrumPatternActivity : AppCompatActivity() {
         DrumPattern.defaultPatterns.forEach { p ->
             try {
                 val k = keyOf(p)
-                if (seen.contains(k)) return@forEach
+                //if (seen.contains(k)) return@forEach
                 seen.add(k)
                 val chip = inflater.inflate(R.layout.item_drum_pattern_chip, otherContainer, false)
                 val label = chip.findViewById<TextView>(R.id.patternName)
                 label.text = p.name
+                // Populate preview for other patterns too
+                try {
+                    val preview = chip.findViewById<LinearLayout>(R.id.previewContainer)
+                    preview.removeAllViews()
+                    p.steps.forEach { step ->
+                        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; val lp = LinearLayout.LayoutParams(24, LinearLayout.LayoutParams.WRAP_CONTENT); lp.setMargins(2,0,2,0); layoutParams = lp; gravity = android.view.Gravity.CENTER }
+                        val kick = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.kick) 1.0f else 0.25f }
+                        val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.snare) 1.0f else 0.25f }
+                        val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.25f }
+                        try { val tv = TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) { val color = tv.data; (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } } catch (_: Exception) {}
+                        col.addView(kick); col.addView(snare); col.addView(hihat)
+                        preview.addView(col)
+                    }
+                } catch (_: Exception) {}
                 chip.setOnClickListener {
                     currentPattern = p
                     setupDrumChips()
-                    Toast.makeText(this, "Selected pattern: ${p.name}", Toast.LENGTH_SHORT).show()
+                    // If a preview is active, update the running preview immediately
+                    try {
+                        tempPreviewProgression?.let { tp ->
+                            if (tp.measures.isNotEmpty()) {
+                                tp.measures[0].drumPattern = currentPattern
+                                if (isPreviewActive) {
+                                    if (isServiceBound && playbackService != null) {
+                                        try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
+                                    } else {
+                                        try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
                 }
                 otherContainer.addView(chip)
             } catch (_: Exception) {}
         }
     }
 
+    /**
+     * onStart()
+     * Lifecycle: bindet an den PlaybackService bei Activity-Start, damit Preview-Status abgefragt werden kann.
+     */
     override fun onStart() {
         super.onStart()
         try {
@@ -398,6 +539,10 @@ class DrumPatternActivity : AppCompatActivity() {
         } catch (_: Exception) {}
     }
 
+    /**
+     * onStop()
+     * Lifecycle: stoppt aktive Previews, hebt Service-Bindung auf und räumt temporäre Pending-Previews auf.
+     */
     override fun onStop() {
         super.onStop()
         if (isPreviewActive) {
@@ -418,20 +563,27 @@ class DrumPatternActivity : AppCompatActivity() {
         pendingPreviewLooping = false
     }
 
+    /**
+     * onDestroy()
+     * Lifecycle: letzte Sicherheit, stoppt PlaybackService falls noch aktiv.
+     */
     override fun onDestroy() {
         super.onDestroy()
         try { PlaybackService.stop(this) } catch (_: Exception) {}
     }
 
+    /**
+     * onResume()
+     * Lifecycle: stellt sicher, dass der Test-Button sichtbar/aktiv ist wenn die Activity wieder sichtbar wird.
+     */
     override fun onResume() {
         super.onResume()
         try {
-            val btn = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTest)
-            btn.isEnabled = true
-            btn.isClickable = true
-            btn.isFocusable = true
-            btn.alpha = 1.0f
-            btn.visibility = View.VISIBLE
+            binding.btnTest.isEnabled = true
+            binding.btnTest.isClickable = true
+            binding.btnTest.isFocusable = true
+            binding.btnTest.alpha = 1.0f
+            binding.btnTest.visibility = View.VISIBLE
         } catch (_: Exception) {}
     }
 }

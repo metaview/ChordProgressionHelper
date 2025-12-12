@@ -29,6 +29,12 @@ class SettingsRepository(context: Context) {
         const val KEY_PATTERN_PREVIEW = "key_pattern_preview"
         // New key: drum preview toggle (controls per-step immediate drum click preview)
         const val KEY_DRUM_PREVIEW = "key_drum_preview"
+        // Stroke offset for UP strokes in milliseconds
+        const val KEY_STROKE_OFFSET_MS = "key_stroke_offset_ms"
+        const val KEY_STRING_STAGGER_MS = "key_string_stagger_ms"
+        // Down-stroke equivalents
+        const val KEY_DOWN_STROKE_OFFSET_MS = "key_down_stroke_offset_ms"
+        const val KEY_DOWN_STRING_STAGGER_MS = "key_down_string_stagger_ms"
     }
 
     // Chord Preview setting
@@ -45,6 +51,24 @@ class SettingsRepository(context: Context) {
     var isDrumPreviewEnabled: Boolean
         get() = prefs.getBoolean(KEY_DRUM_PREVIEW, true)
         set(value) = prefs.edit { putBoolean(KEY_DRUM_PREVIEW, value) }
+
+    // Stroke offset for UP strokes in milliseconds (0..200 typical)
+    var strokeOffsetMs: Int
+        get() = prefs.getInt(KEY_STROKE_OFFSET_MS, 10)
+        set(value) = prefs.edit { putInt(KEY_STROKE_OFFSET_MS, value.coerceIn(0, 100)) }
+
+    var stringStaggerMs: Int
+        get() = prefs.getInt(KEY_STRING_STAGGER_MS, 8)
+        set(value) = prefs.edit { putInt(KEY_STRING_STAGGER_MS, value.coerceIn(0, 20)) }
+
+    // Down-stroke settings
+    var downStrokeOffsetMs: Int
+        get() = prefs.getInt(KEY_DOWN_STROKE_OFFSET_MS, 0)
+        set(value) = prefs.edit { putInt(KEY_DOWN_STROKE_OFFSET_MS, value.coerceIn(0, 100)) }
+
+    var downStringStaggerMs: Int
+        get() = prefs.getInt(KEY_DOWN_STRING_STAGGER_MS, 4)
+        set(value) = prefs.edit { putInt(KEY_DOWN_STRING_STAGGER_MS, value.coerceIn(0, 20)) }
 
     // Count In setting (storing number of beats)
     var countInBeats: Int

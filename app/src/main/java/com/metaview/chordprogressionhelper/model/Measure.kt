@@ -11,6 +11,7 @@ data class Measure(
     val chordEvents: MutableList<ChordEvent> = mutableListOf(),
     var strummingPattern: StrummingPattern = StrummingPattern.DEFAULT,
     var drumPattern: DrumPattern = DrumPattern.DEFAULT,
+    var pianoPattern: PianoPattern = PianoPattern.DEFAULT,
     val id: Long = java.util.UUID.randomUUID().mostSignificantBits
 ) {
     @Serializable

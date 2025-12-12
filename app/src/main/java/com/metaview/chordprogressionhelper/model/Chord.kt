@@ -25,11 +25,11 @@ data class Chord(
 
 @Serializable
 enum class ChordType(val suffix: String, val intervals: List<Int>) {
-    MAJOR("", listOf(0, 4, 7, -12)),
-    MINOR("m", listOf(0, 3, 7, -12)),
-    DIMINISHED("°", listOf(0, 3, 6, -12)),
-    DOMINANT_SEVENTH("7", listOf(0, 4, 7, 10, -12)),
+    MAJOR("", listOf(-12, 0, 4, 7)),
+    MINOR("m", listOf(-12, 0, 3, 7)),
+    DIMINISHED("°", listOf(-12, 0, 3, 6)),
+    DOMINANT_SEVENTH("7", listOf(-12, 0, 4, 7, 10)),
     // POWER chords like C5 are typically just root + perfect fifth. We include the lower octave (-12)
     // to keep the sound full and consistent with other chord definitions in this app.
-    POWER("5", listOf(0, 7, -12))
+    POWER("5", listOf(-12, 0, 7))
 }

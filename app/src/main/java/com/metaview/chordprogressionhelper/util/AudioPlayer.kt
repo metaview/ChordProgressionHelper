@@ -51,6 +51,23 @@ class AudioPlayer {
      * - nützlich um z.B. Piano lauter zu machen oder Overdrive abzusenken
      */
     @Volatile private var voiceGain: Double = 1.0
+    /**
+     * strokeOffsetMs: delay applied to UP strokes in milliseconds to audibly distinguish them from DOWN strokes.
+     * - 0 (default) = no offset
+     * - positive value delays the pluck of UP strokes by that many milliseconds within the eighth-note buffer
+     */
+    @Volatile var upStrokeOffsetMs: Int = 30
+    /**
+     * stringStaggerMs: additional delay applied between successive strings (in milliseconds)
+     * when staggering plucks inside a single strum. Default 8 ms.
+     */
+    @Volatile var upStringStaggerMs: Int = 8
+    /**
+     * downStrokeOffsetMs / downStringStaggerMs: equivalent settings for Down strokes.
+     * Defaults are 0 (no offset/stagger) to preserve previous behavior unless enabled.
+     */
+    @Volatile var downStrokeOffsetMs: Int = 0
+    @Volatile var downStringStaggerMs: Int = 0
 
     // Voice preset (CLEAN, OVERDRIVE, PIANO) - default CLEAN
     // Set a fixed per-preset makeup gain (no user override): Clean=1.0, Overdrive=0.9, Piano=1.5
@@ -147,26 +164,42 @@ class AudioPlayer {
                     // Previously we forced REST->DOWN when a chord event started at this strum, but
                     // users expect a REST to produce silence. Do not override REST here.
 
+                    // Determine base offset and per-string stagger (ms) depending on strum direction
+                    val (baseMs, staggerMs) = when (currentStrum) {
+                        Strum.UP -> Pair(upStrokeOffsetMs, upStringStaggerMs)
+                        Strum.DOWN -> Pair(downStrokeOffsetMs, downStringStaggerMs)
+                        else -> Pair(0, 0)
+                    }
+                    // convert to samples
+                    val offsetSamplesForPluck = if (baseMs > 0) (baseMs * sampleRate / 1000) else 0
+                    val stringStaggerSamplesForPluck = if (staggerMs > 0) (staggerMs * sampleRate / 1000) else 0
+
+                    // If preset is PIANO, ignore configured offsets/stagger and play all strings simultaneously
+                    val effOffsetSamplesForPluck = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0 else offsetSamplesForPluck
+                    val effStringStaggerSamplesForPluck = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0 else stringStaggerSamplesForPluck
+
                     when (currentStrum) {
                         Strum.DOWN, Strum.UP -> {
                             val frequencies = chord?.getMidiNotes()?.map { midiNoteToFrequency(it) }
-                            activeStrings = if (frequencies != null) {
+                            if (frequencies == null) {
+                                activeStrings = emptyList()
+                            } else {
+                                // sort according to strum direction and always recreate strings for each attack
                                 val sorted = frequencies.sorted().let { if (currentStrum == Strum.UP) it.asReversed() else it }
-                                if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                                val shouldPluckImmediately = (effOffsetSamplesForPluck == 0 && effStringStaggerSamplesForPluck == 0)
+                                activeStrings = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
                                     // For piano, add extra octave and sub-octave strings for fullness and longer sustain
                                     sorted.flatMap { freq ->
                                         listOf(
-                                            KarplusStrongString(freq, sampleRate, pluckStrength, 0.9992).apply { pluck() },
-                                            KarplusStrongString(freq * 2.002, sampleRate, pluckStrength, 0.999).apply { pluck() },
-                                            KarplusStrongString(freq / 2.0, sampleRate, pluckStrength, 0.997).apply { pluck() }
+                                            KarplusStrongString(freq, sampleRate, pluckStrength, 0.9992).apply { if (shouldPluckImmediately) pluck() },
+                                            KarplusStrongString(freq * 2.002, sampleRate, pluckStrength, 0.999).apply { if (shouldPluckImmediately) pluck() },
+                                            KarplusStrongString(freq / 2.0, sampleRate, pluckStrength, 0.997).apply { if (shouldPluckImmediately) pluck() }
                                         )
                                     }
                                 } else {
                                     // Default single string per note
-                                    sorted.map { freq -> KarplusStrongString(freq, sampleRate, pluckStrength, 0.998).apply { pluck() } }
+                                    sorted.map { freq -> KarplusStrongString(freq, sampleRate, pluckStrength, 0.998).apply { if (shouldPluckImmediately) pluck() } }
                                 }
-                            } else {
-                                emptyList()
                             }
                             try { android.util.Log.d("AudioPlayer", "activeStrings after pluck: ${activeStrings.size}") } catch (_: Exception) {}
                         }
@@ -176,46 +209,117 @@ class AudioPlayer {
 
                     val buffer = DoubleArray(eighthNoteSamples)
 
+                    // apply preset gain before normalization
+                    // normalization: compute a preset-aware normalization factor and apply headroom scaling
+                    // Rationale:
+                    // - Previously a fixed multiplier (0.7) scaled down signals proportionally to the number of active strings.
+                    //   This caused presets that create multiple strings (e.g. PIANO) to be strongly attenuated, cancelling voiceGain.
+                    // - To let presets like PIANO be louder, use a smaller per-string attenuation for PIANO.
+                    val presetNormalizationMultiplier = when (voicePreset) {
+                        com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30 // less attenuation per string for piano (was 0.45)
+                        com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.5
+                        else -> 0.8
+                    }
+
                     if (currentStrum == Strum.MUTE) addMute(buffer)
                     else {
                         // We'll apply a small final filter and preset-specific shaping
+                        // offsetSamples and stringStaggerSamples are computed and will be used in the per-voice loops
+                        // Prepare scheduled pluck times per string (filled later after activeStrings created)
+                        var scheduledPlucks = IntArray(0)
+                        var pluckedFlags = BooleanArray(0)
+                        // Helper to initialize schedules based on activeStrings size and buffer length
+                        fun initPluckSchedules() {
+                            val n = activeStrings.size
+                            scheduledPlucks = IntArray(n)
+                            pluckedFlags = BooleanArray(n)
+                            val base = effOffsetSamplesForPluck.coerceAtLeast(0)
+                            val stagger = effStringStaggerSamplesForPluck.coerceAtLeast(0)
+
+                            // For PIANO we create multiple strings per musical note (base, octave, sub-octave).
+                            // Users generally erwarten, dass das Stagger pro Note und nicht pro einzelner KS-Saite angewendet wird.
+                            // Verwenden Sie groupSize=3 für Klavier (drei Saiten pro Note). Für andere Presets verwenden Sie groupSize=1.
+                            val groupSize = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 3 else 1
+
+                            for (j in 0 until n) {
+                                // Wenn keine Basis/kein Stagger vorhanden ist, gehen wir davon aus, dass die Saiten sofort anderswo gezupft wurden
+                                if (base == 0 && stagger == 0) {
+                                    scheduledPlucks[j] = Int.MAX_VALUE
+                                } else {
+                                    if (groupSize == 1) {
+                                        // Normales Verhalten: Jede Saite erhält ihr eigenes Offset
+                                        val s = base + j * stagger
+                                        scheduledPlucks[j] = s.coerceAtMost(buffer.size - 1)
+                                    } else {
+                                        // Piano-Verhalten: Stagger pro Note (Gruppe), kleines intra-note Offset hinzufügen
+                                        val noteIndex = j / groupSize
+                                        val intraIndex = j % groupSize
+                                        // primäres Stagger zwischen den Noten
+                                        val primary = base + noteIndex * stagger
+                                        // kleiner Teil des Staggers, um Oktave/Sub-Oktave leicht zu versetzen, damit die Note
+                                        // nicht gleichzeitig mit der Grundnote klingt
+                                        val intra = (intraIndex - 1) * stagger / 3
+                                        scheduledPlucks[j] = (primary + intra).coerceAtMost(buffer.size - 1)
+                                    }
+                                }
+                                pluckedFlags[j] = false
+                            }
+                        }
+
+                        // Local helper: invoke scheduled plucks at sample index i
+                        fun performScheduledPlucksAt(i: Int) {
+                            if (scheduledPlucks.isEmpty()) return
+                            for (j in scheduledPlucks.indices) {
+                                if (!pluckedFlags[j] && i >= scheduledPlucks[j]) {
+                                    try { activeStrings[j].pluck() } catch (_: Exception) {}
+                                    pluckedFlags[j] = true
+                                }
+                            }
+                        }
+
                         when (voicePreset) {
                             com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> {
-                                var prevLP = 0.0
                                 val lpAlpha = 0.12 // gentle lowpass to remove harsh HF
+                                var prevLP = 0.0 // temp value for filter
+                                // initialize scheduled plucks based on number of strings
+                                initPluckSchedules()
                                 for (i in buffer.indices) {
+                                    // perform plucks scheduled for this sample
+                                    performScheduledPlucksAt(i)
                                     var sample = 0.0
                                     for (string in activeStrings) sample += string.tick()
                                     val filtered = prevLP + lpAlpha * (sample - prevLP)
                                     prevLP = filtered
-                                    buffer[i] += filtered
+                                    buffer[i] += filtered * 1.1
                                 }
                             }
                             com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> {
                                 // Overdrive / Distortion parameters
                                 // - gain: Eingangsverstärkung vor Nonlinearität (tanh) -> bestimmt, wie stark die Signalform gekrümmt wird
                                 // - mix: Verhältnis zwischen 'driven' (verzerrt) und 'clean' Signalanteil
-                                // - cubic: kleine zusätzliche nicht-lineare Harmonische, um den Klang 'körperreicher' zu machen
+                                // - cubicCoeff: kleine zusätzliche nicht-lineare Harmonische, um den Klang 'körperreicher' zu machen
                                 // Tipps:
                                 //  - gain erhöhen -> mehr Obertöne / härtere Verzerrung
                                 //  - mix erhöhen -> mehr verzerrtes Signal im Ausgang
-                                val gain = 3.5
+                                val gain = 3.0
                                 val mix = 0.8
-                                var prevLP = 0.0
-                                val lpAlpha = 0.10
+                                val cubicCoeff = 0.01
+                                val lpAlpha = 0.2 // tiefpass
+                                var prevLP = 0.0 // temp value for filter
+                                initPluckSchedules()
                                 for (i in buffer.indices) {
+                                    performScheduledPlucksAt(i)
                                     var sample = 0.0
                                     for (string in activeStrings) sample += string.tick()
                                     // soft clip
                                     val driven = tanh(sample * gain)
                                     // reduced cubic harmonic contribution
                                     // cubic term: sehr kleiner Anteil zur Erzeugung zusätzlicher Obertöne
-                                    val cubic = 0.02 * (sample * gain * sample * gain * sample * gain)
+                                    val cubic = cubicCoeff * (sample * gain * sample * gain * sample * gain)
                                     val out = mix * driven + (1.0 - mix) * sample + cubic
                                     val filtered = prevLP + lpAlpha * (out - prevLP)
                                     prevLP = filtered
-                                    // slightly reduce make-up for overdrive so it sits better in the mix
-                                    buffer[i] += filtered * 0.9
+                                    buffer[i] += filtered * 0.8
                                 }
                             }
                             com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> {
@@ -225,13 +329,14 @@ class AudioPlayer {
                                 // - lpAlpha: per-sample lowpass smoothing to emulate the body/warmth of a piano tone
                                 // - env: envelope controlling release/sustain. pow(0.85) produces a slower decay than a linear curve.
                                 // - attackBoost: short initial boost to simulate hammer attack on the strings
-                                // - final make-up (1.35): raises overall piano level so it is audible without strong drum backing
                                 // Notes for tweaking:
                                 //  - Increase envelope exponent (<1) to lengthen sustain further
                                 //  - Increase lpAlpha to reduce high frequency brilliance
-                                var prevLP = 0.0
-                                val lpAlpha = 0.05 // smoother lowpass for piano
+                                val lpAlpha = 0.10 // smoother lowpass for piano
+                                var prevLP = 0.0 // temp value for filter
+                                initPluckSchedules()
                                 for (i in buffer.indices) {
+                                    performScheduledPlucksAt(i)
                                     var sample = 0.0
                                     for (string in activeStrings) sample += string.tick()
                                     // longer release envelope for piano-like sustain (slower decay)
@@ -240,8 +345,7 @@ class AudioPlayer {
                                     val raw = sample * env * attackBoost
                                     val filtered = prevLP + lpAlpha * (raw - prevLP)
                                     prevLP = filtered
-                                    // apply a mild make-up so piano cuts through without needing extra drums
-                                    buffer[i] += filtered * 1.35
+                                    buffer[i] += filtered
                                 }
                             }
                         }
@@ -280,17 +384,6 @@ class AudioPlayer {
                         }
                     }
 
-                    // apply preset gain before normalization
-                    // normalization: compute a preset-aware normalization factor and apply headroom scaling
-                    // Rationale:
-                    // - Previously a fixed multiplier (0.7) scaled down signals proportionally to the number of active strings.
-                    //   This caused presets that create multiple strings (e.g. PIANO) to be strongly attenuated, cancelling voiceGain.
-                    // - To let presets like PIANO be louder, use a smaller per-string attenuation for PIANO.
-                    val presetNormalizationMultiplier = when (voicePreset) {
-                        com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30 // less attenuation per string for piano (was 0.45)
-                        com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.7
-                        else -> 0.7
-                    }
                     val normalizationFactor = (activeStrings.size) * presetNormalizationMultiplier + 1.0
 
                     // Apply voiceGain before final normalization so intended make-up gain affects peak

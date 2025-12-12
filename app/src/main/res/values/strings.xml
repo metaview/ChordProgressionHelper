@@ -15,8 +15,7 @@
     <string name="key_label">Key</string>
 
     <!-- Added strings used by layouts -->
-    <string name="measure_example">Measure 1</string>
-    <string name="measure_format">Measure %1$d</string>
+    <string name="measure_format">%1$d</string>
     <string name="drag_to_reorder">Drag to reorder</string>
     <string name="dash">-</string>
     <string name="remove_measure">Remove measure</string>
@@ -25,6 +24,7 @@
     <string name="test">Test</string>
     <string name="cancel">Cancel</string>
     <string name="ok">OK</string>
+    <string name="save">Save</string>
     <string name="drums_label">Drums</string>
     <string name="test_preview_failed">Preview failed</string>
     <string name="stop">Stop</string>
@@ -49,6 +49,11 @@
     <string name="drum_level_format">Drum level: %1$d%%</string>
     <string name="envelope_scale_format">Envelope scale: %1$d%%</string>
     <string name="hihat_highpass_format">Hi-hat highpass: %1$d%%</string>
+    <string name="up_stroke_offset_label">Up-stroke offset (ms)</string>
+    <string name="up_string_stagger_label">Up-string stagger (ms)</string>
+    <string name="down_stroke_offset_label">Down-stroke offset (ms)</string>
+    <string name="down_string_stagger_label">Down-string stagger (ms)</string>
+    <string name="ms_format">%1$d ms</string>
     <string name="reset_sound_label">Reset sound</string>
     <string name="preset_clean">Clean</string>
     <string name="preset_overdrive">Overdrive</string>
@@ -56,4 +61,10 @@
 
     <!-- notification -->
     <string name="notification_playing">Playing</string>
+    <string name="drum_pattern">Drum Pattern</string>
+    <string name="piano_editor_title">Piano Editor - Measure %1$s</string>
+    <string name="piano_tap_hint">Piano tapped</string>
+    <string name="keyboard">Keyboard</string>
+    <string name="save_changes_title">Save changes?</string>
+    <string name="save_changes_message">Do you want to save your changes before leaving?</string>
 </resources>

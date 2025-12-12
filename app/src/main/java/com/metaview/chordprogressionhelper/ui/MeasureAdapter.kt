@@ -26,6 +26,7 @@ class MeasureAdapter(
     private val onChordLongClick: (measureIndex: Int, eighthNoteIndex: Int) -> Unit,
     private val onStrummingPatternClick: (measureIndex: Int) -> Unit,
     private val onDrumPatternClick: (measureIndex: Int) -> Unit,
+    private val onPianoPatternClick: (measureIndex: Int) -> Unit,
     private val onChordDrop: (measureIndex: Int, eighthNoteIndex: Int, chord: Chord) -> Unit,
     private val onRemoveMeasureClick: (measureIndex: Int) -> Unit,
     private val onAddMeasureClick: () -> Unit,
@@ -167,21 +168,19 @@ class MeasureAdapter(
             // Also make the whole scroll area clickable to open the strumming pattern editor
             binding.strummingPatternScroll.setOnClickListener { onStrummingPatternClick(measureIndex) }
 
-            // Show a single compact button that opens the Drum Pattern editor (multiple drums can occur on the same step)
+            // Wire the new drum icon (in header) to open the Drum Pattern editor
             try {
-                val drumContainer = binding.root.findViewById<android.widget.FrameLayout>(R.id.drumPatternContainer)
-                drumContainer.removeAllViews()
-                val btn = android.widget.Button(binding.root.context).apply {
-                    text = binding.root.context.getString(R.string.drums_label)
-                    isAllCaps = false
-                    // subtle padding for touch target
-                    val pad = (6 * binding.root.resources.displayMetrics.density).toInt()
-                    setPadding(pad, pad / 2, pad, pad / 2)
-                    // accessible content description
-                    contentDescription = binding.root.context.getString(R.string.drums_label)
-                }
-                drumContainer.addView(btn)
-                btn.setOnClickListener { onDrumPatternClick(measureIndex) }
+                val drumIcon = binding.root.findViewById<android.widget.ImageView>(R.id.drumIcon)
+                drumIcon.visibility = View.VISIBLE
+                drumIcon.contentDescription = binding.root.context.getString(R.string.drums_label)
+                drumIcon.setOnClickListener { onDrumPatternClick(measureIndex) }
+            } catch (_: Exception) {}
+
+            try {
+                val pianoIcon = binding.root.findViewById<android.widget.ImageView>(R.id.pianoIcon)
+                pianoIcon.visibility = View.VISIBLE
+                pianoIcon.contentDescription = binding.root.context.getString(R.string.keyboard)
+                pianoIcon.setOnClickListener {onPianoPatternClick(measureIndex) }
             } catch (_: Exception) {}
 
             binding.removeMeasureButton.setOnClickListener {
