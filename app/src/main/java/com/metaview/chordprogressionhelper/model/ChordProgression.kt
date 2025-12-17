@@ -9,7 +9,7 @@ data class ChordProgression(
     var name: String = "",
     var key: Key = Key.C,
     var mode: Mode = Mode.MAJOR,
-    var tempo: Int = 120,
+    @Volatile var tempo: Int = 120,
     val measures: MutableList<Measure> = mutableListOf(Measure(1))
 ) {
     fun getScaleDegreeChords(): List<Chord> {

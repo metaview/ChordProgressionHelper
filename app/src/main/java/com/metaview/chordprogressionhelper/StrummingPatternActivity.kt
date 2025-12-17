@@ -226,8 +226,7 @@ class StrummingPatternActivity : AppCompatActivity() {
         super.onStop()
         // Ensure any active preview is stopped immediately when dialog is left
         if (isPreviewActive) {
-            try {
-                if (isServiceBound && playbackService != null) playbackService?.stopPlayback() else PlaybackService.stop(this)
+            try { if (isServiceBound && playbackService != null) playbackService?.stopPreviewNow() else PlaybackService.stopPreview(this)
             } catch (_: Exception) {}
             isPreviewActive = false
             // update UI after stopping preview
@@ -405,6 +404,45 @@ class StrummingPatternActivity : AppCompatActivity() {
             binding.defaultPatternsLayout.addView(row)
         }
 
+        // Add a small legend explaining strumming symbols (vertical list) placed under 'Other Patterns' and above dialog buttons.
+        try {
+            val legendContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                setPadding((4 * resources.displayMetrics.density).toInt(), (8 * resources.displayMetrics.density).toInt(), itemPadding, rowMargin)
+            }
+
+            fun addLegendRow(drawableId: Int, labelResId: Int) {
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                    setPadding((12 * resources.displayMetrics.density).toInt(), itemPadding, 0, (4 * resources.displayMetrics.density).toInt())
+                }
+                val iv = ImageView(this).apply {
+                    setImageResource(drawableId)
+                    layoutParams = LinearLayout.LayoutParams((20 * resources.displayMetrics.density).toInt(), (20 * resources.displayMetrics.density).toInt())
+                    try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data) } catch (_: Exception) {}
+                }
+                val tv = TextView(this).apply {
+                    text = getString(labelResId)
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins((8 * resources.displayMetrics.density).toInt(), 0, 0, 0) }
+                    try { val t = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, t, true)) setTextColor(t.data) } catch (_: Exception) {}
+                }
+                row.addView(iv)
+                row.addView(tv)
+                legendContainer.addView(row)
+            }
+
+            addLegendRow(strumToDrawable(Strum.DOWN), R.string.strum_down_label)
+            addLegendRow(strumToDrawable(Strum.UP), R.string.strum_up_label)
+            addLegendRow(strumToDrawable(Strum.MUTE), R.string.strum_palm_mute_label)
+            addLegendRow(strumToDrawable(Strum.LETRING), R.string.strum_let_ring_label)
+            addLegendRow(strumToDrawable(Strum.REST), R.string.strum_rest_label)
+
+            binding.defaultPatternsLayout.addView(legendContainer)
+        } catch (_: Exception) {}
+
         // Rows use container padding to ensure correct visible width; no programmatic width adjustment needed
     }
 
@@ -465,7 +503,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     // Ensure no drums are played during a strumming-only preview
                     try { m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() }) } catch (_: Exception) {}
                     tempProg.measures.add(m)
-                    try { PlaybackService.stop(this) } catch (_: Exception) {}
+                    try { PlaybackService.stopPreview(this) } catch (_: Exception) {}
                     try {
                         if (isServiceBound) {
                             // start immediately via companion
@@ -493,9 +531,9 @@ class StrummingPatternActivity : AppCompatActivity() {
                     // stop looping preview - prefer bound stop to avoid timing foreground issues
                     try {
                         if (isServiceBound && playbackService != null) {
-                            playbackService?.stopPlayback()
+                            playbackService?.stopPreviewNow()
                         } else {
-                            PlaybackService.stop(this)
+                            PlaybackService.stopPreview(this)
                         }
                     } catch (e: Exception) { Log.w(TAG, "Failed to stop preview: ${e.message}") }
                     isPreviewActive = false
@@ -527,7 +565,7 @@ class StrummingPatternActivity : AppCompatActivity() {
             intent.putExtra(EXTRA_MEASURE_INDEX, measureIndex)
             intent.putExtra(EXTRA_STRUMMING_PATTERN_JSON, json)
             setResult(RESULT_OK, intent)
-            if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
+            if (isPreviewActive) try { PlaybackService.stopPreview(this) } catch (_: Exception) {}
             finish()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save strumming pattern", e)
@@ -540,7 +578,7 @@ class StrummingPatternActivity : AppCompatActivity() {
          * performCancel()
          * Verwirft Änderungen, beendet die Activity mit RESULT_CANCELED und stoppt ggf. aktive Previews.
          */
-        if (isPreviewActive) try { PlaybackService.stop(this) } catch (_: Exception) {}
+        if (isPreviewActive) try { PlaybackService.stopPreview(this) } catch (_: Exception) {}
         setResult(RESULT_CANCELED)
         finish()
     }
@@ -574,7 +612,7 @@ class StrummingPatternActivity : AppCompatActivity() {
         // Ensure nothing is left playing and clear pending previews
         try {
             if (isPreviewActive) {
-                if (isServiceBound && playbackService != null) playbackService?.stopPlayback() else PlaybackService.stop(this)
+                if (isServiceBound && playbackService != null) playbackService?.stopPreviewNow() else PlaybackService.stopPreview(this)
             }
         } catch (_: Exception) {}
         isPreviewActive = false
@@ -667,7 +705,7 @@ class StrummingPatternActivity : AppCompatActivity() {
 
         // Click handler: unified behavior for preview/update — attach to card so clicks inside card trigger
         card.setOnClickListener {
-            if (!previewsAllowed) return@setOnClickListener
+            //if (!previewsAllowed) return@setOnClickListener
             pattern.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
             updateStrumViews()
 
@@ -679,6 +717,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                 val chord = tonicChord
                 if (chord != null) {
                     if (isPreviewActive) {
+                        // A looping preview is running: replace the pattern in the running preview.
                         try {
                             if (isServiceBound && playbackService != null) {
                                 try { playbackService?.updateStrummingPattern(0, livePattern) } catch (_: Exception) {}
@@ -703,16 +742,51 @@ class StrummingPatternActivity : AppCompatActivity() {
                             }
                             setPreviewsAllowed(previewsAllowed)
                         } catch (e: Exception) { Log.w(TAG, "Failed to update running preview: ${e.message}") }
-                    } else {
+                    } else if (singlePlayInFlight) {
+                        // A single (non-looping) preview is currently playing: stop it and start the newly selected single-play.
+                        try {
+                            // Prefer instance stop when bound to ensure immediate stop without relying on service start timing
+                            if (isServiceBound && playbackService != null) {
+                                try { playbackService?.stopPreviewNow() } catch (_: Exception) { /* best-effort */ }
+                            } else {
+                                try { PlaybackService.stopPreview(this) } catch (_: Exception) { /* best-effort */ }
+                            }
+                        } catch (_: Exception) {}
+                        // start new single-play (fresh progression)
                         val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
-                        try { tempProg.measures.clear() } catch (_: Exception) {}
-                        val m = Measure(1)
-                        try { m.addChord(chord, 0) } catch (_: Exception) {}
-                        m.strummingPattern = livePattern
-                        try { m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() }) } catch (_: Exception) {}
-                        tempProg.measures.add(m)
-                        try { PlaybackService.stop(this) } catch (_: Exception) {}
-                        try { PlaybackService.play(this, tempProg, true) } catch (e: Exception) { Log.w(TAG, "Failed to start single-play preview: ${e.message}") }
+                        try {
+                            tempProg.measures.clear()
+                            val m = Measure(1)
+                            m.addChord(chord, 0)
+                            m.strummingPattern = livePattern
+                            m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                            tempProg.measures.add(m)
+                        } catch (_: Exception) {}
+                        try {
+                            // start single-play preview
+                            PlaybackService.play(this, tempProg, true)
+                            singlePlayInFlight = true
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to start single-play preview: ${e.message}")
+                        }
+                    } else {
+                        // No preview running: start a single-play as before
+                        val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
+                        try {
+                            tempProg.measures.clear()
+                            val m = Measure(1)
+                            m.addChord(chord, 0)
+                            m.strummingPattern = livePattern
+                            m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                            tempProg.measures.add(m)
+                        } catch (_: Exception) {}
+                        try {
+                            // start single-play preview
+                            PlaybackService.play(this, tempProg, true)
+                            singlePlayInFlight = true
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to start single-play preview: ${e.message}")
+                        }
                     }
                 }
             } catch (e: Exception) { Log.w(TAG, "Failed to handle pattern click: ${e.message}") }

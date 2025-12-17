@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Widget.App.Button.Purple" parent="Widget.MaterialComponents.Button">
+        <!-- Background drawable removed here to avoid style-level overrides; layouts set @drawable/purple_button_bg explicitly and runtime clears tints. -->
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:paddingLeft">8dp</item>
+        <item name="android:paddingRight">8dp</item>
+    </style>
+</resources>

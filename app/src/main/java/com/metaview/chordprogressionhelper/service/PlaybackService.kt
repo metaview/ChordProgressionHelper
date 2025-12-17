@@ -314,9 +314,14 @@ class PlaybackService : Service() {
              }
             ACTION_PAUSE -> { pausePlayback(); return START_NOT_STICKY }
             ACTION_STOP -> {
-                Log.i(TAG, "onStartCommand: received ACTION_STOP")
-                stopPlayback()
-                Log.i(TAG, "onStartCommand: stopPlayback invoked via ACTION_STOP")
+                 Log.i(TAG, "onStartCommand: received ACTION_STOP")
+                 stopPlayback()
+                 Log.i(TAG, "onStartCommand: stopPlayback invoked via ACTION_STOP")
+                 return START_NOT_STICKY
+             }
+            ACTION_STOP_PREVIEW -> {
+                Log.i(TAG, "onStartCommand: received ACTION_STOP_PREVIEW")
+                try { stopPreviewNow() } catch (e: Exception) { Log.w(TAG, "stopPreviewNow failed: ${e.message}") }
                 return START_NOT_STICKY
             }
          }
@@ -431,6 +436,31 @@ class PlaybackService : Service() {
         Log.i(TAG, "stopPlayback - end (cleared flags)")
     }
 
+    /**
+     * stopPreviewNow()
+     * Instance API: stop only preview playback (single or loop) without stopping the service
+     * or affecting main playback. Cancels playbackJob if it corresponds to a preview and
+     * clears preview flags/progression.
+     */
+    fun stopPreviewNow() {
+        Log.i(TAG, "stopPreviewNow - begin (currentIsPreview=$currentIsPreview, currentIsLoopingPreview=$currentIsLoopingPreview)")
+        try {
+            if (!currentIsPreview) return
+            try { audioPlayer.stop() } catch (e: Exception) { Log.w(TAG, "stopPreviewNow audio stop failed: ${e.message}") }
+            try { playbackJob?.cancel(); playbackJob = null } catch (e: Exception) { Log.w(TAG, "stopPreviewNow cancel failed: ${e.message}") }
+            _isPlaying.value = false
+            _currentPlaybackPosition.value = null
+            pausedPosition = null
+            currentIsPreview = false
+            currentIsLoopingPreview = false
+            previewProgression = null
+            mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setState(PlaybackStateCompat.STATE_STOPPED, 0L, 0f).build())
+        } catch (e: Exception) {
+            Log.w(TAG, "stopPreviewNow failed: ${e.message}")
+        }
+        Log.i(TAG, "stopPreviewNow - end")
+    }
+
     private fun createPendingIntentForAction(action: String, requestCode: Int): PendingIntent {
         // Try building a MediaButton PendingIntent first (better integration),
         // but fall back to a service PendingIntent if that returns null on some devices.
@@ -489,8 +519,13 @@ class PlaybackService : Service() {
     // Public API helpers
     fun setTempo(newTempo: Int) {
         Log.i(TAG, "setTempo: $newTempo")
-        currentProgression?.let { it.tempo = newTempo }
-        currentProgression?.let { notificationManager.notify(NOTIFICATION_ID, createNotification(it, _isPlaying.value)) }
+        // Update the progression that is currently being played. If a preview is running, update that;
+        // otherwise update the main progression. This ensures live tempo changes affect active playback.
+        val target = if (currentIsPreview && previewProgression != null) previewProgression else currentProgression
+        target?.let {
+            it.tempo = newTempo
+            try { notificationManager.notify(NOTIFICATION_ID, createNotification(it, _isPlaying.value)) } catch (_: Exception) {}
+        }
     }
 
     /**
@@ -607,6 +642,7 @@ class PlaybackService : Service() {
         const val ACTION_PLAY = "com.metaview.chordprogressionhelper.action.PLAY"
         const val ACTION_PAUSE = "com.metaview.chordprogressionhelper.action.PAUSE"
         const val ACTION_STOP = "com.metaview.chordprogressionhelper.action.STOP"
+        const val ACTION_STOP_PREVIEW = "com.metaview.chordprogressionhelper.action.STOP_PREVIEW"
         // Action to update live playback parameters while service may be running
         const val ACTION_UPDATE_PARAMS = "com.metaview.chordprogressionhelper.action.UPDATE_PARAMS"
         const val ACTION_UPDATE_PROGRESSION = "com.metaview.chordprogressionhelper.action.UPDATE_PROGRESSION"
@@ -672,6 +708,19 @@ class PlaybackService : Service() {
                  Log.w("PlaybackService", "updateProgression failed to start service: ${e.message}")
              }
          }
+
+        /**
+         * Stop only previews (both single and looping) without stopping the entire service
+         * or affecting main playback. Safe to call from Activities when only a preview should be ended.
+         */
+        fun stopPreview(context: android.content.Context) {
+            val intent = Intent(context, PlaybackService::class.java).apply { action = ACTION_STOP_PREVIEW }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
+            } catch (e: Exception) {
+                Log.w("PlaybackService", "stopPreview failed to start service: ${e.message}")
+            }
+        }
       }
 
     // Tolerant helper: quote simple unquoted keys/values to allow parsing of malformed JSON-like input.

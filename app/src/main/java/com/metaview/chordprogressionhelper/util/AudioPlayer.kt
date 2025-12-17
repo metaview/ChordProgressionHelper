@@ -5,6 +5,7 @@ package com.metaview.chordprogressionhelper.util
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Process
 import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.ChordProgression
 import com.metaview.chordprogressionhelper.model.Strum
@@ -16,14 +17,67 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.tanh
 import kotlin.random.Random
+import android.os.Handler
+import android.os.HandlerThread
+import kotlinx.coroutines.CompletableDeferred
 
 @OptIn(InternalSerializationApi::class)
 class AudioPlayer {
-    private var audioTrack: AudioTrack? = null
-    private val sampleRate = 44100
+    // helper for lowpass update to avoid numeric overload ambiguity in nested lambdas
+    private fun lpFilter(prev: Double, alpha: Double, value: Double): Double = prev + alpha * (value - prev)
+
+    // Dedicated audio thread and handler
+    @Volatile private var audioHandlerThread: HandlerThread? = null
+    @Volatile private var audioHandler: Handler? = null
+
     // Notes:
     // - sampleRate: Standard-CD-quality sampling rate. Higher rates increase CPU but give more bandwidth.
     // - Keeping 44100 is a good trade-off on mobile devices for CPU vs quality.
+    private val sampleRate = 44100
+    // Reusable buffers to avoid allocations in hot path
+    // previewBuffer: 1s buffer for previews (max 44100 samples)
+    private val previewBuffer = DoubleArray(sampleRate)
+    // reuse for per-eighth buffers; resized when needed
+    private var reusableEighthBuffer = DoubleArray(0)
+
+    private fun ensureAudioThreadStarted() {
+        synchronized(this) {
+            if (audioHandlerThread?.isAlive != true) {
+                audioHandlerThread = HandlerThread("AudioThread", Process.THREAD_PRIORITY_URGENT_AUDIO).apply { start() }
+                audioHandler = Handler(audioHandlerThread!!.looper)
+                // Create a small cached preview AudioTrack on the audio thread to warm-up resources.
+                audioHandler!!.post {
+                    try {
+                        if (previewAudioTrack == null) {
+                            val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                            previewAudioTrack = AudioTrack.Builder()
+                                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                                .setTransferMode(AudioTrack.MODE_STREAM)
+                                .setBufferSizeInBytes(maxOf(minBuf, sampleRate / 4)) // small buffer (250ms) for quick previews
+                                .build()
+                            try { previewAudioTrack?.play() } catch (_: Exception) {}
+                        }
+                    } catch (_: Throwable) { previewAudioTrack = null }
+                }
+            }
+        }
+    }
+
+    private fun shutdownAudioThread() {
+        synchronized(this) {
+            try {
+                audioHandlerThread?.quitSafely()
+                audioHandlerThread = null
+                audioHandler = null
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private var audioTrack: AudioTrack? = null
+    // Reusable small AudioTrack used for quick previews (chords/drums) to avoid allocating
+    // a fresh AudioTrack on every preview call which is expensive and causes audible delay.
+    @Volatile private var previewAudioTrack: AudioTrack? = null
     @Volatile private var isPlaying = false
 
     // Live sound parameters (can be changed at runtime)
@@ -51,6 +105,8 @@ class AudioPlayer {
      * - nützlich um z.B. Piano lauter zu machen oder Overdrive abzusenken
      */
     @Volatile private var voiceGain: Double = 1.0
+    // Persisted low-pass filter state across buffers (single value because only one preset plays at a time)
+    private var prevLP = 0.0
     /**
      * strokeOffsetMs: delay applied to UP strokes in milliseconds to audibly distinguish them from DOWN strokes.
      * - 0 (default) = no offset
@@ -95,447 +151,438 @@ class AudioPlayer {
         startMeasureIndex: Int = 0,
         startStrumIndex: Int = 0,
         isResuming: Boolean = false
-    ) = withContext(Dispatchers.IO) {
-        if (isPlaying) return@withContext
+    ) {
+        if (isPlaying) return
+        ensureAudioThreadStarted()
 
-        isPlaying = true
+        val deferred = CompletableDeferred<Unit>()
+        // Capture params for posted runnable
+        audioHandler!!.post {
+            try {
+                // run original audio loop inside audio thread
+                // Create AudioTrack once; we'll write buffers of varying lengths when tempo changes
+                val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                audioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setBufferSizeInBytes(minBufferSize * 2)
+                    .build()
+                audioTrack?.play()
 
-        // Create AudioTrack once; we'll write buffers of varying lengths when tempo changes
-        // - minBufferSize: the platform's recommended minimum audio buffer (in bytes). We allocate a multiple
-        //   to prevent underruns if we produce chunks smaller than the hardware prefers.
-        val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .setBufferSizeInBytes(minBufferSize * 2)
-            .build()
-        audioTrack?.play()
+                // Ensure any residual audio data from previous runs is cleared before starting playback.
+                try { if (reusableEighthBuffer.isNotEmpty()) java.util.Arrays.fill(reusableEighthBuffer, 0.0) } catch (_: Exception) {}
+                try { java.util.Arrays.fill(previewBuffer, 0.0) } catch (_: Exception) {}
 
-        var activeStrings: List<KarplusStrongString> = emptyList()
+                isPlaying = true
+                var activeStrings: List<KarplusStrongString> = emptyList()
 
-        // Count-in: generate per-beat content using current tempo at each iteration
-        if (countInBeats > 0 && !isResuming) {
-            repeat(countInBeats) {
-                if (!isPlaying) return@repeat
-                val beatDuration = 60.0 / progression.tempo
-                val eighthNoteDuration = beatDuration / 2.0
-                val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
-                val buffer = DoubleArray(eighthNoteSamples * 2)
-                addHiHat(buffer, eighthNoteSamples * 2)
-                val samples = buffer.toPcmShortArray()
-                audioTrack?.write(samples, 0, samples.size)
+                if (countInBeats > 0 && !isResuming) {
+                    repeat(countInBeats) {
+                        if (!isPlaying) return@repeat
+                        val beatDuration = 60.0 / progression.tempo
+                        val eighthNoteDuration = beatDuration / 2.0
+                        val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
+                        val b = if (reusableEighthBuffer.size >= eighthNoteSamples*2) reusableEighthBuffer else DoubleArray(eighthNoteSamples*2).also { reusableEighthBuffer = it }
+                        addHiHat(b, eighthNoteSamples * 2, drumLevel)
+                        val samples = b.toPcmShortArray()
+                        audioTrack?.write(samples, 0, samples.size)
+                    }
+                }
+
+                var isFirstLoopLocal = true
+                // Only reuse persisted prevLP if we are resuming playback; otherwise start filter state at 0
+                var prevLPLocal = if (isResuming) this@AudioPlayer.prevLP else 0.0
+                do {
+                    val loopStartMeasure = if(isFirstLoopLocal) startMeasureIndex else 0
+                    for (measureIndex in loopStartMeasure until progression.measures.size) {
+                        val measure = progression.measures[measureIndex]
+                        if (!isPlaying) break
+                        val loopStartStrum = if (isFirstLoopLocal && measureIndex == startMeasureIndex) startStrumIndex else 0
+                        if (isFirstLoopLocal && measureIndex == startMeasureIndex && loopStartStrum == 0) activeStrings = emptyList()
+
+                        for (strumIndex in loopStartStrum until measure.strummingPattern.strums.size) {
+                            if (!isPlaying) break
+                            val beatDuration = 60.0 / progression.tempo
+                            val eighthNoteDuration = beatDuration / 2.0
+                            val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
+
+                            onPositionChanged(measureIndex, strumIndex)
+
+                            val chord: Chord? = measure.getChordAt(strumIndex)
+                            val currentStrum = measure.strummingPattern.strums[strumIndex]
+
+                            val (baseMs, staggerMs) = when (currentStrum) {
+                                Strum.UP -> Pair(upStrokeOffsetMs, upStringStaggerMs)
+                                Strum.DOWN, Strum.MUTE -> Pair(downStrokeOffsetMs, downStringStaggerMs)
+                                else -> Pair(0,0)
+                            }
+                            val offsetSamplesForPluck = if (baseMs > 0) (baseMs * sampleRate / 1000) else 0
+                            val stringStaggerSamplesForPluck = if (staggerMs > 0) (staggerMs * sampleRate / 1000) else 0
+                            val effOffsetSamplesForPluck = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0 else offsetSamplesForPluck
+                            val effStringStaggerSamplesForPluck = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0 else stringStaggerSamplesForPluck
+
+                            if (currentStrum != Strum.LETRING) prevLPLocal = 0.0
+
+                            // build activeStrings similar to original
+                            when (currentStrum) {
+                                Strum.DOWN, Strum.UP -> {
+                                    val frequencies = chord?.getMidiNotes()?.map { midiNoteToFrequency(it) }
+                                    if (frequencies == null) activeStrings = emptyList() else {
+                                        val sorted = frequencies.sorted().let { if (currentStrum == Strum.UP) it.asReversed() else it }
+                                        val shouldPluckImmediately = (effOffsetSamplesForPluck == 0 && effStringStaggerSamplesForPluck == 0)
+                                        activeStrings = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                                            sorted.flatMap { freq ->
+                                                listOf(
+                                                    KarplusStrongString(freq, sampleRate, pluckStrength, 0.9992).apply { if (shouldPluckImmediately) pluck() },
+                                                    KarplusStrongString(freq * 2.002, sampleRate, pluckStrength, 0.999).apply { if (shouldPluckImmediately) pluck() },
+                                                    KarplusStrongString(freq / 2.0, sampleRate, pluckStrength, 0.997).apply { if (shouldPluckImmediately) pluck() }
+                                                )
+                                            }
+                                        } else {
+                                            sorted.map { freq -> KarplusStrongString(freq, sampleRate, pluckStrength, 0.998).apply { if (shouldPluckImmediately) pluck() } }
+                                        }
+                                    }
+                                }
+                                Strum.MUTE -> {
+                                    val frequencies = chord?.getMidiNotes()?.map { midiNoteToFrequency(it) }
+                                    if (frequencies == null) activeStrings = emptyList() else {
+                                        val sorted = frequencies.sorted()
+                                        val shouldPluckImmediately = (effOffsetSamplesForPluck == 0 && effStringStaggerSamplesForPluck == 0)
+                                        activeStrings = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                                            sorted.flatMap { freq ->
+                                                listOf(
+                                                    KarplusStrongString(freq, sampleRate, pluckStrength, 0.995).apply { if (shouldPluckImmediately) pluck() },
+                                                    KarplusStrongString(freq * 2.002, sampleRate, pluckStrength, 0.993).apply { if (shouldPluckImmediately) pluck() }
+                                                )
+                                            }
+                                        } else {
+                                            sorted.map { freq -> KarplusStrongString(freq, sampleRate, pluckStrength, 0.985).apply { if (shouldPluckImmediately) pluck() } }
+                                        }
+                                    }
+                                }
+                                Strum.REST -> activeStrings = emptyList()
+                                Strum.LETRING -> { /* do nothing */ }
+                            }
+
+                            // Reuse an allocated buffer to avoid allocations, but always respect the *current* required length.
+                            // Do NOT iterate over the full backing array size because it may be larger than the
+                            // requested eighthNoteSamples (causing longer audio chunks and thus ignoring tempo changes).
+                            val b = if (reusableEighthBuffer.size >= eighthNoteSamples) reusableEighthBuffer else DoubleArray(eighthNoteSamples).also { reusableEighthBuffer = it }
+                            val bufferLen = eighthNoteSamples
+
+                            val presetNormalizationMultiplier = when (voicePreset) {
+                                com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30
+                                com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.5
+                                else -> 0.8
+                            }
+
+                            // scheduling arrays
+                            var scheduledPlucks = IntArray(0)
+                            var pluckedFlags = BooleanArray(0)
+                            fun initPluckSchedules() {
+                                val n = activeStrings.size
+                                scheduledPlucks = IntArray(n)
+                                pluckedFlags = BooleanArray(n)
+                                val base = effOffsetSamplesForPluck.coerceAtLeast(0)
+                                val stagger = effStringStaggerSamplesForPluck.coerceAtLeast(0)
+                                val groupSize = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 3 else 1
+                                for (j in 0 until n) {
+                                    if (base == 0 && stagger == 0) {
+                                        scheduledPlucks[j] = Int.MAX_VALUE
+                                    } else {
+                                        if (groupSize == 1) {
+                                            scheduledPlucks[j] = (base + j * stagger).coerceAtMost(bufferLen - 1)
+                                        } else {
+                                            val noteIndex = j / groupSize; val intraIndex = j % groupSize
+                                            val primary = base + noteIndex * stagger
+                                            val intra = (intraIndex - 1) * stagger / 3
+                                            scheduledPlucks[j] = (primary + intra).coerceAtMost(bufferLen - 1)
+                                        }
+                                    }
+                                    pluckedFlags[j] = false
+                                }
+                            }
+                            fun performScheduledPlucksAt(i: Int) {
+                                if (scheduledPlucks.isEmpty()) return
+                                for (j in scheduledPlucks.indices) if (!pluckedFlags[j] && i >= scheduledPlucks[j]) { try{ activeStrings[j].pluck() } catch (_: Exception){}; pluckedFlags[j]=true }
+                            }
+
+                            when (voicePreset) {
+                                com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> {
+                                    val lpAlpha = if (currentStrum == Strum.MUTE) 0.03 else 0.12
+                                    initPluckSchedules()
+                                    for (i in 0 until bufferLen) {
+                                        performScheduledPlucksAt(i)
+                                        var sample = 0.0
+                                        for (s in activeStrings) sample += s.tick()
+                                        val filtered = prevLPLocal + lpAlpha * (sample.toDouble() - prevLPLocal.toDouble())
+                                        prevLPLocal = filtered
+                                        b[i] = filtered * 1.1
+                                    }
+                                }
+                                com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> {
+                                    val gain = 3.0; val mix = 0.8; val cubicCoeff = 0.01
+                                    val lpAlpha = if (currentStrum == Strum.MUTE) 0.05 else 0.2
+                                    initPluckSchedules()
+                                    for (i in 0 until bufferLen) {
+                                        performScheduledPlucksAt(i)
+                                        var sample = 0.0
+                                        for (s in activeStrings) sample += s.tick()
+                                        val driven = tanh(sample * gain)
+                                        val cubic = cubicCoeff * (sample * gain * sample * gain * sample * gain)
+                                        val out = mix * driven + (1.0 - mix) * sample + cubic
+                                        val filtered = prevLPLocal + lpAlpha * (out.toDouble() - prevLPLocal.toDouble())
+                                        prevLPLocal = filtered
+                                        b[i] = filtered * 0.8
+                                    }
+                                }
+                                com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> {
+                                    val lpAlpha = if (currentStrum == Strum.MUTE) 0.03 else 0.1
+                                    initPluckSchedules()
+                                    for (i in 0 until bufferLen) {
+                                        performScheduledPlucksAt(i)
+                                        var sample = 0.0
+                                        for (s in activeStrings) sample += s.tick()
+                                        var raw = sample
+                                        if (currentStrum != Strum.LETRING) {
+                                            // neuen Anschlag erzeugen, wenn wir nicht ausklingen lassen
+                                            val env = ((1.0 - i.toDouble() / bufferLen).coerceIn(
+                                                0.0,
+                                                1.0
+                                            )).pow(0.9) * (0.95 + 0.15 * envelopeScale)
+                                            val attackBoost = if (i < (bufferLen * 0.03).toInt()) 1.35 else 1.0
+                                            raw = sample * env * attackBoost
+                                        }
+                                        val filtered = prevLPLocal + lpAlpha * (raw.toDouble() - prevLPLocal.toDouble())
+                                        prevLPLocal = filtered
+                                        b[i] = filtered
+                                    }
+                                }
+                            }
+
+                            if (currentStrum == Strum.MUTE) addMutePercussive(b)
+
+                            try {
+                                val updatedDrumPattern = progression.measures[measureIndex].drumPattern
+                                val stepIndex = if (updatedDrumPattern.steps.isNotEmpty()) (strumIndex % updatedDrumPattern.steps.size) else strumIndex % 8
+                                val drumStep = updatedDrumPattern.steps.getOrNull(stepIndex) ?: com.metaview.chordprogressionhelper.model.DrumStep()
+                                val restPercussionScale = 0.25
+                                val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
+                                val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
+                                val drumScale = baseDrumScale * presetPercussionMultiplier
+                                if (drumStep.hiHat) addHiHat(b, eighthNoteSamples, drumScale * drumLevel)
+                                if (drumStep.kick) addKick(b, eighthNoteSamples * 2, drumScale * drumLevel)
+                                if (drumStep.snare) addSnare(b, eighthNoteSamples * 2, drumScale * drumLevel)
+                            } catch (_: Exception) {
+                                val restPercussionScale = 0.25
+                                val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
+                                val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
+                                val drumScale = baseDrumScale * presetPercussionMultiplier
+                                addHiHat(b, eighthNoteSamples, drumScale)
+                                if (strumIndex % 2 == 0) {
+                                    val quarterNoteIndex = strumIndex / 2
+                                    if (quarterNoteIndex % 2 == 0) addKick(b, eighthNoteSamples * 2, drumScale * if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.5 else 1.0)
+                                    if (quarterNoteIndex % 2 == 1) addSnare(b, eighthNoteSamples * 2, drumScale)
+                                }
+                            }
+
+                            val normalizationFactor = (activeStrings.size) * presetNormalizationMultiplier + 1.0
+                            if (voiceGain != 1.0) for (i in 0 until bufferLen) b[i] = b[i] * voiceGain
+                            var maxAbs = 0.0
+                            for (i in 0 until bufferLen) { val a = kotlin.math.abs(b[i]); if (a > maxAbs) maxAbs = a }
+                            val postNormPeak = if (normalizationFactor > 0.0) maxAbs / normalizationFactor else maxAbs
+                            val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
+                            val trimmed = b.copyOfRange(0, bufferLen)
+                            val samples = trimmed.map { v -> v / normalizationFactor * headroom }.toDoubleArray().toPcmShortArray()
+                            audioTrack?.write(samples, 0, samples.size)
+                        }
+                    }
+                    isFirstLoopLocal = false
+                    if (!isPlaying) break
+                } while (shouldLoop() && isPlaying)
+
+                // persist last prevLP into class field
+                this@AudioPlayer.prevLP = prevLPLocal
+
+                deferred.complete(Unit)
+            } catch (t: Throwable) {
+                deferred.completeExceptionally(t)
             }
         }
 
-        var isFirstLoop = true
-        do {
-            val loopStartMeasure = if(isFirstLoop) startMeasureIndex else 0
-
-            for (measureIndex in loopStartMeasure until progression.measures.size) {
-                val measure = progression.measures[measureIndex]
-                if (!isPlaying) break
-
-                val loopStartStrum = if (isFirstLoop && measureIndex == startMeasureIndex) startStrumIndex else 0
-                // If this is the very first measure/strum we start playing (not resuming mid-measure), ensure no previous strings are ringing
-                if (isFirstLoop && measureIndex == startMeasureIndex && loopStartStrum == 0) {
-                    activeStrings = emptyList()
-                }
-
-                for (strumIndex in loopStartStrum until measure.strummingPattern.strums.size) {
-                    if (!isPlaying) break
-
-                    // Read tempo live from progression so changes take effect immediately
-                    val beatDuration = 60.0 / progression.tempo
-                    val eighthNoteDuration = beatDuration / 2.0
-                    val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
-
-                    onPositionChanged(measureIndex, strumIndex)
-
-                    val chord: Chord? = measure.getChordAt(strumIndex)
-                    val currentStrum = measure.strummingPattern.strums[strumIndex]
-
-                    // Debug logging to trace issues where preview doesn't sound the first chord
-                    try {
-                        android.util.Log.d("AudioPlayer", "playProgression: measure=$measureIndex strum=$strumIndex currentStrum=$currentStrum chord=${chord?.getDisplayName()}")
-                    } catch (_: Exception) {}
-
-                    // Note: keep REST silent even if a new chord event starts on that strum.
-                    // Previously we forced REST->DOWN when a chord event started at this strum, but
-                    // users expect a REST to produce silence. Do not override REST here.
-
-                    // Determine base offset and per-string stagger (ms) depending on strum direction
-                    val (baseMs, staggerMs) = when (currentStrum) {
-                        Strum.UP -> Pair(upStrokeOffsetMs, upStringStaggerMs)
-                        Strum.DOWN -> Pair(downStrokeOffsetMs, downStringStaggerMs)
-                        else -> Pair(0, 0)
-                    }
-                    // convert to samples
-                    val offsetSamplesForPluck = if (baseMs > 0) (baseMs * sampleRate / 1000) else 0
-                    val stringStaggerSamplesForPluck = if (staggerMs > 0) (staggerMs * sampleRate / 1000) else 0
-
-                    // If preset is PIANO, ignore configured offsets/stagger and play all strings simultaneously
-                    val effOffsetSamplesForPluck = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0 else offsetSamplesForPluck
-                    val effStringStaggerSamplesForPluck = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0 else stringStaggerSamplesForPluck
-
-                    when (currentStrum) {
-                        Strum.DOWN, Strum.UP -> {
-                            val frequencies = chord?.getMidiNotes()?.map { midiNoteToFrequency(it) }
-                            if (frequencies == null) {
-                                activeStrings = emptyList()
-                            } else {
-                                // sort according to strum direction and always recreate strings for each attack
-                                val sorted = frequencies.sorted().let { if (currentStrum == Strum.UP) it.asReversed() else it }
-                                val shouldPluckImmediately = (effOffsetSamplesForPluck == 0 && effStringStaggerSamplesForPluck == 0)
-                                activeStrings = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
-                                    // For piano, add extra octave and sub-octave strings for fullness and longer sustain
-                                    sorted.flatMap { freq ->
-                                        listOf(
-                                            KarplusStrongString(freq, sampleRate, pluckStrength, 0.9992).apply { if (shouldPluckImmediately) pluck() },
-                                            KarplusStrongString(freq * 2.002, sampleRate, pluckStrength, 0.999).apply { if (shouldPluckImmediately) pluck() },
-                                            KarplusStrongString(freq / 2.0, sampleRate, pluckStrength, 0.997).apply { if (shouldPluckImmediately) pluck() }
-                                        )
-                                    }
-                                } else {
-                                    // Default single string per note
-                                    sorted.map { freq -> KarplusStrongString(freq, sampleRate, pluckStrength, 0.998).apply { if (shouldPluckImmediately) pluck() } }
-                                }
-                            }
-                            try { android.util.Log.d("AudioPlayer", "activeStrings after pluck: ${activeStrings.size}") } catch (_: Exception) {}
-                        }
-                        Strum.REST, Strum.MUTE -> activeStrings = emptyList()
-                        Strum.LETRING -> { /* Do nothing, let strings ring */ }
-                    }
-
-                    val buffer = DoubleArray(eighthNoteSamples)
-
-                    // apply preset gain before normalization
-                    // normalization: compute a preset-aware normalization factor and apply headroom scaling
-                    // Rationale:
-                    // - Previously a fixed multiplier (0.7) scaled down signals proportionally to the number of active strings.
-                    //   This caused presets that create multiple strings (e.g. PIANO) to be strongly attenuated, cancelling voiceGain.
-                    // - To let presets like PIANO be louder, use a smaller per-string attenuation for PIANO.
-                    val presetNormalizationMultiplier = when (voicePreset) {
-                        com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30 // less attenuation per string for piano (was 0.45)
-                        com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.5
-                        else -> 0.8
-                    }
-
-                    if (currentStrum == Strum.MUTE) addMute(buffer)
-                    else {
-                        // We'll apply a small final filter and preset-specific shaping
-                        // offsetSamples and stringStaggerSamples are computed and will be used in the per-voice loops
-                        // Prepare scheduled pluck times per string (filled later after activeStrings created)
-                        var scheduledPlucks = IntArray(0)
-                        var pluckedFlags = BooleanArray(0)
-                        // Helper to initialize schedules based on activeStrings size and buffer length
-                        fun initPluckSchedules() {
-                            val n = activeStrings.size
-                            scheduledPlucks = IntArray(n)
-                            pluckedFlags = BooleanArray(n)
-                            val base = effOffsetSamplesForPluck.coerceAtLeast(0)
-                            val stagger = effStringStaggerSamplesForPluck.coerceAtLeast(0)
-
-                            // For PIANO we create multiple strings per musical note (base, octave, sub-octave).
-                            // Users generally erwarten, dass das Stagger pro Note und nicht pro einzelner KS-Saite angewendet wird.
-                            // Verwenden Sie groupSize=3 für Klavier (drei Saiten pro Note). Für andere Presets verwenden Sie groupSize=1.
-                            val groupSize = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 3 else 1
-
-                            for (j in 0 until n) {
-                                // Wenn keine Basis/kein Stagger vorhanden ist, gehen wir davon aus, dass die Saiten sofort anderswo gezupft wurden
-                                if (base == 0 && stagger == 0) {
-                                    scheduledPlucks[j] = Int.MAX_VALUE
-                                } else {
-                                    if (groupSize == 1) {
-                                        // Normales Verhalten: Jede Saite erhält ihr eigenes Offset
-                                        val s = base + j * stagger
-                                        scheduledPlucks[j] = s.coerceAtMost(buffer.size - 1)
-                                    } else {
-                                        // Piano-Verhalten: Stagger pro Note (Gruppe), kleines intra-note Offset hinzufügen
-                                        val noteIndex = j / groupSize
-                                        val intraIndex = j % groupSize
-                                        // primäres Stagger zwischen den Noten
-                                        val primary = base + noteIndex * stagger
-                                        // kleiner Teil des Staggers, um Oktave/Sub-Oktave leicht zu versetzen, damit die Note
-                                        // nicht gleichzeitig mit der Grundnote klingt
-                                        val intra = (intraIndex - 1) * stagger / 3
-                                        scheduledPlucks[j] = (primary + intra).coerceAtMost(buffer.size - 1)
-                                    }
-                                }
-                                pluckedFlags[j] = false
-                            }
-                        }
-
-                        // Local helper: invoke scheduled plucks at sample index i
-                        fun performScheduledPlucksAt(i: Int) {
-                            if (scheduledPlucks.isEmpty()) return
-                            for (j in scheduledPlucks.indices) {
-                                if (!pluckedFlags[j] && i >= scheduledPlucks[j]) {
-                                    try { activeStrings[j].pluck() } catch (_: Exception) {}
-                                    pluckedFlags[j] = true
-                                }
-                            }
-                        }
-
-                        when (voicePreset) {
-                            com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> {
-                                val lpAlpha = 0.12 // gentle lowpass to remove harsh HF
-                                var prevLP = 0.0 // temp value for filter
-                                // initialize scheduled plucks based on number of strings
-                                initPluckSchedules()
-                                for (i in buffer.indices) {
-                                    // perform plucks scheduled for this sample
-                                    performScheduledPlucksAt(i)
-                                    var sample = 0.0
-                                    for (string in activeStrings) sample += string.tick()
-                                    val filtered = prevLP + lpAlpha * (sample - prevLP)
-                                    prevLP = filtered
-                                    buffer[i] += filtered * 1.1
-                                }
-                            }
-                            com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> {
-                                // Overdrive / Distortion parameters
-                                // - gain: Eingangsverstärkung vor Nonlinearität (tanh) -> bestimmt, wie stark die Signalform gekrümmt wird
-                                // - mix: Verhältnis zwischen 'driven' (verzerrt) und 'clean' Signalanteil
-                                // - cubicCoeff: kleine zusätzliche nicht-lineare Harmonische, um den Klang 'körperreicher' zu machen
-                                // Tipps:
-                                //  - gain erhöhen -> mehr Obertöne / härtere Verzerrung
-                                //  - mix erhöhen -> mehr verzerrtes Signal im Ausgang
-                                val gain = 3.0
-                                val mix = 0.8
-                                val cubicCoeff = 0.01
-                                val lpAlpha = 0.2 // tiefpass
-                                var prevLP = 0.0 // temp value for filter
-                                initPluckSchedules()
-                                for (i in buffer.indices) {
-                                    performScheduledPlucksAt(i)
-                                    var sample = 0.0
-                                    for (string in activeStrings) sample += string.tick()
-                                    // soft clip
-                                    val driven = tanh(sample * gain)
-                                    // reduced cubic harmonic contribution
-                                    // cubic term: sehr kleiner Anteil zur Erzeugung zusätzlicher Obertöne
-                                    val cubic = cubicCoeff * (sample * gain * sample * gain * sample * gain)
-                                    val out = mix * driven + (1.0 - mix) * sample + cubic
-                                    val filtered = prevLP + lpAlpha * (out - prevLP)
-                                    prevLP = filtered
-                                    buffer[i] += filtered * 0.8
-                                }
-                            }
-                            com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> {
-                                // Piano synthesis parameters and rationale:
-                                // - For a simple synthetic 'piano' we use multiple Karplus-Strong strings:
-                                //   base frequency, octave (x2.002) and sub-octave (/2). This adds harmonic richness.
-                                // - lpAlpha: per-sample lowpass smoothing to emulate the body/warmth of a piano tone
-                                // - env: envelope controlling release/sustain. pow(0.85) produces a slower decay than a linear curve.
-                                // - attackBoost: short initial boost to simulate hammer attack on the strings
-                                // Notes for tweaking:
-                                //  - Increase envelope exponent (<1) to lengthen sustain further
-                                //  - Increase lpAlpha to reduce high frequency brilliance
-                                val lpAlpha = 0.10 // smoother lowpass for piano
-                                var prevLP = 0.0 // temp value for filter
-                                initPluckSchedules()
-                                for (i in buffer.indices) {
-                                    performScheduledPlucksAt(i)
-                                    var sample = 0.0
-                                    for (string in activeStrings) sample += string.tick()
-                                    // longer release envelope for piano-like sustain (slower decay)
-                                    val env = ((1.0 - i.toDouble() / buffer.size).coerceIn(0.0, 1.0)).pow(0.9) * (0.95 + 0.15 * envelopeScale)
-                                    val attackBoost = if (i < (buffer.size * 0.03).toInt()) 1.35 else 1.0
-                                    val raw = sample * env * attackBoost
-                                    val filtered = prevLP + lpAlpha * (raw - prevLP)
-                                    prevLP = filtered
-                                    buffer[i] += filtered
-                                }
-                            }
-                        }
-                    }
-
-                    // Percussion: use the drum pattern attached to the current measure.
-                    // A DrumPattern contains a list of DrumStep for eighth-note positions. Multiple instruments
-                    // (kick/snare/hiHat) may be set on the same eighth; play them together when present.
-                    try {
-                        // Update the drum pattern dynamically during playback
-                        val updatedDrumPattern = progression.measures[measureIndex].drumPattern
-                        // Ensure the updated pattern is used immediately
-                        val stepIndex = if (updatedDrumPattern.steps.isNotEmpty()) (strumIndex % updatedDrumPattern.steps.size) else strumIndex % 8
-                        val drumStep = updatedDrumPattern.steps.getOrNull(stepIndex) ?: com.metaview.chordprogressionhelper.model.DrumStep()
-
-                        // Apply the drum pattern changes dynamically
-                        val restPercussionScale = 0.25
-                        val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
-                        val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
-                        val drumScale = baseDrumScale * presetPercussionMultiplier
-
-                        if (drumStep.hiHat) addHiHat(buffer, eighthNoteSamples, drumScale * drumLevel)
-                        if (drumStep.kick) addKick(buffer, eighthNoteSamples * 2, drumScale * drumLevel)
-                        if (drumStep.snare) addSnare(buffer, eighthNoteSamples * 2, drumScale * drumLevel)
-                    } catch (_: Exception) {
-                        // Fallback to previous simple behaviour if anything goes wrong
-                        val restPercussionScale = 0.25
-                        val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
-                        val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
-                        val drumScale = baseDrumScale * presetPercussionMultiplier
-                        addHiHat(buffer, eighthNoteSamples, drumScale)
-                        if (strumIndex % 2 == 0) {
-                            val quarterNoteIndex = strumIndex / 2
-                            if (quarterNoteIndex % 2 == 0) addKick(buffer, eighthNoteSamples * 2, drumScale * if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.5 else 1.0)
-                            if (quarterNoteIndex % 2 == 1) addSnare(buffer, eighthNoteSamples * 2, drumScale)
-                        }
-                    }
-
-                    val normalizationFactor = (activeStrings.size) * presetNormalizationMultiplier + 1.0
-
-                    // Apply voiceGain before final normalization so intended make-up gain affects peak
-                    if (voiceGain != 1.0) { for (i in buffer.indices) buffer[i] = buffer[i] * voiceGain }
-
-                    // Compute post-normalization peak and add headroom scaling to avoid clipping while respecting voiceGain
-                    var maxAbs = 0.0
-                    for (v in buffer) { val a = kotlin.math.abs(v); if (a > maxAbs) maxAbs = a }
-                    val postNormPeak = if (normalizationFactor > 0.0) maxAbs / normalizationFactor else maxAbs
-                    val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
-
-                    // Final samples: divide by normalizationFactor and apply additional headroom scale
-                    val samples = buffer.map { v -> v / normalizationFactor * headroom }.toDoubleArray().toPcmShortArray()
-                    try {
-                        val peakInfo = "measure=$measureIndex strum=$strumIndex activeStrings=${activeStrings.size} normalizationFactor=$normalizationFactor postNormPeak=$postNormPeak headroom=$headroom"
-                        android.util.Log.d("AudioPlayer", "bufferDebug: $peakInfo")
-                    } catch (_: Exception) {}
-                     audioTrack?.write(samples, 0, samples.size)
-                 }
-             }
-             isFirstLoop = false
-             if (!isPlaying) break
-         } while (shouldLoop() && isPlaying)
-
+        // wait for audio thread to finish scheduling the run
+        deferred.await()
     }
 
     suspend fun previewChord(chord: Chord, pluckStrength: Int) = withContext(Dispatchers.IO) {
-        // previewDuration (seconds): how long a single chord preview should sound.
-        // - 1.0s is a short but audible preview. Increasing gives longer sustain for testing/enjoyment.
-        val previewDuration = 1.0
-        val numSamples = (sampleRate * previewDuration).toInt()
-        val frequencies = chord.getMidiNotes().map { midiNoteToFrequency(it) }
-        val strings = frequencies.map { KarplusStrongString(it, sampleRate, pluckStrength).apply { pluck() } }
-        val buffer = DoubleArray(numSamples)
-        for(i in buffer.indices) {
-            var sample = 0.0
-            for(string in strings) sample += string.tick()
-            buffer[i] = sample
+        // Generate and play preview on the audio thread using the cached previewAudioTrack to minimize latency.
+        ensureAudioThreadStarted()
+        val deferred = CompletableDeferred<Unit>()
+        audioHandler!!.post {
+            try {
+                val previewDuration = 1.0
+                val numSamples = (sampleRate * previewDuration).toInt()
+                val frequencies = chord.getMidiNotes().map { midiNoteToFrequency(it) }
+                val strings = frequencies.map { KarplusStrongString(it, sampleRate, pluckStrength).apply { pluck() } }
+                val buf = previewBuffer
+                for (i in 0 until numSamples) {
+                    var sample = 0.0
+                    for (s in strings) sample += s.tick()
+                    buf[i] = sample
+                }
+                val presetNormalizationMultiplier = when (voicePreset) {
+                    com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30
+                    com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.7
+                    else -> 0.7
+                }
+                val normalizationFactor = (frequencies.size) * presetNormalizationMultiplier + 1.0
+                if (voiceGain != 1.0) for (i in 0 until numSamples) buf[i] = buf[i] * voiceGain
+                var maxAbs = 0.0
+                for (i in 0 until numSamples) { val a = kotlin.math.abs(buf[i]); if (a > maxAbs) maxAbs = a }
+                val postNormPeak = if (normalizationFactor > 0.0) maxAbs / normalizationFactor else maxAbs
+                val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
+                val samples = buf.copyOfRange(0, numSamples).map { it / normalizationFactor * headroom }.toDoubleArray().toPcmShortArray()
+
+                // Use cached previewAudioTrack if available
+                val at = previewAudioTrack
+                if (at != null) {
+                    try {
+                        at.flush()
+                    } catch (_: Exception) {}
+                    at.write(samples, 0, samples.size)
+                    // Keep the thread sleeping for the playback duration so callers that await this suspend function
+                    // get the previous blocking behavior. The sleep runs on the audio thread so it doesn't block UI.
+                    try { Thread.sleep((previewDuration * 1000).toLong()) } catch (_: Exception) {}
+                } else {
+                    // Fallback: create a temporary track if cached one is not available
+                    var temp: AudioTrack? = null
+                    try {
+                        val previewMinBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                        temp = AudioTrack.Builder()
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                            .setTransferMode(AudioTrack.MODE_STREAM)
+                            // samples.size is number of PCM samples (shorts) - convert to bytes; ensure at least min buffer size
+                            .setBufferSizeInBytes(maxOf(previewMinBuffer, samples.size * 2))
+                            .build()
+
+                        temp.play()
+                        temp.write(samples, 0, samples.size)
+                        Thread.sleep((previewDuration * 1000).toLong())
+                    } finally { try { temp?.stop() } catch (_: Exception) {}; try { temp?.release() } catch (_: Exception) {} }
+                }
+
+                deferred.complete(Unit)
+            } catch (t: Throwable) { deferred.completeExceptionally(t) }
         }
-
-        // Apply preset-aware normalization similar to real playback so preview loudness matches
-        val presetNormalizationMultiplier = when (voicePreset) {
-            com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30
-            com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.7
-            else -> 0.7
-        }
-        val normalizationFactor = (frequencies.size) * presetNormalizationMultiplier + 1.0
-
-        // Apply voiceGain before normalization so make-up gain is meaningful
-        if (voiceGain != 1.0) { for (i in buffer.indices) buffer[i] = buffer[i] * voiceGain }
-
-        // Compute peak and headroom
-        var maxAbs = 0.0
-        for (v in buffer) { val a = kotlin.math.abs(v); if (a > maxAbs) maxAbs = a }
-        val postNormPeak = if (normalizationFactor > 0.0) maxAbs / normalizationFactor else maxAbs
-        val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
-
-        val samples = buffer.map { it / normalizationFactor * headroom }.toDoubleArray().toPcmShortArray()
-
-        var previewAudioTrack: AudioTrack? = null
-        try {
-             val previewMinBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-             previewAudioTrack = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                // samples.size is number of PCM samples (shorts) - convert to bytes; ensure at least min buffer size
-                .setBufferSizeInBytes(maxOf(previewMinBuffer, samples.size * 2))
-                .build()
-
-            previewAudioTrack.play()
-            previewAudioTrack.write(samples, 0, samples.size)
-            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
-        } finally {
-            previewAudioTrack?.stop()
-            previewAudioTrack?.release()
-        }
+        deferred.await()
     }
 
-    // Short percussion preview helpers: generate a short buffer containing the requested percussion
     suspend fun previewKick(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
-        val previewDuration = 0.25 // 250ms should be enough to hear the transient
-        val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
-        val buffer = DoubleArray(numSamples)
-        try {
-            addKick(buffer, numSamples, levelScale)
-        } catch (_: Exception) {}
-        val samples = buffer.toPcmShortArray()
-        var at: AudioTrack? = null
-        try {
-            val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            at = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
-                .build()
-            at.play()
-            at.write(samples, 0, samples.size)
-            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
-        } finally {
-            try { at?.stop() } catch (_: Exception) {}
-            try { at?.release() } catch (_: Exception) {}
+        ensureAudioThreadStarted()
+        val deferred = CompletableDeferred<Unit>()
+        audioHandler!!.post {
+            try {
+                val previewDuration = 0.25
+                val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
+                previewBuffer.fill(0.0)
+                val buf = previewBuffer
+                addKick(buf, numSamples, levelScale)
+                val samples = buf.copyOfRange(0, numSamples).toPcmShortArray()
+                val at = previewAudioTrack
+                if (at != null) {
+                    try { at.flush() } catch (_: Exception) {}
+                    at.write(samples, 0, samples.size)
+                    try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                } else {
+                    // fallback to temporary track
+                    var tmp: AudioTrack? = null
+                    try {
+                        val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                        tmp = AudioTrack.Builder()
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                            .setTransferMode(AudioTrack.MODE_STREAM)
+                            .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
+                            .build()
+                        tmp.play(); tmp.write(samples, 0, samples.size); try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                    } finally { try { tmp?.stop() } catch (_: Exception) {} ; try { tmp?.release() } catch (_: Exception) {} }
+                }
+                deferred.complete(Unit)
+            } catch (t: Throwable) { deferred.completeExceptionally(t) }
         }
+        deferred.await()
     }
 
     suspend fun previewSnare(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
-        val previewDuration = 0.22
-        val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
-        val buffer = DoubleArray(numSamples)
-        try { addSnare(buffer, numSamples, levelScale) } catch (_: Exception) {}
-        val samples = buffer.toPcmShortArray()
-        var at: AudioTrack? = null
-        try {
-            val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            at = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
-                .build()
-            at.play()
-            at.write(samples, 0, samples.size)
-            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
-        } finally {
-            try { at?.stop() } catch (_: Exception) {}
-            try { at?.release() } catch (_: Exception) {}
+        ensureAudioThreadStarted()
+        val deferred = CompletableDeferred<Unit>()
+        audioHandler!!.post {
+            try {
+                val previewDuration = 0.22
+                val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
+                previewBuffer.fill(0.0)
+                val buf = previewBuffer
+                addSnare(buf, numSamples, levelScale)
+                val samples = buf.copyOfRange(0, numSamples).toPcmShortArray()
+                val at = previewAudioTrack
+                if (at != null) {
+                    try { at.flush() } catch (_: Exception) {}
+                    at.write(samples, 0, samples.size)
+                    try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                } else {
+                    var tmp: AudioTrack? = null
+                    try {
+                        val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                        tmp = AudioTrack.Builder()
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                            .setTransferMode(AudioTrack.MODE_STREAM)
+                            .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
+                            .build()
+                        tmp.play(); tmp.write(samples, 0, samples.size); try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                    } finally { try { tmp?.stop() } catch (_: Exception) {}; try { tmp?.release() } catch (_: Exception) {} }
+                }
+                deferred.complete(Unit)
+            } catch (t: Throwable) { deferred.completeExceptionally(t) }
         }
+        deferred.await()
     }
 
     suspend fun previewHiHat(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
-        val previewDuration = 0.12
-        val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(32)
-        val buffer = DoubleArray(numSamples)
-        try { addHiHat(buffer, numSamples, levelScale) } catch (_: Exception) {}
-        val samples = buffer.toPcmShortArray()
-        var at: AudioTrack? = null
-        try {
-            val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            at = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
-                .build()
-            at.play()
-            at.write(samples, 0, samples.size)
-            kotlinx.coroutines.delay((previewDuration * 1000).toLong())
-        } finally {
-            try { at?.stop() } catch (_: Exception) {}
-            try { at?.release() } catch (_: Exception) {}
+        ensureAudioThreadStarted()
+        val deferred = CompletableDeferred<Unit>()
+        audioHandler!!.post {
+            try {
+                val previewDuration = 0.12
+                val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(32)
+                previewBuffer.fill(0.0)
+                val buf = previewBuffer
+                addHiHat(buf, numSamples, levelScale)
+                val samples = buf.copyOfRange(0, numSamples).toPcmShortArray()
+                val at = previewAudioTrack
+                if (at != null) {
+                    try { at.flush() } catch (_: Exception) {}
+                    at.write(samples, 0, samples.size)
+                    try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                } else {
+                    var tmp: AudioTrack? = null
+                    try {
+                        val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                        tmp = AudioTrack.Builder()
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                            .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                            .setTransferMode(AudioTrack.MODE_STREAM)
+                            .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
+                            .build()
+                        tmp.play(); tmp.write(samples, 0, samples.size); try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                    } finally { try { tmp?.stop() } catch (_: Exception) {}; try { tmp?.release() } catch (_: Exception) {} }
+                }
+                deferred.complete(Unit)
+            } catch (t: Throwable) { deferred.completeExceptionally(t) }
         }
+        deferred.await()
     }
 
     // Convert a DoubleArray (values roughly in -1..1) to 16-bit PCM ShortArray.
@@ -548,15 +595,20 @@ class AudioPlayer {
         return shortArray
     }
 
-    private fun addMute(buffer: DoubleArray) {
-        val muteDuration = (buffer.size * 0.25).toInt()
-        var lastNoise = 0.0
-        for (i in 0 until muteDuration) {
+    // Small percussive transient used specifically to add a short 'thud' to palm-muted strums
+    private fun addMutePercussive(buffer: DoubleArray) {
+        val n = buffer.size
+        if (n <= 0) return
+        val attackSamples = (n * 0.1).toInt().coerceAtLeast(6)
+        var last = 0.0
+        for (i in 0 until attackSamples) {
             val white = Random.nextDouble() * 2 - 1
-            val bandPass = (white + lastNoise) / 2.0
-            lastNoise = white
-            val envelope = (1.0 - i.toDouble() / muteDuration).pow(2)
-            buffer[i] += bandPass * envelope * 0.6
+            // low-pass-ish smoothing to make it less clicky
+            val band = (white + last) * 0.5
+            last = white
+            val env = (1.0 - i.toDouble() / attackSamples).pow(1.8) * 0.9
+            // smaller magnitude than full drum to keep it subtle
+            buffer[i] += band * env * 0.2 * drumLevel
         }
     }
 
@@ -692,5 +744,19 @@ class AudioPlayer {
             }
         }
         audioTrack = null
+        // Also stop and release previewAudioTrack if present
+        try {
+            previewAudioTrack?.let {
+                try { it.flush() } catch (_: Exception) {}
+                try { it.stop() } catch (_: Exception) {}
+                try { it.release() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+        previewAudioTrack = null
+         // Reset persisted lowpass filter state so subsequent starts/count-ins don't inherit DC/offset
+         try { this.prevLP = 0.0 } catch (_: Exception) {}
+        // Clear reusable buffers so a subsequent start cannot reuse stale sample data
+        try { if (reusableEighthBuffer.isNotEmpty()) java.util.Arrays.fill(reusableEighthBuffer, 0.0) } catch (_: Exception) {}
+        try { java.util.Arrays.fill(previewBuffer, 0.0) } catch (_: Exception) {}
     }
 }

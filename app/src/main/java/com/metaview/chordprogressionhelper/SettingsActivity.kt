@@ -108,7 +108,7 @@ class SettingsActivity : AppCompatActivity() {
         setStrumSeekbarsEnabled(settingsRepository.soundPreset != SoundPreset.PIANO)
 
         // Initialize strumming timing seekbars and labels (ms values)
-        val upOffset = settingsRepository.strokeOffsetMs.coerceIn(0, 200)
+        val upOffset = settingsRepository.strokeOffsetMs.coerceIn(0, 100)
         binding.upStrokeOffsetSeekBar.progress = upOffset
         binding.upStrokeOffsetValue.text = getString(R.string.ms_format, upOffset)
 
@@ -116,7 +116,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.upStringStaggerSeekBar.progress = upStagger
         binding.upStringStaggerValue.text = getString(R.string.ms_format, upStagger)
 
-        val downOffset = settingsRepository.downStrokeOffsetMs.coerceIn(0, 200)
+        val downOffset = settingsRepository.downStrokeOffsetMs.coerceIn(0, 100)
         binding.downStrokeOffsetSeekBar.progress = downOffset
         binding.downStrokeOffsetValue.text = getString(R.string.ms_format, downOffset)
 
@@ -237,10 +237,10 @@ class SettingsActivity : AppCompatActivity() {
             settingsRepository.drumLevel = 1.0f
             settingsRepository.envelopeScale = 1.0f
             settingsRepository.hiHatHighpass = 1.0f
-            settingsRepository.strokeOffsetMs = 25
-            settingsRepository.stringStaggerMs = 20
+            settingsRepository.strokeOffsetMs = 10
+            settingsRepository.stringStaggerMs = 12
             settingsRepository.downStrokeOffsetMs = 0
-            settingsRepository.downStringStaggerMs = 20
+            settingsRepository.downStringStaggerMs = 12
 
             // Update UI
             binding.drumLevelSeekBar.progress = kotlin.math.floor(settingsRepository.drumLevel * 100).toInt()

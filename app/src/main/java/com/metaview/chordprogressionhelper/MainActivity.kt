@@ -19,14 +19,15 @@ import android.util.Log
 import android.util.TypedValue
 import android.content.res.ColorStateList
 import android.content.BroadcastReceiver
-import android.content.IntentFilter
 import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.PopupMenu
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,6 +61,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 @OptIn(InternalSerializationApi::class)
+@SuppressLint("UnspecifiedRegisterReceiverFlag")
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var viewModel: ProgressionViewModel
@@ -82,7 +84,7 @@ class MainActivity : AppCompatActivity() {
                     val json = intent.getStringExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON)
                     if (mIndex >= 0 && !json.isNullOrEmpty()) {
                         try {
-                            val pattern = Json.decodeFromString(com.metaview.chordprogressionhelper.model.DrumPattern.serializer(), json)
+                            val pattern = Json.decodeFromString(DrumPattern.serializer(), json)
                             viewModel.setDrumPattern(mIndex, pattern)
                         } catch (e: Exception) { Log.w(TAG, "drumPatternReceiver: failed to decode pattern: ${e.message}") }
                     }
@@ -127,9 +129,100 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (!isGranted) {
-            Toast.makeText(this, "Notification permission is required for background playback.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.notification_permission_required), Toast.LENGTH_LONG).show()
         }
     }
+
+    private lateinit var exportCreateLauncher: ActivityResultLauncher<String>
+    private lateinit var importOpenLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var exportDirLauncher: ActivityResultLauncher<android.net.Uri?>
+
+    private var pendingExportName: String? = null
+
+    private fun shareExportedProgression(name: String) {
+        try {
+            val repo = (application as MyApplication).progressionRepository
+            val tempF = java.io.File.createTempFile("share_${name}", ".json", cacheDir)
+            if (!repo.exportProgressionToFile(name, tempF)) {
+                Toast.makeText(this, getString(R.string.export_for_sharing_failed), Toast.LENGTH_SHORT).show()
+                tempF.delete()
+                return
+            }
+            val authority = "${applicationContext.packageName}.fileprovider"
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, authority, tempF)
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(share, getString(R.string.share_progression)))
+            // schedule deletion of temp file after a short delay
+            tempF.deleteOnExit()
+        } catch (e: Exception) {
+            Log.w(TAG, "shareExportedProgression failed: ${e.message}")
+            Toast.makeText(this, getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun promptChooseAndExport() {
+        val savedNames = viewModel.getSavedProgressionNames()
+        if (savedNames.isEmpty()) { Toast.makeText(this, getString(R.string.no_saved_progressions_export), Toast.LENGTH_SHORT).show(); return }
+        val repo = (application as MyApplication).progressionRepository
+        val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
+        val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+                val v = convertView ?: LayoutInflater.from(context).inflate(android.R.layout.simple_list_item_2, parent, false)
+                val tv1 = v.findViewById<TextView>(android.R.id.text1)
+                val tv2 = v.findViewById<TextView>(android.R.id.text2)
+                val item = getItem(position)!!
+                tv1.text = item.first
+                tv2.text = item.second ?: ""
+                tv2.alpha = 0.75f
+                return v
+            }
+        }
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.export_progression_title))
+            .setAdapter(adapter) { _, which ->
+                 val name = items[which].first
+                 pendingExportName = name
+                 val suggested = "${name}.json"
+                 exportCreateLauncher.launch(suggested)
+             }
+            .setNegativeButton(getString(R.string.cancel), null)
+             .create()
+         dialog.setOnShowListener { styleDialogButtons(dialog) }
+         dialog.show()
+     }
+
+    private fun promptChooseAndShare() {
+        val savedNames = viewModel.getSavedProgressionNames()
+        if (savedNames.isEmpty()) { Toast.makeText(this, getString(R.string.no_saved_progressions_share), Toast.LENGTH_SHORT).show(); return }
+        val repo = (application as MyApplication).progressionRepository
+        val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
+        val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+                val v = convertView ?: LayoutInflater.from(context).inflate(android.R.layout.simple_list_item_2, parent, false)
+                val tv1 = v.findViewById<TextView>(android.R.id.text1)
+                val tv2 = v.findViewById<TextView>(android.R.id.text2)
+                val item = getItem(position)!!
+                tv1.text = item.first
+                tv2.text = item.second ?: ""
+                tv2.alpha = 0.75f
+                return v
+            }
+        }
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.share_progression_title))
+            .setAdapter(adapter) { _, which ->
+                 val name = items[which].first
+                 shareExportedProgression(name)
+             }
+            .setNegativeButton(getString(R.string.cancel), null)
+             .create()
+         dialog.setOnShowListener { styleDialogButtons(dialog) }
+         dialog.show()
+     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,6 +230,76 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         viewModel = ViewModelProvider(this)[ProgressionViewModel::class.java]
+
+        // Register SAF launchers for export/import
+        exportCreateLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            if (uri == null) return@registerForActivityResult
+            // Write selected progression JSON to the created uri via contentResolver
+            val name = pendingExportName
+            if (name == null) return@registerForActivityResult
+            try {
+                contentResolver.openOutputStream(uri)?.use { os ->
+                    val repo = (application as MyApplication).progressionRepository
+                    val tempF = java.io.File.createTempFile("export", ".json", cacheDir)
+                    try {
+                        if (repo.exportProgressionToFile(name, tempF)) {
+                            tempF.inputStream().use { it.copyTo(os) }
+                            Toast.makeText(this, getString(R.string.exported_x, name), Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, getString(R.string.export_failed), Toast.LENGTH_SHORT).show()
+                        }
+                    } finally {
+                        try { tempF.delete() } catch (_: Exception) {}
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "exportCreateLauncher: write failed: ${e.message}")
+            } finally {
+                pendingExportName = null
+            }
+        }
+
+        importOpenLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let {
+                try {
+                    contentResolver.openInputStream(uri)?.use { ins ->
+                        val text = ins.readBytes().toString(Charsets.UTF_8)
+                        val repo = (application as MyApplication).progressionRepository
+                        // save to temp and import
+                        val tmp = java.io.File.createTempFile("import", ".json", cacheDir)
+                        tmp.writeText(text)
+                        val name = repo.importProgressionFromFile(tmp, overwrite = false)
+                        tmp.delete()
+                        if (name != null) Toast.makeText(this, getString(R.string.imported_x, name), Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) { Log.w(TAG, "importOpenLauncher failed: ${e.message}") }
+            }
+        }
+
+        // For simplicity, exportDirLauncher will be an OPEN_DOCUMENT_TREE that returns a Uri. We copy files using DocumentFile if needed.
+        exportDirLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+            treeUri?.let { uri ->
+                try {
+                    val takeFlags = Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    contentResolver.takePersistableUriPermission(uri, takeFlags)
+                    val docFile = androidx.documentfile.provider.DocumentFile.fromTreeUri(this, uri)
+                    if (docFile != null && docFile.isDirectory) {
+                        val repo = (application as MyApplication).progressionRepository
+                        val exported = repo.exportAllProgressionsToDir(java.io.File(cacheDir, "exports"))
+                        // Copy exported files to treeUri using DocumentFile
+                        for (f in exported) {
+                            val existing = docFile.findFile(f.name)
+                            existing?.delete()
+                            val out = docFile.createFile("application/json", f.name)
+                            out?.uri?.let { destUri ->
+                                contentResolver.openOutputStream(destUri)?.use { os -> f.inputStream().use { it.copyTo(os) } }
+                            }
+                        }
+                        Toast.makeText(this, getString(R.string.exported_n_files, exported.size), Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) { Log.w(TAG, "exportDirLauncher failed: ${e.message}") }
+            }
+        }
 
         // Register ActivityResult launcher to receive StrummingPatternActivity results
         strumPatternLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -179,10 +342,6 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         val intent = Intent(this, PlaybackService::class.java)
         bindService(intent, connection, BIND_AUTO_CREATE)
-        try {
-            val filter = IntentFilter("com.metaview.chordprogressionhelper.ACTION_DRUM_PATTERN_UPDATED")
-            registerReceiver(drumPatternReceiver, filter)
-        } catch (_: Exception) {}
     }
 
     override fun onStop() {
@@ -191,7 +350,6 @@ class MainActivity : AppCompatActivity() {
             unbindService(connection)
             isBound = false
         }
-        try { unregisterReceiver(drumPatternReceiver) } catch (_: Exception) {}
     }
 
     private fun askForNotificationPermission() {
@@ -283,6 +441,9 @@ class MainActivity : AppCompatActivity() {
                 R.id.action_load -> { showLoadDialog(); true }
                 R.id.action_save -> { showSaveDialog(); true }
                 R.id.action_delete -> { showDeleteDialog(); true }
+                R.id.action_export -> { promptChooseAndExport(); true }
+                R.id.action_import -> { importOpenLauncher.launch(arrayOf("application/json")); true }
+                R.id.action_share -> { promptChooseAndShare(); true }
                 R.id.action_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
                 R.id.action_about -> { showAboutDialog(); true }
                 else -> false
@@ -293,10 +454,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAboutDialog() {
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-            .setTitle("About Chord Progression Helper")
-            .setMessage("Version 1.0\n\nDeveloped with assistance from an AI assistant.")
-            .setPositiveButton("OK", null)
-            .create()
+            .setTitle(getString(R.string.about_title))
+            .setMessage(getString(R.string.about_message))
+            .setPositiveButton(getString(R.string.ok), null)
+             .create()
         dialog.setOnShowListener { styleDialogButtons(dialog) }
         dialog.show()
     }
@@ -304,17 +465,31 @@ class MainActivity : AppCompatActivity() {
     private fun showLoadDialog() {
         val savedNames = viewModel.getSavedProgressionNames()
         if (savedNames.isEmpty()) {
-            Toast.makeText(this, "No saved progressions found.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.no_saved_progressions_found), Toast.LENGTH_SHORT).show()
             return
         }
+        val repo = (application as MyApplication).progressionRepository
+        val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
+        val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+                val v = convertView ?: LayoutInflater.from(context).inflate(android.R.layout.simple_list_item_2, parent, false)
+                val tv1 = v.findViewById<TextView>(android.R.id.text1)
+                val tv2 = v.findViewById<TextView>(android.R.id.text2)
+                val item = getItem(position)!!
+                tv1.text = item.first
+                tv2.text = item.second ?: ""
+                tv2.alpha = 0.75f
+                return v
+            }
+        }
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-            .setTitle("Load Progression")
-            .setItems(savedNames.toTypedArray()) { d, which ->
-                viewModel.loadProgression(savedNames[which])
+            .setTitle(getString(R.string.load_title))
+            .setAdapter(adapter) { d, which ->
+                viewModel.loadProgression(items[which].first)
                 d.dismiss()
             }
-            .setNegativeButton("Cancel", null)
-            .create()
+            .setNegativeButton(getString(R.string.cancel), null)
+             .create()
         dialog.setOnShowListener { styleDialogButtons(dialog) }
         dialog.show()
     }
@@ -322,69 +497,97 @@ class MainActivity : AppCompatActivity() {
     private fun showDeleteDialog() {
         val savedNames = viewModel.getSavedProgressionNames()
         if (savedNames.isEmpty()) {
-            Toast.makeText(this, "No saved progressions to delete.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.no_saved_progressions_delete), Toast.LENGTH_SHORT).show()
             return
         }
-        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-            .setTitle("Delete Progression")
-            .setItems(savedNames.toTypedArray()) { _, which ->
-                val confirm = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-                    .setTitle("Confirm Delete")
-                    .setMessage("Are you sure you want to delete '${savedNames[which]}'?")
-                    .setPositiveButton("Delete") { _, _ ->
-                        viewModel.deleteProgression(savedNames[which])
-                        Toast.makeText(this, "'${savedNames[which]}' deleted.", Toast.LENGTH_SHORT).show()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .create()
-                confirm.setOnShowListener { styleDialogButtons(confirm) }
-                confirm.show()
+        val repo = (application as MyApplication).progressionRepository
+        val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
+        val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+                val v = convertView ?: LayoutInflater.from(context).inflate(android.R.layout.simple_list_item_2, parent, false)
+                val tv1 = v.findViewById<TextView>(android.R.id.text1)
+                val tv2 = v.findViewById<TextView>(android.R.id.text2)
+                val item = getItem(position)!!
+                tv1.text = item.first
+                tv2.text = item.second ?: ""
+                tv2.alpha = 0.75f
+                return v
             }
-            .setNegativeButton("Cancel", null)
-            .create()
-        dialog.setOnShowListener { styleDialogButtons(dialog) }
-        dialog.show()
-    }
+        }
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.delete_title))
+            .setAdapter(adapter) { _, which ->
+                 val originalName = items[which].first
+                 val confirm = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+                     .setTitle(getString(R.string.confirm_delete_title))
+                     .setMessage(getString(R.string.confirm_delete_message, originalName))
+                     .setPositiveButton(getString(R.string.delete_measure_title)) { _, _ ->
+                         viewModel.deleteProgression(originalName)
+                         Toast.makeText(this, getString(R.string.deleted_message, originalName), Toast.LENGTH_SHORT).show()
+                     }
+                     .setNegativeButton(getString(R.string.cancel), null)
+                      .create()
+                 confirm.setOnShowListener { styleDialogButtons(confirm) }
+                 confirm.show()
+             }
+             .setNegativeButton(getString(R.string.cancel), null)
+              .create()
+          dialog.setOnShowListener { styleDialogButtons(dialog) }
+          dialog.show()
+      }
 
     private fun showSaveDialog() {
         val dialogBinding = DialogSaveProgressionBinding.inflate(LayoutInflater.from(this))
         val savedNames = viewModel.getSavedProgressionNames()
-        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, savedNames)
-        dialogBinding.savedProgressionsListView.adapter = adapter
+        val repo = (application as MyApplication).progressionRepository
+        val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
+        val listAdapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
+                val v = convertView ?: LayoutInflater.from(context).inflate(android.R.layout.simple_list_item_2, parent, false)
+                val tv1 = v.findViewById<TextView>(android.R.id.text1)
+                val tv2 = v.findViewById<TextView>(android.R.id.text2)
+                val item = getItem(position)!!
+                tv1.text = item.first
+                tv2.text = item.second ?: ""
+                tv2.alpha = 0.75f
+                return v
+            }
+        }
+        dialogBinding.savedProgressionsListView.adapter = listAdapter
         dialogBinding.savedProgressionsListView.setOnItemClickListener { _, _, position, _ ->
-            dialogBinding.saveNameEditText.setText(savedNames[position])
+            dialogBinding.saveNameEditText.setText(items[position].first)
         }
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setView(dialogBinding.root)
-            .setPositiveButton("Save", null)
-            .setNegativeButton("Cancel", null)
-            .create()
+            .setPositiveButton(getString(R.string.save_button), null)
+            .setNegativeButton(getString(R.string.cancel), null)
+             .create()
         dialog.setOnShowListener {
             // Ensure theme-styled buttons are applied
             styleDialogButtons(dialog)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                  val name = dialogBinding.saveNameEditText.text.toString()
                  if (name.isBlank()) {
-                     Toast.makeText(this, "Please enter a name", Toast.LENGTH_SHORT).show()
+                     Toast.makeText(this, getString(R.string.please_enter_name), Toast.LENGTH_SHORT).show()
                      return@setOnClickListener
                  }
                  if (savedNames.contains(name)) {
-                    val ov = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-                        .setTitle("Overwrite?")
-                        .setMessage("A progression named '$name' already exists. Overwrite it?")
-                        .setPositiveButton("Overwrite") { _, _ -> viewModel.saveNamedProgression(name); dialog.dismiss() }
-                        .setNegativeButton("Cancel", null)
-                        .create()
-                    ov.setOnShowListener { styleDialogButtons(ov) }
-                    ov.show()
-                 } else {
-                     viewModel.saveNamedProgression(name)
-                     dialog.dismiss()
-                 }
-             }
-         }
-         dialog.show()
-    }
+                     val ov = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+                        .setTitle(getString(R.string.overwrite_title))
+                        .setMessage(getString(R.string.overwrite_message, name))
+                        .setPositiveButton(getString(R.string.overwrite)) { _, _ -> viewModel.saveNamedProgression(name); dialog.dismiss() }
+                        .setNegativeButton(getString(R.string.cancel), null)
+                         .create()
+                     ov.setOnShowListener { styleDialogButtons(ov) }
+                     ov.show()
+                  } else {
+                      viewModel.saveNamedProgression(name)
+                      dialog.dismiss()
+                  }
+               }
+           }
+           dialog.show()
+      }
 
     private fun toggleExtraChordsVisibility() {
         areExtraChordsExpanded = !areExtraChordsExpanded
@@ -741,12 +944,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDeleteConfirmationDialog(measureIndex: Int) {
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-            .setTitle("Delete Measure?")
-            .setMessage("This measure contains chords. Are you sure you want to delete it?")
-            .setPositiveButton("Delete") { _, _ -> viewModel.confirmRemoveMeasure(measureIndex) }
-            .setNegativeButton("Cancel", null)
-            .setOnDismissListener { viewModel.onDeleteConfirmationHandled() }
-            .create()
+            .setTitle(getString(R.string.delete_measure_title))
+            .setMessage(getString(R.string.delete_measure_message))
+            .setPositiveButton(getString(R.string.delete_measure_title)) { _, _ -> viewModel.confirmRemoveMeasure(measureIndex) }
+            .setNegativeButton(getString(R.string.cancel), null)
+             .setOnDismissListener { viewModel.onDeleteConfirmationHandled() }
+             .create()
         dialog.setOnShowListener { styleDialogButtons(dialog) }
         dialog.show()
     }
@@ -917,12 +1120,12 @@ class MainActivity : AppCompatActivity() {
     @OptIn(InternalSerializationApi::class)
     private fun showNewProgressionConfirmationDialog() {
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-            .setTitle("Start New Progression?")
-            .setMessage("This will clear the current progression. Are you sure?")
-            .setPositiveButton("New") { _, _ -> viewModel.confirmNewProgression() }
-            .setNegativeButton("Cancel", null)
-            .setOnDismissListener { viewModel.onNewProgressionConfirmationHandled() }
-            .create()
+            .setTitle(getString(R.string.start_new_title))
+            .setMessage(getString(R.string.start_new_message))
+            .setPositiveButton(getString(R.string.new_button)) { _, _ -> viewModel.confirmNewProgression() }
+            .setNegativeButton(getString(R.string.cancel), null)
+             .setOnDismissListener { viewModel.onNewProgressionConfirmationHandled() }
+             .create()
         dialog.setOnShowListener { styleDialogButtons(dialog) }
         dialog.show()
     }

@@ -1,70 +1,119 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Chord Progression Helper</string>
+    <string name="notification_permission_required">Notification permission is required for background playback.</string>
+
+    <string name="export_for_sharing_failed">Export for sharing failed</string>
+    <string name="share_failed">Share failed</string>
+    <string name="share_progression">Share progression</string>
+
+    <string name="no_saved_progressions_export">No saved progressions to export.</string>
+    <string name="no_saved_progressions_share">No saved progressions to share.</string>
+    <string name="no_saved_progressions_found">No saved progressions found.</string>
+    <string name="no_saved_progressions_delete">No saved progressions to delete.</string>
+
+    <string name="exported_x">Exported %1$s</string>
+    <string name="export_failed">Export failed</string>
+    <string name="imported_x">Imported %1$s</string>
+    <string name="exported_n_files">Exported %1$d files</string>
+
+    <string name="about_title">About Chord Progression Helper</string>
+    <string name="about_message">Version 1.0\n\nDeveloped with assistance from an AI assistant.</string>
+    <string name="ok">OK</string>
+
+    <string name="load_title">Load Progression</string>
+    <string name="cancel">Cancel</string>
+
+    <string name="delete_title">Delete Progression</string>
+    <string name="confirm_delete_title">Confirm Delete</string>
+    <string name="confirm_delete_message">Are you sure you want to delete %1$s?</string>
+    <string name="deleted_message">%1$s deleted.</string>
+
+    <string name="save_button">Save</string>
+    <string name="please_enter_name">Please enter a name</string>
+    <string name="overwrite_title">Overwrite?</string>
+    <string name="overwrite_message">A progression named %1$s already exists. Overwrite it?</string>
+    <string name="overwrite">Overwrite</string>
+
+    <string name="start_new_title">Start New Progression?</string>
+    <string name="start_new_message">This will clear the current progression. Are you sure?</string>
+    <string name="new_button">New</string>
+
+    <string name="delete_measure_title">Delete Measure?</string>
+    <string name="delete_measure_message">This measure contains chords. Are you sure you want to delete it?</string>
+
+    <string name="export_progression_title">Export Progression</string>
+    <string name="share_progression_title">Share Progression</string>
+
+    <string name="imported_failed">Import failed</string>
+
+    <!-- Missing strings added below -->
+    <string name="measure_format">Measure %1$d</string>
+    <string name="strum_content_description">%1$s, position %2$d</string>
+    <string name="drums_label">Drums</string>
+    <string name="keyboard">Keyboard</string>
+    <string name="stop">Stop</string>
+    <string name="test">Test</string>
+
     <string name="used_patterns_header">Used Patterns</string>
     <string name="other_patterns_header">Other Patterns</string>
-    <string name="strum_content_description">%1$s, position %2$d</string>
+
+    <string name="strum_down_label">Down Stroke</string>
+    <string name="strum_up_label">Up Stroke</string>
+    <string name="strum_palm_mute_label">Palm Mute</string>
+    <string name="strum_let_ring_label">Let Ring</string>
+    <string name="strum_rest_label">Rest (Silence)</string>
+
+    <!-- Settings format strings -->
+    <string name="drum_level_format">%1$d%%</string>
+    <string name="envelope_scale_format">%1$d%%</string>
+    <string name="hihat_highpass_format">%1$d%%</string>
+    <string name="ms_format">%1$d ms</string>
+    <string name="notification_playing">Playing</string>
+    <string name="key_label">Key</string>
+    <string name="bpm_label">BPM</string>
+    <string name="bpm_hint">Beats per minute</string>
+    <string name="bpm_default">120</string>
     <string name="increase_bpm">Increase BPM</string>
     <string name="decrease_bpm">Decrease BPM</string>
-    <string name="menu_cd">Menu</string>
-    <string name="expand_related_cd">Expand related chords</string>
+    <string name="menu_cd">Open menu</string>
     <string name="available_chords">Available Chords</string>
-    <string name="bpm_label">BPM</string>
-    <string name="bpm_default">120</string>
-    <string name="bpm_hint">Tempo</string>
-    <string name="key_label">Key</string>
-
-    <!-- Added strings used by layouts -->
-    <string name="measure_format">%1$d</string>
-    <string name="drag_to_reorder">Drag to reorder</string>
-    <string name="dash">-</string>
-    <string name="remove_measure">Remove measure</string>
-    <string name="edit_strumming_pattern">Edit Strumming Pattern</string>
-    <string name="suggested_patterns">Suggested Patterns</string>
-    <string name="test">Test</string>
-    <string name="cancel">Cancel</string>
-    <string name="ok">OK</string>
-    <string name="save">Save</string>
-    <string name="drums_label">Drums</string>
-    <string name="test_preview_failed">Preview failed</string>
-    <string name="stop">Stop</string>
-    <string name="pattern_saved">Pattern saved</string>
-    <string name="save_failed">Save failed</string>
-
-    <!-- Settings / Notification / other ui strings referenced in layouts -->
+    <string name="expand_related_cd">Toggle related chords</string>
     <string name="secondary_dominants">Secondary dominants</string>
     <string name="parallel_minor_chords">Parallel minor chords</string>
     <string name="progression_label">Progression</string>
     <string name="play_pause_cd">Play or pause</string>
-    <string name="stop_cd">Stop</string>
+    <string name="stop_cd">Stop playback</string>
     <string name="toggle_repeat">Toggle repeat</string>
-
     <string name="settings_title">Settings</string>
     <string name="chord_preview_label">Chord preview</string>
     <string name="pattern_preview_label">Pattern preview</string>
     <string name="drum_preview_label">Drum preview</string>
     <string name="loop_by_default_label">Loop by default</string>
-    <string name="count_in_label">Count-in beats</string>
-    <string name="sound_label">Sound preset</string>
-    <string name="drum_level_format">Drum level: %1$d%%</string>
-    <string name="envelope_scale_format">Envelope scale: %1$d%%</string>
-    <string name="hihat_highpass_format">Hi-hat highpass: %1$d%%</string>
-    <string name="up_stroke_offset_label">Up-stroke offset (ms)</string>
+
+    <string name="drag_to_reorder">Drag to reorder</string>
+    <string name="dash">—</string>
+    <string name="remove_measure">Remove measure</string>
+    <string name="edit_strumming_pattern">Edit Strumming Pattern</string>
+    <string name="suggested_patterns">Suggested Patterns</string>
+    <string name="save">Save</string>
+
+    <!-- Additional settings / labels referenced in layouts -->
+    <string name="count_in_label">Count-in</string>
+    <string name="sound_label">Sound Preset</string>
+    <string name="up_stroke_offset_label">Up stroke offset (ms)</string>
     <string name="up_string_stagger_label">Up-string stagger (ms)</string>
-    <string name="down_stroke_offset_label">Down-stroke offset (ms)</string>
+    <string name="down_stroke_offset_label">Down stroke offset (ms)</string>
     <string name="down_string_stagger_label">Down-string stagger (ms)</string>
-    <string name="ms_format">%1$d ms</string>
     <string name="reset_sound_label">Reset sound</string>
     <string name="preset_clean">Clean</string>
     <string name="preset_overdrive">Overdrive</string>
     <string name="preset_piano">Piano</string>
-
-    <!-- notification -->
-    <string name="notification_playing">Playing</string>
-    <string name="drum_pattern">Drum Pattern</string>
-    <string name="piano_editor_title">Piano Editor - Measure %1$s</string>
-    <string name="piano_tap_hint">Piano tapped</string>
-    <string name="keyboard">Keyboard</string>
-    <string name="save_changes_title">Save changes?</string>
-    <string name="save_changes_message">Do you want to save your changes before leaving?</string>
+    <string name="piano_editor_title">Piano Editor — Measure %1$s</string>
+    <string name="piano_tap_hint">Tap the piano to preview the note</string>
+    <string name="octave_up">Octave up</string>
+    <string name="octave_down">Octave down</string>
+    <string name="octave_current">Octave %1$d</string>
+    <string name="rest">Rest</string>
+    <string name="let_ring">Let Ring</string>
 </resources>
