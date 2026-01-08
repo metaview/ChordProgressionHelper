@@ -31,7 +31,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import com.metaview.chordprogressionhelper.model.StrummingPattern
 import com.metaview.chordprogressionhelper.model.Strum
-import androidx.appcompat.app.AlertDialog
+import com.metaview.chordprogressionhelper.model.SoloPattern
 
 @OptIn(InternalSerializationApi::class)
 class DrumPatternActivity : AppCompatActivity() {
@@ -247,7 +247,7 @@ class DrumPatternActivity : AppCompatActivity() {
                         previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
                         previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
                         previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-                        previewAudioPlayer.voicePreset = settingsRepository.soundPreset
+                        previewAudioPlayer.voicePreset = settingsRepository.strumPreset
                         try { previewAudioPlayer.previewKick() } catch (e: Exception) { Log.w(TAG, "previewKick failed: ${e.message}") }
                     }
                 }
@@ -273,7 +273,7 @@ class DrumPatternActivity : AppCompatActivity() {
                         previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
                         previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
                         previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-                        previewAudioPlayer.voicePreset = settingsRepository.soundPreset
+                        previewAudioPlayer.voicePreset = settingsRepository.strumPreset
                         try { previewAudioPlayer.previewSnare() } catch (e: Exception) { Log.w(TAG, "previewSnare failed: ${e.message}") }
                     }
                 }
@@ -299,7 +299,7 @@ class DrumPatternActivity : AppCompatActivity() {
                         previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
                         previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
                         previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-                        previewAudioPlayer.voicePreset = settingsRepository.soundPreset
+                        previewAudioPlayer.voicePreset = settingsRepository.strumPreset
                         try { previewAudioPlayer.previewHiHat() } catch (e: Exception) { Log.w(TAG, "previewHiHat failed: ${e.message}") }
                     }
                 }
@@ -339,14 +339,26 @@ class DrumPatternActivity : AppCompatActivity() {
             try {
                 if (!previewsAllowed && !isPreviewActive) return@setOnClickListener
                 if (!isPreviewActive) {
-                    val tempMeasure = Measure(1)
-                    tempMeasure.drumPattern = currentPattern
-                    // Ensure drum preview has no chords and no audible strumming: assign a silent StrummingPattern
-                    try { tempMeasure.strummingPattern = StrummingPattern("Silent", List(8) { Strum.REST }) } catch (_: Exception) {}
+                    // start new single-play (fresh progression)
                     val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
-                    tempProg.measures.clear()
-                    tempProg.measures.add(tempMeasure)
-                    try { PlaybackService.stop(this) } catch (_: Exception) {}
+                    try {
+                        tempProg.measures.clear()
+                        val m = Measure(1)
+                        m.drumPattern = currentPattern
+                        m.strummingPattern = StrummingPattern("Silent", List(8) { Strum.REST })
+                        m.soloPattern = SoloPattern("Silent", emptyList())
+                        tempProg.measures.add(m)
+                    } catch (e: Exception) {
+                        Log.w(DrumPatternActivity.Companion.TAG, "Failed to create preview progression for single-play: ${e.message}")
+                    }
+                    try {
+                        PlaybackService.stop(this)
+                        // start single-play preview
+                        PlaybackService.play(this, tempProg, true)
+                        isPreviewActive = true
+                    } catch (e: Exception) {
+                        Log.w(DrumPatternActivity.Companion.TAG, "Failed to start single-play preview: ${e.message}")
+                    }
                     try {
                         if (isServiceBound) {
                             PlaybackService.play(this, tempProg, true, true)

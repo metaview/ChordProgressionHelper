@@ -29,6 +29,7 @@ class MeasureAdapter(
     private val onPianoPatternClick: (measureIndex: Int) -> Unit,
     private val onChordDrop: (measureIndex: Int, eighthNoteIndex: Int, chord: Chord) -> Unit,
     private val onRemoveMeasureClick: (measureIndex: Int) -> Unit,
+    private val onDuplicateMeasureClick: (measureIndex: Int) -> Unit,
     private val onAddMeasureClick: () -> Unit,
     private val onStartDrag: (viewHolder: RecyclerView.ViewHolder) -> Unit
 ) : ListAdapter<MeasureAdapter.DisplayableItem, RecyclerView.ViewHolder>(MeasureDiffCallback()) {
@@ -174,25 +175,60 @@ class MeasureAdapter(
                 drumIcon.visibility = View.VISIBLE
                 drumIcon.contentDescription = binding.root.context.getString(R.string.drums_label)
                 drumIcon.setOnClickListener { onDrumPatternClick(measureIndex) }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("MeasureAdapter", "failed to setup drumIcon: ${e.message}", e)
+            }
 
             try {
                 val pianoIcon = binding.root.findViewById<android.widget.ImageView>(R.id.pianoIcon)
                 pianoIcon.visibility = View.VISIBLE
                 pianoIcon.contentDescription = binding.root.context.getString(R.string.keyboard)
                 pianoIcon.setOnClickListener {onPianoPatternClick(measureIndex) }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("MeasureAdapter", "failed to setup pianoIcon: ${e.message}", e)
+            }
 
             binding.removeMeasureButton.setOnClickListener {
                 onRemoveMeasureClick(measureIndex)
             }
 
-            binding.dragHandle.setOnTouchListener { _, event ->
-                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                    onStartDrag(this)
-                }
-                false
+            // Short click: Show context menu
+            binding.dragHandle.setOnClickListener { view ->
+                showMeasureContextMenu(view, measureIndex)
             }
+
+            // Long click: Start drag & drop
+            binding.dragHandle.setOnLongClickListener {
+                onStartDrag(this)
+                true
+            }
+        }
+
+        private fun showMeasureContextMenu(view: View, measureIndex: Int) {
+            val popup = android.widget.PopupMenu(view.context, view)
+            popup.menu.add(0, 1, 0, R.string.delete_measure_title)
+            popup.menu.add(0, 2, 1, R.string.duplicate_measure)
+            popup.menu.add(0, 3, 2, R.string.clear_chords)
+
+            popup.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    1 -> {
+                        onRemoveMeasureClick(measureIndex)
+                        true
+                    }
+                    2 -> {
+                        onDuplicateMeasureClick(measureIndex)
+                        true
+                    }
+                    3 -> {
+                        // TODO: Clear chords functionality
+                        android.widget.Toast.makeText(view.context, "Clear chords not yet implemented", android.widget.Toast.LENGTH_SHORT).show()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            popup.show()
         }
 
         private fun createDragListener(measureIndex: Int, eighthNoteIndex: Int): View.OnDragListener {

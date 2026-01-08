@@ -21,8 +21,15 @@ import android.os.Handler
 import android.os.HandlerThread
 import kotlinx.coroutines.CompletableDeferred
 
+// Callback Interface für AudioThread-Bereitschaft
+interface AudioThreadReadyCallback {
+    fun onAudioThreadReady()
+}
+
 @OptIn(InternalSerializationApi::class)
 class AudioPlayer {
+    // Callback für AudioThread-Bereitschaft
+    var audioThreadReadyCallback: AudioThreadReadyCallback? = null
     // helper for lowpass update to avoid numeric overload ambiguity in nested lambdas
     private fun lpFilter(prev: Double, alpha: Double, value: Double): Double = prev + alpha * (value - prev)
 
@@ -50,15 +57,80 @@ class AudioPlayer {
                     try {
                         if (previewAudioTrack == null) {
                             val minBuf = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                            // Ensure buffer size is valid: at least minBuf, and use minBuf * 2 for safety (doubles the minimum)
+                            val bufferSize = if (minBuf > 0) minBuf * 2 else sampleRate / 2
                             previewAudioTrack = AudioTrack.Builder()
                                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
                                 .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                                 .setTransferMode(AudioTrack.MODE_STREAM)
-                                .setBufferSizeInBytes(maxOf(minBuf, sampleRate / 4)) // small buffer (250ms) for quick previews
+                                .setBufferSizeInBytes(bufferSize)
                                 .build()
-                            try { previewAudioTrack?.play() } catch (_: Exception) {}
+                            try {
+                                previewAudioTrack?.play()
+                            } catch (e: Exception) {
+                                android.util.Log.w("AudioPlayer", "previewAudioTrack.play() failed: ${e.message}", e)
+                            }
                         }
-                    } catch (_: Throwable) { previewAudioTrack = null }
+                    } catch (t: Throwable) {
+                        android.util.Log.w("AudioPlayer", "ensureAudioThreadStarted: failed to create previewAudioTrack: ${t.message}", t)
+                        previewAudioTrack = null
+                    }
+                    // Pre-generate drum samples for instant drum previews
+                    // Run synchronously (blocking) on the audio thread to ensure they're ready before playback
+                    val drumGenStartTime = System.currentTimeMillis()
+                    try {
+                        preGenerateDrumSamples()
+                        val drumGenEndTime = System.currentTimeMillis()
+                        android.util.Log.d("AudioPlayer", "preGenerateDrumSamples took ${drumGenEndTime - drumGenStartTime}ms (synchronous)")
+                    } catch (t: Throwable) {
+                        android.util.Log.w("AudioPlayer", "preGenerateDrumSamples failed: ${t.message}", t)
+                    }
+
+                    // JIT warm-up: Pre-compile the audio playback code path by running a tiny dummy playback
+                    // This ensures the first real playback won't stall due to JIT compilation
+                    val warmupStartTime = System.currentTimeMillis()
+                    try {
+                        val warmupBuf = DoubleArray(100)  // Just 100 samples
+                        addHiHat(warmupBuf, 100, drumLevel)
+                        // Don't actually write to AudioTrack, just trigger code paths
+                        val warmupEndTime = System.currentTimeMillis()
+                        android.util.Log.d("AudioPlayer", "JIT warm-up took ${warmupEndTime - warmupStartTime}ms")
+                    } catch (t: Throwable) {
+                        android.util.Log.w("AudioPlayer", "JIT warm-up failed: ${t.message}", t)
+                    }
+
+                    // Warm up the Handler's playback lambda to prevent JIT compilation delays on first play
+                    val handlerWarmupStart = System.currentTimeMillis()
+                    try {
+                        audioHandler!!.post {
+                            // Actually trigger the playback code paths with real audio operations
+                            try {
+                                if (audioTrack != null) {
+                                    // Generate tiny amount of actual audio (triggers all synthesis code)
+                                    val warmupBuf = DoubleArray(100)
+                                    addHiHat(warmupBuf, 100, 0.1)
+                                    val warmupSamples = warmupBuf.toPcmShortArray()
+                                    audioTrack?.write(warmupSamples, 0, warmupSamples.size)
+                                    audioTrack?.flush()
+                                    // Trigger position check
+                                    audioTrack?.playbackHeadPosition
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.d("AudioPlayer", "AudioTrack warmup: ${e.message}")
+                            }
+                        }
+                        val handlerWarmupEnd = System.currentTimeMillis()
+                        android.util.Log.d("AudioPlayer", "Handler lambda warmup posted (${handlerWarmupEnd - handlerWarmupStart}ms)")
+                    } catch (t: Throwable) {
+                        android.util.Log.w("AudioPlayer", "Handler warmup failed: ${t.message}", t)
+                    }
+
+                    // Callback aufrufen: AudioThread ist bereit
+                    try {
+                        audioThreadReadyCallback?.onAudioThreadReady()
+                    } catch (t: Throwable) {
+                        android.util.Log.w("AudioPlayer", "audioThreadReadyCallback failed: ${t.message}", t)
+                    }
                 }
             }
         }
@@ -79,6 +151,15 @@ class AudioPlayer {
     // a fresh AudioTrack on every preview call which is expensive and causes audible delay.
     @Volatile private var previewAudioTrack: AudioTrack? = null
     @Volatile private var isPlaying = false
+    @Volatile private var shouldStopPreview = false
+    @Volatile private var currentPreviewId = 0L
+
+
+    // Pre-generated drum sound samples
+    private var cachedKickSamples: ShortArray? = null
+    private var cachedSnareSamples: ShortArray? = null
+    private var cachedHiHatSamples: ShortArray? = null
+    private var drumSamplesCachedForSampleRate = -1
 
     // Live sound parameters (can be changed at runtime)
     /**
@@ -87,6 +168,14 @@ class AudioPlayer {
      * - Wird zur Laufzeit angepasst (Settings -> Drum Level) und direkt im Audio-Thread verwendet.
      */
     @Volatile var drumLevel: Double = 1.0
+
+    /**
+     * soloLevel: Multiplikator für die Lautstärke aller Solo-Pattern-Sounds.
+     * - 1.0 = neutral, <1.0 = leiser, >1.0 = lauter
+     * - Wird zur Laufzeit angepasst (Settings -> Solo Level)
+     */
+    @Volatile var soloLevel: Double = 1.5
+
     /**
      * envelopeScale: skaliert Hüllkurven/Amplituden von Percussion und einigen Effekten.
      * - Werte um 1.0 sind normal; größere Werte verlängern teilweise Sustain/Release in den verwendeten Envelopes
@@ -141,6 +230,12 @@ class AudioPlayer {
             }
         }
 
+    // Solo preset (separate from voice preset for strumming)
+    @Volatile var soloPreset: com.metaview.chordprogressionhelper.data.SoundPreset = com.metaview.chordprogressionhelper.data.SoundPreset.PIANO
+        set(value) {
+            field = value
+        }
+
     @OptIn(InternalSerializationApi::class)
     suspend fun playProgression(
         progression: ChordProgression,
@@ -152,15 +247,31 @@ class AudioPlayer {
         startStrumIndex: Int = 0,
         isResuming: Boolean = false
     ) {
-        if (isPlaying) return
+        val playStartTime = System.currentTimeMillis()
+        android.util.Log.d("AudioPlayer", "playProgression CALLED (isResuming=$isResuming, startMeasure=$startMeasureIndex)")
+
+        if (isPlaying) {
+            android.util.Log.w("AudioPlayer", "playProgression REJECTED (already playing)")
+            return
+        }
+
+        val ensureStartTime = System.currentTimeMillis()
         ensureAudioThreadStarted()
+        val ensureEndTime = System.currentTimeMillis()
+        android.util.Log.d("AudioPlayer", "ensureAudioThreadStarted took ${ensureEndTime - ensureStartTime}ms")
 
         val deferred = CompletableDeferred<Unit>()
         // Capture params for posted runnable
+        val handlerPostTime = System.currentTimeMillis()
+        android.util.Log.d("AudioPlayer", "CALLING audioHandler.post (time=$handlerPostTime)")
+
         audioHandler!!.post {
+            val handlerStartTime = System.currentTimeMillis()
+            android.util.Log.d("AudioPlayer", "audioHandler POST EXECUTING (queueDelay=${handlerStartTime - handlerPostTime}ms, time=$handlerStartTime)")
+
             try {
-                // run original audio loop inside audio thread
-                // Create AudioTrack once; we'll write buffers of varying lengths when tempo changes
+                val trackStartTime = System.currentTimeMillis()
+                // Create fresh AudioTrack for each playback session
                 val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 audioTrack = AudioTrack.Builder()
                     .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
@@ -168,31 +279,80 @@ class AudioPlayer {
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .setBufferSizeInBytes(minBufferSize * 2)
                     .build()
+                val trackPlayTime = System.currentTimeMillis()
                 audioTrack?.play()
+                val trackPlayDoneTime = System.currentTimeMillis()
+                android.util.Log.d("AudioPlayer", "AudioTrack creation took ${trackPlayTime - trackStartTime}ms, play() took ${trackPlayDoneTime - trackPlayTime}ms")
+
+                // Warm up AudioTrack by writing silent samples to reduce latency on first real write
+                // This prevents a long blocking wait on the first audioTrack.write() call
+                try {
+                    val warmupSilent = ShortArray(sampleRate / 100)  // 10ms of silence
+                    audioTrack?.write(warmupSilent, 0, warmupSilent.size)
+                    // Flush to clear warmup buffer so it doesn't play back
+                    audioTrack?.flush()
+                    android.util.Log.d("AudioPlayer", "AudioTrack warmup write + flush completed")
+                } catch (e: Exception) {
+                    android.util.Log.w("AudioPlayer", "AudioTrack warmup write failed: ${e.message}")
+                }
 
                 // Ensure any residual audio data from previous runs is cleared before starting playback.
-                try { if (reusableEighthBuffer.isNotEmpty()) java.util.Arrays.fill(reusableEighthBuffer, 0.0) } catch (_: Exception) {}
-                try { java.util.Arrays.fill(previewBuffer, 0.0) } catch (_: Exception) {}
+                val clearStartTime = System.currentTimeMillis()
+                android.util.Log.d("AudioPlayer", "BEFORE buffer clearing (timeSinceTrackPlay=${clearStartTime - trackPlayDoneTime}ms)")
 
+                try {
+                    if (reusableEighthBuffer.isNotEmpty()) java.util.Arrays.fill(reusableEighthBuffer, 0.0)
+                } catch (e: Exception) {
+                    android.util.Log.w("AudioPlayer", "failed to clear reusableEighthBuffer: ${e.message}", e)
+                }
+                try {
+                    java.util.Arrays.fill(previewBuffer, 0.0)
+                } catch (e: Exception) {
+                    android.util.Log.w("AudioPlayer", "failed to clear previewBuffer: ${e.message}", e)
+                }
+                val clearEndTime = System.currentTimeMillis()
+                android.util.Log.d("AudioPlayer", "Buffer clearing took ${clearEndTime - clearStartTime}ms")
+
+                val isPlayingSetTime = System.currentTimeMillis()
                 isPlaying = true
+                android.util.Log.d("AudioPlayer", "isPlaying set (took ${isPlayingSetTime - clearEndTime}ms)")
+
                 var activeStrings: List<KarplusStrongString> = emptyList()
+                val activeStringsInitTime = System.currentTimeMillis()
+                android.util.Log.d("AudioPlayer", "activeStrings initialized (took ${activeStringsInitTime - isPlayingSetTime}ms)")
 
                 if (countInBeats > 0 && !isResuming) {
-                    repeat(countInBeats) {
+                    val countInStartTime = System.currentTimeMillis()
+                    android.util.Log.d("AudioPlayer", "STARTING countInBeats (${countInBeats} beats)")
+                    repeat(countInBeats) { beatIndex ->
                         if (!isPlaying) return@repeat
+                        val beatStart = System.currentTimeMillis()
                         val beatDuration = 60.0 / progression.tempo
                         val eighthNoteDuration = beatDuration / 2.0
                         val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
                         val b = if (reusableEighthBuffer.size >= eighthNoteSamples*2) reusableEighthBuffer else DoubleArray(eighthNoteSamples*2).also { reusableEighthBuffer = it }
+                        val genStart = System.currentTimeMillis()
                         addHiHat(b, eighthNoteSamples * 2, drumLevel)
+                        val genEnd = System.currentTimeMillis()
                         val samples = b.toPcmShortArray()
+                        val writeStart = System.currentTimeMillis()
                         audioTrack?.write(samples, 0, samples.size)
+                        val writeEnd = System.currentTimeMillis()
+                        val beatEnd = System.currentTimeMillis()
+                        android.util.Log.d("AudioPlayer", "countInBeats[$beatIndex]: gen=${genEnd-genStart}ms, write=${writeEnd-writeStart}ms, total=${beatEnd-beatStart}ms")
                     }
+                    val countInEndTime = System.currentTimeMillis()
+                    android.util.Log.d("AudioPlayer", "countInBeats (${countInBeats} beats) took ${countInEndTime - countInStartTime}ms")
+                } else {
+                    android.util.Log.d("AudioPlayer", "SKIPPING countInBeats (countInBeats=$countInBeats, isResuming=$isResuming)")
                 }
 
                 var isFirstLoopLocal = true
                 // Only reuse persisted prevLP if we are resuming playback; otherwise start filter state at 0
                 var prevLPLocal = if (isResuming) this@AudioPlayer.prevLP else 0.0
+                val mainLoopStartTime = System.currentTimeMillis()
+                android.util.Log.d("AudioPlayer", "STARTING MAIN LOOP (loopStartMeasure=${if(isFirstLoopLocal) startMeasureIndex else 0}, timeSinceTrackPlay=${mainLoopStartTime - trackPlayDoneTime}ms")
+
                 do {
                     val loopStartMeasure = if(isFirstLoopLocal) startMeasureIndex else 0
                     for (measureIndex in loopStartMeasure until progression.measures.size) {
@@ -201,8 +361,41 @@ class AudioPlayer {
                         val loopStartStrum = if (isFirstLoopLocal && measureIndex == startMeasureIndex) startStrumIndex else 0
                         if (isFirstLoopLocal && measureIndex == startMeasureIndex && loopStartStrum == 0) activeStrings = emptyList()
 
+                        if (isFirstLoopLocal && measureIndex == startMeasureIndex) {
+                            android.util.Log.d("AudioPlayer", "FIRST ITERATION START (measure=$measureIndex, strum=$loopStartStrum)")
+                        }
+
+                        // Check if this measure has a solo pattern
+                        val soloPattern = try { measure.soloPattern } catch (_: Exception) { null }
+                        val hasSoloPattern = soloPattern != null && !soloPattern.isEmpty()
+
+                        // Build solo element timeline for this measure if present
+                        // Timeline maps eighthIndex -> SoloElement
+                        val soloElementTimeline = if (hasSoloPattern) {
+                            val timeline = mutableMapOf<Int, MutableList<com.metaview.chordprogressionhelper.model.SoloElement>>()
+                            var pos = 0
+
+                            // Use elements from soloPattern
+                            val elementsList = soloPattern!!.elements
+
+                            for (element in elementsList) {
+                                if (pos >= 8) break
+                                // Add this element at position 'pos'
+                                timeline.getOrPut(pos) { mutableListOf() }.add(element)
+                                pos += element.lengthEighths
+                            }
+                            timeline
+                        } else null
+
+                        // Active piano strings for let-ring functionality
+                        // Map: midi -> KarplusStrongString for persistent resonance
+                        val activePianoStrings = mutableMapOf<Int, KarplusStrongString>()
+
                         for (strumIndex in loopStartStrum until measure.strummingPattern.strums.size) {
                             if (!isPlaying) break
+                            if (isFirstLoopLocal && measureIndex == startMeasureIndex && strumIndex == loopStartStrum) {
+                                android.util.Log.d("AudioPlayer", "FIRST STRUM ITERATION START (measure=$measureIndex, strum=$strumIndex, timeSinceFirstIterationStart=${System.currentTimeMillis() - mainLoopStartTime}ms)")
+                            }
                             val beatDuration = 60.0 / progression.tempo
                             val eighthNoteDuration = beatDuration / 2.0
                             val eighthNoteSamples = (sampleRate * eighthNoteDuration).toInt().coerceAtLeast(1)
@@ -271,12 +464,6 @@ class AudioPlayer {
                             val b = if (reusableEighthBuffer.size >= eighthNoteSamples) reusableEighthBuffer else DoubleArray(eighthNoteSamples).also { reusableEighthBuffer = it }
                             val bufferLen = eighthNoteSamples
 
-                            val presetNormalizationMultiplier = when (voicePreset) {
-                                com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30
-                                com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.5
-                                else -> 0.8
-                            }
-
                             // scheduling arrays
                             var scheduledPlucks = IntArray(0)
                             var pluckedFlags = BooleanArray(0)
@@ -305,7 +492,14 @@ class AudioPlayer {
                             }
                             fun performScheduledPlucksAt(i: Int) {
                                 if (scheduledPlucks.isEmpty()) return
-                                for (j in scheduledPlucks.indices) if (!pluckedFlags[j] && i >= scheduledPlucks[j]) { try{ activeStrings[j].pluck() } catch (_: Exception){}; pluckedFlags[j]=true }
+                                for (j in scheduledPlucks.indices) if (!pluckedFlags[j] && i >= scheduledPlucks[j]) {
+                                    try {
+                                        activeStrings[j].pluck()
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("AudioPlayer", "pluck() failed: ${e.message}", e)
+                                    }
+                                    pluckedFlags[j]=true
+                                }
                             }
 
                             when (voicePreset) {
@@ -363,6 +557,114 @@ class AudioPlayer {
 
                             if (currentStrum == Strum.MUTE) addMutePercussive(b)
 
+                            // Add piano pattern elements if present for this eighth note
+                            if (soloElementTimeline != null) {
+                                val soloElements = soloElementTimeline[strumIndex]
+
+                                // Calculate gain based on soloPreset and multiply with soloLevel setting
+                                val soloGainBase = when (soloPreset) {
+                                    com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> 1.0
+                                    com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.9
+                                    com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 1.5
+                                }
+                                val pianoGain = soloGainBase * soloLevel  // Apply soloLevel setting
+
+                                if (soloElements != null && soloElements.isNotEmpty()) {
+                                    // Process each piano element at this position
+                                    for (element in soloElements) {
+                                        when (element) {
+                                            is com.metaview.chordprogressionhelper.model.SoloElement.Note -> {
+                                                // New note: clear old strings and start new ones
+                                                activePianoStrings.clear()
+
+                                                val freq = midiNoteToFrequency(element.midi)
+
+                                                if (soloPreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                                                    // Use additive synthesis for Piano preset
+                                                    val pianoSamples = generatePianoSample(freq, eighthNoteDuration)
+                                                    // Ensure solo/piano loudness is constant regardless of whether a strum is present.
+                                                    // Previously: val pianoBlend = if (currentStrum == Strum.REST) 1.2 else 0.7
+                                                    val pianoBlend = 1.0
+                                                    for (i in 0 until minOf(bufferLen, pianoSamples.size)) {
+                                                        b[i] += pianoSamples[i] * pianoGain * pianoBlend
+                                                    }
+                                                } else {
+                                                    // Use Karplus-Strong for Clean/Overdrive - create persistent string
+                                                    val string = KarplusStrongString(freq, sampleRate, 3, 0.998).apply { pluck() }
+                                                    activePianoStrings[element.midi] = string
+
+                                                    // Generate initial samples
+                                                    for (i in 0 until bufferLen) {
+                                                        val sample = string.tick()
+                                                        val processed = when (soloPreset) {
+                                                            com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> sample
+                                                            com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> {
+                                                                val gain = 3.0
+                                                                val mix = 0.8
+                                                                val driven = tanh(sample * gain)
+                                                                mix * driven + (1.0 - mix) * sample
+                                                            }
+                                                            else -> sample
+                                                        }
+                                                        // Keep solo loudness constant regardless of current strum state
+                                                        val pianoBlend = 1.0
+                                                        b[i] += processed * pianoGain * pianoBlend
+                                                    }
+                                                }
+                                            }
+                                            is com.metaview.chordprogressionhelper.model.SoloElement.Rest -> {
+                                                // Rest: stop all active piano strings (silence)
+                                                activePianoStrings.clear()
+                                            }
+                                            is com.metaview.chordprogressionhelper.model.SoloElement.LetRing -> {
+                                                // LetRing: continue active strings
+                                                if (activePianoStrings.isNotEmpty() && soloPreset != com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                                                    for ((_, string) in activePianoStrings) {
+                                                        for (i in 0 until bufferLen) {
+                                                            val sample = string.tick()
+                                                            val processed = when (soloPreset) {
+                                                                com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> sample
+                                                                com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> {
+                                                                    val gain = 3.0
+                                                                    val mix = 0.8
+                                                                    val driven = tanh(sample * gain)
+                                                                    mix * driven + (1.0 - mix) * sample
+                                                                }
+                                                                else -> sample
+                                                            }
+                                                            // Keep solo loudness constant regardless of current strum state
+                                                            val pianoBlend = 1.0
+                                                            b[i] += processed * pianoGain * pianoBlend
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (activePianoStrings.isNotEmpty() && soloPreset != com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                                    // No element at this position - continue ringing active strings
+                                    // This handles implicit continuation when no element is specified
+                                    for ((_, string) in activePianoStrings) {
+                                        for (i in 0 until bufferLen) {
+                                            val sample = string.tick()
+                                            val processed = when (soloPreset) {
+                                                com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> sample
+                                                com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> {
+                                                    val gain = 3.0
+                                                    val mix = 0.8
+                                                    val driven = tanh(sample * gain)
+                                                    mix * driven + (1.0 - mix) * sample
+                                                }
+                                                else -> sample
+                                            }
+                                            // Keep solo loudness constant regardless of current strum state
+                                            val pianoBlend = 1.0
+                                            b[i] += processed * pianoGain * pianoBlend
+                                        }
+                                    }
+                                }
+                            }
+
                             try {
                                 val updatedDrumPattern = progression.measures[measureIndex].drumPattern
                                 val stepIndex = if (updatedDrumPattern.steps.isNotEmpty()) (strumIndex % updatedDrumPattern.steps.size) else strumIndex % 8
@@ -371,30 +673,37 @@ class AudioPlayer {
                                 val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
                                 val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
                                 val drumScale = baseDrumScale * presetPercussionMultiplier
-                                if (drumStep.hiHat) addHiHat(b, eighthNoteSamples, drumScale * drumLevel)
-                                if (drumStep.kick) addKick(b, eighthNoteSamples * 2, drumScale * drumLevel)
-                                if (drumStep.snare) addSnare(b, eighthNoteSamples * 2, drumScale * drumLevel)
-                            } catch (_: Exception) {
+                                if (drumStep.hiHat) addCachedDrumSample(b, cachedHiHatSamples, ::addHiHat, eighthNoteSamples, drumScale * drumLevel)
+                                if (drumStep.kick) addCachedDrumSample(b, cachedKickSamples, ::addKick, eighthNoteSamples * 2, drumScale * drumLevel)
+                                if (drumStep.snare) addCachedDrumSample(b, cachedSnareSamples, ::addSnare, eighthNoteSamples * 2, drumScale * drumLevel)
+                            } catch (e: Exception) {
                                 val restPercussionScale = 0.25
                                 val baseDrumScale = if (currentStrum == Strum.REST || currentStrum == Strum.LETRING) restPercussionScale else 1.0
                                 val presetPercussionMultiplier = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.45 else 1.0
                                 val drumScale = baseDrumScale * presetPercussionMultiplier
-                                addHiHat(b, eighthNoteSamples, drumScale)
+                                addCachedDrumSample(b, cachedHiHatSamples, ::addHiHat, eighthNoteSamples, drumScale)
                                 if (strumIndex % 2 == 0) {
                                     val quarterNoteIndex = strumIndex / 2
-                                    if (quarterNoteIndex % 2 == 0) addKick(b, eighthNoteSamples * 2, drumScale * if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.5 else 1.0)
-                                    if (quarterNoteIndex % 2 == 1) addSnare(b, eighthNoteSamples * 2, drumScale)
+                                    if (quarterNoteIndex % 2 == 0) addCachedDrumSample(b, cachedKickSamples, ::addKick, eighthNoteSamples * 2, drumScale * if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) 0.5 else 1.0)
+                                    if (quarterNoteIndex % 2 == 1) addCachedDrumSample(b, cachedSnareSamples, ::addSnare, eighthNoteSamples * 2, drumScale)
                                 }
+                                android.util.Log.w("AudioPlayer", "Failed to read drum pattern for progression (using fallback): ${e.message}", e)
                             }
 
-                            val normalizationFactor = (activeStrings.size) * presetNormalizationMultiplier + 1.0
                             if (voiceGain != 1.0) for (i in 0 until bufferLen) b[i] = b[i] * voiceGain
+
+                            // Compute measured peak and scale empirically to targetPeak to avoid
+                            // loudness jumps when parts are added/removed (solo vs chord)
                             var maxAbs = 0.0
                             for (i in 0 until bufferLen) { val a = kotlin.math.abs(b[i]); if (a > maxAbs) maxAbs = a }
-                            val postNormPeak = if (normalizationFactor > 0.0) maxAbs / normalizationFactor else maxAbs
-                            val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
+
+                            val targetPeak = 0.85
+                            val scale = if (maxAbs > 0.0) {
+                                if (maxAbs > targetPeak) targetPeak / maxAbs else 1.0
+                            } else 1.0
+
                             val trimmed = b.copyOfRange(0, bufferLen)
-                            val samples = trimmed.map { v -> v / normalizationFactor * headroom }.toDoubleArray().toPcmShortArray()
+                            val samples = trimmed.map { v -> (v * scale).coerceIn(-1.0, 1.0) }.toDoubleArray().toPcmShortArray()
                             audioTrack?.write(samples, 0, samples.size)
                         }
                     }
@@ -402,60 +711,210 @@ class AudioPlayer {
                     if (!isPlaying) break
                 } while (shouldLoop() && isPlaying)
 
+                val mainLoopEndTime = System.currentTimeMillis()
+                android.util.Log.d("AudioPlayer", "MAIN LOOP COMPLETED (totalTime=${mainLoopEndTime - mainLoopStartTime}ms)")
+
                 // persist last prevLP into class field
                 this@AudioPlayer.prevLP = prevLPLocal
 
+                // IMPORTANT: Reset isPlaying flag when playback completes normally
+                isPlaying = false
+                android.util.Log.d("AudioPlayer", "playProgression: isPlaying set to false after normal completion")
+
                 deferred.complete(Unit)
             } catch (t: Throwable) {
+                android.util.Log.e("AudioPlayer", "playProgression handler EXCEPTION: ${t.message}", t)
+                // Reset isPlaying flag on exception too
+                isPlaying = false
                 deferred.completeExceptionally(t)
             }
         }
 
         // wait for audio thread to finish scheduling the run
         deferred.await()
+        val playEndTime = System.currentTimeMillis()
+        android.util.Log.d("AudioPlayer", "playProgression COMPLETED (totalTime=${playEndTime - playStartTime}ms)")
     }
 
     suspend fun previewChord(chord: Chord, pluckStrength: Int) = withContext(Dispatchers.IO) {
         // Generate and play preview on the audio thread using the cached previewAudioTrack to minimize latency.
+        val startTime = System.currentTimeMillis()
+        val myPreviewId = ++currentPreviewId
+        android.util.Log.d("AudioPlayer", "previewChord START: $chord (previewId=$myPreviewId, threadId=${Thread.currentThread().id})")
         ensureAudioThreadStarted()
         val deferred = CompletableDeferred<Unit>()
+        val postTime = System.currentTimeMillis()
+        android.util.Log.d("AudioPlayer", "previewChord: posting to audioHandler (elapsed=${postTime - startTime}ms, previewId=$myPreviewId)")
         audioHandler!!.post {
+            val handlerStartTime = System.currentTimeMillis()
+            android.util.Log.d("AudioPlayer", "previewChord: audioHandler.post EXECUTING (queueDelay=${handlerStartTime - postTime}ms, chord=$chord, previewId=$myPreviewId)")
+
+            // Check if this preview is still the current one (not superseded by a newer preview)
+            if (myPreviewId != currentPreviewId) {
+                android.util.Log.d("AudioPlayer", "previewChord: ABORT - superseded by newer preview (myId=$myPreviewId, currentId=$currentPreviewId, chord=$chord)")
+                deferred.complete(Unit)
+                return@post
+            }
+
             try {
-                val previewDuration = 1.0
+                // Reduced preview duration for lower latency
+                val previewDuration = 0.4
                 val numSamples = (sampleRate * previewDuration).toInt()
-                val frequencies = chord.getMidiNotes().map { midiNoteToFrequency(it) }
-                val strings = frequencies.map { KarplusStrongString(it, sampleRate, pluckStrength).apply { pluck() } }
+                val midiNotes = chord.getMidiNotes()
+
+                val genStartTime = System.currentTimeMillis()
+
+                // Generate chord using SAME ALGORITHM as playback for consistent sound
+                val frequencies = midiNotes.map { midiNoteToFrequency(it) }
                 val buf = previewBuffer
-                for (i in 0 until numSamples) {
-                    var sample = 0.0
-                    for (s in strings) sample += s.tick()
-                    buf[i] = sample
+
+                // Create strings exactly like playback does
+                val strings = if (voicePreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                    // PIANO: two strings per frequency with higher decay
+                    frequencies.flatMap { freq ->
+                        listOf(
+                            KarplusStrongString(freq, sampleRate, pluckStrength, 0.9992).apply { pluck() },
+                            KarplusStrongString(freq * 1.001, sampleRate, pluckStrength, 0.9992).apply { pluck() }
+                        )
+                    }
+                } else {
+                    // CLEAN/OVERDRIVE: single string per frequency with standard decay
+                    frequencies.map { freq ->
+                        KarplusStrongString(freq, sampleRate, pluckStrength).apply { pluck() }
+                    }
                 }
+
+                // Pre-calculate normalization parameters
                 val presetNormalizationMultiplier = when (voicePreset) {
                     com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30
                     com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.7
                     else -> 0.7
                 }
                 val normalizationFactor = (frequencies.size) * presetNormalizationMultiplier + 1.0
-                if (voiceGain != 1.0) for (i in 0 until numSamples) buf[i] = buf[i] * voiceGain
-                var maxAbs = 0.0
-                for (i in 0 until numSamples) { val a = kotlin.math.abs(buf[i]); if (a > maxAbs) maxAbs = a }
-                val postNormPeak = if (normalizationFactor > 0.0) maxAbs / normalizationFactor else maxAbs
-                val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
-                val samples = buf.copyOfRange(0, numSamples).map { it / normalizationFactor * headroom }.toDoubleArray().toPcmShortArray()
+
+                // OPTIMIZATION: Generate only minimal initial buffer (20ms) for instant playback
+                // Rest will be generated and written progressively during playback
+                val initialBufferMs = 20 // 20ms for instant start - minimal latency
+                val initialSampleCount = minOf((sampleRate * initialBufferMs / 1000), numSamples)
+
+                // Generate initial samples and estimate headroom
+                var quickMax = 0.0
+                for (i in 0 until initialSampleCount) {
+                    var sample = 0.0
+                    for (s in strings) sample += s.tick()
+                    buf[i] = sample * voiceGain
+                    val a = kotlin.math.abs(buf[i])
+                    if (a > quickMax) quickMax = a
+                }
+
+                // Estimate headroom from initial samples
+                val estimatedPostNormPeak = if (normalizationFactor > 0.0) quickMax / normalizationFactor else quickMax
+                val estimatedHeadroom = if (estimatedPostNormPeak > 0.99) 0.99 / estimatedPostNormPeak else 1.0
+                val finalGain = estimatedHeadroom / normalizationFactor
+
+                // Convert initial buffer to PCM16
+                val initialSamples = ShortArray(initialSampleCount)
+                for (i in 0 until initialSampleCount) {
+                    val pcmValue = (buf[i] * finalGain * 32767.0).toInt().coerceIn(-32768, 32767)
+                    initialSamples[i] = pcmValue.toShort()
+                }
+
+                val initialGenTime = System.currentTimeMillis() - genStartTime
+                android.util.Log.d("AudioPlayer", "previewChord: generated initial ${initialSampleCount} samples (${initialBufferMs}ms) in ${initialGenTime}ms")
+
+                // Check if this preview was superseded
+                if (myPreviewId != currentPreviewId) {
+                    android.util.Log.d("AudioPlayer", "previewChord: ABORT - superseded (myId=$myPreviewId, currentId=$currentPreviewId, chord=$chord)")
+                    deferred.complete(Unit)
+                    return@post
+                }
 
                 // Use cached previewAudioTrack if available
                 val at = previewAudioTrack
                 if (at != null) {
                     try {
                         at.flush()
-                    } catch (_: Exception) {}
-                    at.write(samples, 0, samples.size)
-                    // Keep the thread sleeping for the playback duration so callers that await this suspend function
-                    // get the previous blocking behavior. The sleep runs on the audio thread so it doesn't block UI.
-                    try { Thread.sleep((previewDuration * 1000).toLong()) } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewChord: flush failed: ${e.message}", e)
+                    }
+
+                    val writeStartTime = System.currentTimeMillis()
+
+                    // STEP 1: Write initial buffer immediately for instant sound
+                    var totalWritten = at.write(initialSamples, 0, initialSamples.size)
+                    val initialWriteTime = System.currentTimeMillis() - writeStartTime
+                    android.util.Log.d("AudioPlayer", "previewChord: wrote initial ${totalWritten} samples in ${initialWriteTime}ms - AUDIO STARTS NOW")
+
+                    // STEP 2: Generate and write remaining samples progressively, but LIMIT to 100ms total
+                    // This keeps queue delay low for rapid preview changes
+                    var samplesGenerated = initialSampleCount
+                    val maxProgressiveGenTime = 100 // Max 100ms for progressive generation
+                    val progressiveStartTime = System.currentTimeMillis()
+                    val chunkSize = sampleRate / 20 // 50ms chunks
+
+                    while (samplesGenerated < numSamples && myPreviewId == currentPreviewId) {
+                        // Check if we've exceeded time budget
+                        if (System.currentTimeMillis() - progressiveStartTime > maxProgressiveGenTime) {
+                            android.util.Log.d("AudioPlayer", "previewChord: stopping progressive gen after ${System.currentTimeMillis() - progressiveStartTime}ms (time budget exceeded)")
+                            break
+                        }
+
+                        val chunkEnd = minOf(samplesGenerated + chunkSize, numSamples)
+                        val chunkSamples = chunkEnd - samplesGenerated
+
+                        // Generate chunk
+                        for (i in samplesGenerated until chunkEnd) {
+                            var sample = 0.0
+                            for (s in strings) sample += s.tick()
+                            buf[i] = sample * voiceGain
+                        }
+
+                        // Convert to PCM16
+                        val chunkShorts = ShortArray(chunkSamples)
+                        for (i in 0 until chunkSamples) {
+                            val pcmValue = (buf[samplesGenerated + i] * finalGain * 32767.0).toInt().coerceIn(-32768, 32767)
+                            chunkShorts[i] = pcmValue.toShort()
+                        }
+
+                        // Write chunk
+                        val written = at.write(chunkShorts, 0, chunkShorts.size)
+                        if (written > 0) {
+                            totalWritten += written
+                            samplesGenerated = chunkEnd
+                        } else if (written < 0) {
+                            android.util.Log.w("AudioPlayer", "previewChord: write error $written")
+                            break
+                        }
+                    }
+
+                    val totalWriteTime = System.currentTimeMillis() - writeStartTime
+                    android.util.Log.d("AudioPlayer", "previewChord: wrote total ${totalWritten} samples in ${totalWriteTime}ms (initial+progressive, generated ${samplesGenerated}/${numSamples})")
+
+                    // Calculate remaining sleep time
+                    // Audio is already playing during progressive generation, so we might need little to no extra sleep
+                    val audioPlaybackMs = (previewDuration * 1000).toLong()
+                    val remainingSleepMs = maxOf(0, audioPlaybackMs - totalWriteTime)
+
+                    android.util.Log.d("AudioPlayer", "previewChord: entering sleep loop (remaining=${remainingSleepMs}ms after ${totalWriteTime}ms write)")
+                    try {
+                        val checkIntervalMs = 10L
+                        var elapsed = 0L
+                        val sleepStartTime = System.currentTimeMillis()
+                        while (elapsed < remainingSleepMs && myPreviewId == currentPreviewId) {
+                            Thread.sleep(minOf(checkIntervalMs, remainingSleepMs - elapsed))
+                            elapsed += checkIntervalMs
+                        }
+                        val sleepEndTime = System.currentTimeMillis()
+                        val actualSleepMs = sleepEndTime - sleepStartTime
+                        val wasSuperseded = myPreviewId != currentPreviewId
+                        android.util.Log.d("AudioPlayer", "previewChord: sleep loop DONE (planned=${remainingSleepMs}ms, actual=${actualSleepMs}ms, superseded=$wasSuperseded, previewId=$myPreviewId, chord=$chord)")
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewChord: sleep interrupted: ${e.message}", e)
+                    }
                 } else {
                     // Fallback: create a temporary track if cached one is not available
+                    // For fallback, just use initial samples (quick preview better than nothing)
+                    android.util.Log.w("AudioPlayer", "previewChord: using fallback temporary AudioTrack (initial buffer only)")
                     var temp: AudioTrack? = null
                     try {
                         val previewMinBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
@@ -463,20 +922,49 @@ class AudioPlayer {
                             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
                             .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                             .setTransferMode(AudioTrack.MODE_STREAM)
-                            // samples.size is number of PCM samples (shorts) - convert to bytes; ensure at least min buffer size
-                            .setBufferSizeInBytes(maxOf(previewMinBuffer, samples.size * 2))
+                            .setBufferSizeInBytes(maxOf(previewMinBuffer, initialSamples.size * 2))
                             .build()
 
                         temp.play()
-                        temp.write(samples, 0, samples.size)
-                        Thread.sleep((previewDuration * 1000).toLong())
-                    } finally { try { temp?.stop() } catch (_: Exception) {}; try { temp?.release() } catch (_: Exception) {} }
+                        temp.write(initialSamples, 0, initialSamples.size)
+                        shouldStopPreview = false
+                        try {
+                            val sleepMs = (previewDuration * 1000).toLong()
+                            val checkIntervalMs = 10L
+                            var elapsed = 0L
+                            while (elapsed < sleepMs && myPreviewId == currentPreviewId) {
+                                Thread.sleep(minOf(checkIntervalMs, sleepMs - elapsed))
+                                elapsed += checkIntervalMs
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewChord temp sleep interrupted: ${e.message}", e)
+                        }
+                    } finally {
+                        try {
+                            temp?.stop()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewChord temp.stop() failed: ${e.message}", e)
+                        }
+                        try {
+                            temp?.release()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewChord temp.release() failed: ${e.message}", e)
+                        }
+                    }
                 }
 
+                val handlerEndTime = System.currentTimeMillis()
+                android.util.Log.d("AudioPlayer", "previewChord: audioHandler.post COMPLETED (totalHandlerTime=${handlerEndTime - handlerStartTime}ms, chord=$chord)")
                 deferred.complete(Unit)
-            } catch (t: Throwable) { deferred.completeExceptionally(t) }
+            } catch (t: Throwable) {
+                android.util.Log.e("AudioPlayer", "previewChord: EXCEPTION in audioHandler.post", t)
+                deferred.completeExceptionally(t)
+            }
         }
+        android.util.Log.d("AudioPlayer", "previewChord: waiting for deferred.await() (chord=$chord, previewId=$myPreviewId)")
         deferred.await()
+        val endTime = System.currentTimeMillis()
+        android.util.Log.d("AudioPlayer", "previewChord FINISHED: $chord (totalTime=${endTime - startTime}ms, previewId=$myPreviewId)")
     }
 
     suspend fun previewKick(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
@@ -485,16 +973,38 @@ class AudioPlayer {
         audioHandler!!.post {
             try {
                 val previewDuration = 0.25
-                val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
-                previewBuffer.fill(0.0)
-                val buf = previewBuffer
-                addKick(buf, numSamples, levelScale)
-                val samples = buf.copyOfRange(0, numSamples).toPcmShortArray()
+
+                // Use pre-generated kick samples if available and levelScale is 1.0
+                val samples = if (levelScale == 1.0 && cachedKickSamples != null && drumSamplesCachedForSampleRate == sampleRate) {
+                    cachedKickSamples!!
+                } else {
+                    // Generate on-demand for custom level scale
+                    val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
+                    previewBuffer.fill(0.0)
+                    val buf = previewBuffer
+                    addKick(buf, numSamples, levelScale)
+                    buf.copyOfRange(0, numSamples).toPcmShortArray()
+                }
                 val at = previewAudioTrack
                 if (at != null) {
-                    try { at.flush() } catch (_: Exception) {}
+                    try {
+                        at.flush()
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewKick flush failed: ${e.message}", e)
+                    }
                     at.write(samples, 0, samples.size)
-                    try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                    shouldStopPreview = false
+                    try {
+                        val sleepMs = (previewDuration * 1000).toLong()
+                        val checkIntervalMs = 10L
+                        var elapsed = 0L
+                        while (elapsed < sleepMs && !shouldStopPreview) {
+                            Thread.sleep(minOf(checkIntervalMs, sleepMs - elapsed))
+                            elapsed += checkIntervalMs
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewKick sleep interrupted: ${e.message}", e)
+                    }
                 } else {
                     // fallback to temporary track
                     var tmp: AudioTrack? = null
@@ -506,8 +1016,32 @@ class AudioPlayer {
                             .setTransferMode(AudioTrack.MODE_STREAM)
                             .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
                             .build()
-                        tmp.play(); tmp.write(samples, 0, samples.size); try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
-                    } finally { try { tmp?.stop() } catch (_: Exception) {} ; try { tmp?.release() } catch (_: Exception) {} }
+                        tmp.play()
+                        tmp.write(samples, 0, samples.size)
+                        shouldStopPreview = false
+                        try {
+                            val sleepMs = (previewDuration * 1000).toLong()
+                            val checkIntervalMs = 10L
+                            var elapsed = 0L
+                            while (elapsed < sleepMs && !shouldStopPreview) {
+                                Thread.sleep(minOf(checkIntervalMs, sleepMs - elapsed))
+                                elapsed += checkIntervalMs
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewKick tmp sleep interrupted: ${e.message}", e)
+                        }
+                    } finally {
+                        try {
+                            tmp?.stop()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewKick tmp.stop failed: ${e.message}", e)
+                        }
+                        try {
+                            tmp?.release()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewKick tmp.release failed: ${e.message}", e)
+                        }
+                    }
                 }
                 deferred.complete(Unit)
             } catch (t: Throwable) { deferred.completeExceptionally(t) }
@@ -521,16 +1055,38 @@ class AudioPlayer {
         audioHandler!!.post {
             try {
                 val previewDuration = 0.22
-                val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
-                previewBuffer.fill(0.0)
-                val buf = previewBuffer
-                addSnare(buf, numSamples, levelScale)
-                val samples = buf.copyOfRange(0, numSamples).toPcmShortArray()
+
+                // Use pre-generated snare samples if available and levelScale is 1.0
+                val samples = if (levelScale == 1.0 && cachedSnareSamples != null && drumSamplesCachedForSampleRate == sampleRate) {
+                    cachedSnareSamples!!
+                } else {
+                    // Generate on-demand for custom level scale
+                    val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(64)
+                    previewBuffer.fill(0.0)
+                    val buf = previewBuffer
+                    addSnare(buf, numSamples, levelScale)
+                    buf.copyOfRange(0, numSamples).toPcmShortArray()
+                }
                 val at = previewAudioTrack
                 if (at != null) {
-                    try { at.flush() } catch (_: Exception) {}
+                    try {
+                        at.flush()
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewSnare flush failed: ${e.message}", e)
+                    }
                     at.write(samples, 0, samples.size)
-                    try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                    shouldStopPreview = false
+                    try {
+                        val sleepMs = (previewDuration * 1000).toLong()
+                        val checkIntervalMs = 10L
+                        var elapsed = 0L
+                        while (elapsed < sleepMs && !shouldStopPreview) {
+                            Thread.sleep(minOf(checkIntervalMs, sleepMs - elapsed))
+                            elapsed += checkIntervalMs
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewSnare sleep interrupted: ${e.message}", e)
+                    }
                 } else {
                     var tmp: AudioTrack? = null
                     try {
@@ -541,8 +1097,32 @@ class AudioPlayer {
                             .setTransferMode(AudioTrack.MODE_STREAM)
                             .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
                             .build()
-                        tmp.play(); tmp.write(samples, 0, samples.size); try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
-                    } finally { try { tmp?.stop() } catch (_: Exception) {}; try { tmp?.release() } catch (_: Exception) {} }
+                        tmp.play()
+                        tmp.write(samples, 0, samples.size)
+                        shouldStopPreview = false
+                        try {
+                            val sleepMs = (previewDuration * 1000).toLong()
+                            val checkIntervalMs = 10L
+                            var elapsed = 0L
+                            while (elapsed < sleepMs && !shouldStopPreview) {
+                                Thread.sleep(minOf(checkIntervalMs, sleepMs - elapsed))
+                                elapsed += checkIntervalMs
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewSnare tmp sleep interrupted: ${e.message}", e)
+                        }
+                    } finally {
+                        try {
+                            tmp?.stop()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewSnare tmp.stop failed: ${e.message}", e)
+                        }
+                        try {
+                            tmp?.release()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewSnare tmp.release failed: ${e.message}", e)
+                        }
+                    }
                 }
                 deferred.complete(Unit)
             } catch (t: Throwable) { deferred.completeExceptionally(t) }
@@ -556,16 +1136,38 @@ class AudioPlayer {
         audioHandler!!.post {
             try {
                 val previewDuration = 0.12
-                val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(32)
-                previewBuffer.fill(0.0)
-                val buf = previewBuffer
-                addHiHat(buf, numSamples, levelScale)
-                val samples = buf.copyOfRange(0, numSamples).toPcmShortArray()
+
+                // Use pre-generated hi-hat samples if available and levelScale is 1.0
+                val samples = if (levelScale == 1.0 && cachedHiHatSamples != null && drumSamplesCachedForSampleRate == sampleRate) {
+                    cachedHiHatSamples!!
+                } else {
+                    // Generate on-demand for custom level scale
+                    val numSamples = (sampleRate * previewDuration).toInt().coerceAtLeast(32)
+                    previewBuffer.fill(0.0)
+                    val buf = previewBuffer
+                    addHiHat(buf, numSamples, levelScale)
+                    buf.copyOfRange(0, numSamples).toPcmShortArray()
+                }
                 val at = previewAudioTrack
                 if (at != null) {
-                    try { at.flush() } catch (_: Exception) {}
+                    try {
+                        at.flush()
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewHiHat flush failed: ${e.message}", e)
+                    }
                     at.write(samples, 0, samples.size)
-                    try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
+                    shouldStopPreview = false
+                    try {
+                        val sleepMs = (previewDuration * 1000).toLong()
+                        val checkIntervalMs = 10L
+                        var elapsed = 0L
+                        while (elapsed < sleepMs && !shouldStopPreview) {
+                            Thread.sleep(minOf(checkIntervalMs, sleepMs - elapsed))
+                            elapsed += checkIntervalMs
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("AudioPlayer", "previewHiHat sleep interrupted: ${e.message}", e)
+                    }
                 } else {
                     var tmp: AudioTrack? = null
                     try {
@@ -576,8 +1178,32 @@ class AudioPlayer {
                             .setTransferMode(AudioTrack.MODE_STREAM)
                             .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
                             .build()
-                        tmp.play(); tmp.write(samples, 0, samples.size); try { Thread.sleep((previewDuration*1000).toLong()) } catch (_: Exception) {}
-                    } finally { try { tmp?.stop() } catch (_: Exception) {}; try { tmp?.release() } catch (_: Exception) {} }
+                        tmp.play()
+                        tmp.write(samples, 0, samples.size)
+                        shouldStopPreview = false
+                        try {
+                            val sleepMs = (previewDuration * 1000).toLong()
+                            val checkIntervalMs = 10L
+                            var elapsed = 0L
+                            while (elapsed < sleepMs && !shouldStopPreview) {
+                                Thread.sleep(minOf(checkIntervalMs, sleepMs - elapsed))
+                                elapsed += checkIntervalMs
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewHiHat tmp sleep interrupted: ${e.message}", e)
+                        }
+                    } finally {
+                        try {
+                            tmp?.stop()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewHiHat tmp.stop failed: ${e.message}", e)
+                        }
+                        try {
+                            tmp?.release()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewHiHat tmp.release failed: ${e.message}", e)
+                        }
+                    }
                 }
                 deferred.complete(Unit)
             } catch (t: Throwable) { deferred.completeExceptionally(t) }
@@ -609,6 +1235,34 @@ class AudioPlayer {
             val env = (1.0 - i.toDouble() / attackSamples).pow(1.8) * 0.9
             // smaller magnitude than full drum to keep it subtle
             buffer[i] += band * env * 0.2 * drumLevel
+        }
+    }
+
+    /**
+     * addCachedDrumSample: Füge gecachte oder on-demand generierte Drum-Samples zu einem Buffer hinzu
+     * - Nutzt gecachte Samples, wenn cache gültig ist und levelScale=1.0
+     * - Sonst generiert on-demand
+     */
+    private fun addCachedDrumSample(
+        buffer: DoubleArray,
+        cachedSamples: ShortArray?,
+        generatorFn: (DoubleArray, Int, Double) -> Unit,
+        duration: Int,
+        levelScale: Double = 1.0
+    ) {
+        val samples = if (levelScale == 1.0 && cachedSamples != null && drumSamplesCachedForSampleRate == sampleRate) {
+            cachedSamples
+        } else {
+            // Generate on-demand for custom level scale
+            val tempBuf = DoubleArray(duration)
+            generatorFn(tempBuf, duration, levelScale)
+            tempBuf.toPcmShortArray()
+        }
+
+        // Mix into target buffer (convert PCM16 back to double with scaling)
+        val maxSamples = minOf(buffer.size, samples.size)
+        for (i in 0 until maxSamples) {
+            buffer[i] += (samples[i].toDouble() / Short.MAX_VALUE)
         }
     }
 
@@ -732,8 +1386,28 @@ class AudioPlayer {
     }
 
     fun stop() {
-        if (!isPlaying) return
+        android.util.Log.d("AudioPlayer", "stop() CALLED (isPlaying=$isPlaying, shouldStopPreview=$shouldStopPreview, threadId=${Thread.currentThread().id})")
+        if (!isPlaying) {
+            android.util.Log.d("AudioPlayer", "stop() setting shouldStopPreview=true even though isPlaying=false")
+            shouldStopPreview = true
+            // Remove all pending messages even if not playing, to clear preview queue
+            try {
+                audioHandler?.removeCallbacksAndMessages(null)
+                android.util.Log.d("AudioPlayer", "stop() removed pending handler messages")
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "stop: removeCallbacksAndMessages failed: ${e.message}", e)
+            }
+            return
+        }
         isPlaying = false
+        shouldStopPreview = true
+        // Remove all pending messages from audio handler to ensure immediate stop
+        try {
+            audioHandler?.removeCallbacksAndMessages(null)
+            android.util.Log.d("AudioPlayer", "stop() removed pending handler messages (isPlaying was true)")
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "stop: removeCallbacksAndMessages failed: ${e.message}", e)
+        }
         audioTrack?.let {
             if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
                 try {
@@ -747,16 +1421,486 @@ class AudioPlayer {
         // Also stop and release previewAudioTrack if present
         try {
             previewAudioTrack?.let {
-                try { it.flush() } catch (_: Exception) {}
-                try { it.stop() } catch (_: Exception) {}
-                try { it.release() } catch (_: Exception) {}
+                try {
+                    it.flush()
+                } catch (e: Exception) {
+                    android.util.Log.w("AudioPlayer", "stop: previewAudioTrack.flush failed: ${e.message}", e)
+                }
+                try {
+                    it.stop()
+                } catch (e: Exception) {
+                    android.util.Log.w("AudioPlayer", "stop: previewAudioTrack.stop failed: ${e.message}", e)
+                }
+                try {
+                    it.release()
+                } catch (e: Exception) {
+                    android.util.Log.w("AudioPlayer", "stop: previewAudioTrack.release failed: ${e.message}", e)
+                }
             }
-        } catch (_: Exception) {}
-        previewAudioTrack = null
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "stop: previewAudioTrack teardown failed: ${e.message}", e)
+        }
          // Reset persisted lowpass filter state so subsequent starts/count-ins don't inherit DC/offset
-         try { this.prevLP = 0.0 } catch (_: Exception) {}
+         try {
+             this.prevLP = 0.0
+         } catch (e: Exception) {
+             android.util.Log.w("AudioPlayer", "stop: resetting prevLP failed: ${e.message}", e)
+         }
         // Clear reusable buffers so a subsequent start cannot reuse stale sample data
-        try { if (reusableEighthBuffer.isNotEmpty()) java.util.Arrays.fill(reusableEighthBuffer, 0.0) } catch (_: Exception) {}
-        try { java.util.Arrays.fill(previewBuffer, 0.0) } catch (_: Exception) {}
+        try {
+            if (reusableEighthBuffer.isNotEmpty()) java.util.Arrays.fill(reusableEighthBuffer, 0.0)
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "stop: clearing reusableEighthBuffer failed: ${e.message}", e)
+        }
+        try {
+            java.util.Arrays.fill(previewBuffer, 0.0)
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "stop: clearing previewBuffer failed: ${e.message}", e)
+        }
     }
-}
+
+    fun resetStopFlag() {
+        shouldStopPreview = false
+        android.util.Log.d("AudioPlayer", "resetStopFlag() - shouldStopPreview set to false")
+    }
+
+
+    /**
+     * Pre-generate drum sound samples (kick, snare, hi-hat).
+     * Called once when audio thread starts.
+     * First tries to load from disk cache; if not available or sample rate mismatch, generates and saves.
+     */
+    fun preGenerateDrumSamples() {
+        // Try to load from cache first
+        if (tryLoadDrumSamplesFromCache()) {
+            android.util.Log.d("AudioPlayer", "preGenerateDrumSamples: loaded from disk cache")
+            return
+        }
+
+        val startTime = System.currentTimeMillis()
+
+        // Generate kick (0.25s)
+        val kickDuration = 0.25
+        val kickSamples = (sampleRate * kickDuration).toInt().coerceAtLeast(64)
+        val kickBuf = DoubleArray(kickSamples)
+        addKick(kickBuf, kickSamples, 1.0)
+        cachedKickSamples = kickBuf.toPcmShortArray()
+
+        // Generate snare (0.22s)
+        val snareDuration = 0.22
+        val snareSamples = (sampleRate * snareDuration).toInt().coerceAtLeast(64)
+        val snareBuf = DoubleArray(snareSamples)
+        addSnare(snareBuf, snareSamples, 1.0)
+        cachedSnareSamples = snareBuf.toPcmShortArray()
+
+        // Generate hi-hat (0.12s)
+        val hihatDuration = 0.12
+        val hihatSamples = (sampleRate * hihatDuration).toInt().coerceAtLeast(32)
+        val hihatBuf = DoubleArray(hihatSamples)
+        addHiHat(hihatBuf, hihatSamples, 1.0)
+        cachedHiHatSamples = hihatBuf.toPcmShortArray()
+
+        drumSamplesCachedForSampleRate = sampleRate
+
+        val endTime = System.currentTimeMillis()
+        android.util.Log.d("AudioPlayer", "preGenerateDrumSamples: generated in ${endTime - startTime}ms")
+
+        // Save to disk cache for future sessions (asynchronously to avoid blocking audio thread)
+        try {
+            Thread {
+                try {
+                    saveDrumSamplesToCache()
+                    android.util.Log.d("AudioPlayer", "preGenerateDrumSamples: saved to disk cache (async)")
+                } catch (e: Exception) {
+                    android.util.Log.w("AudioPlayer", "preGenerateDrumSamples: failed to save cache: ${e.message}", e)
+                }
+            }.start()
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "preGenerateDrumSamples: failed to start save thread: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Load drum samples from disk cache if available and valid.
+     * Returns true if successfully loaded, false otherwise.
+     */
+    private fun tryLoadDrumSamplesFromCache(): Boolean {
+        return try {
+            // Get app context from MyApplication singleton
+            val context = try {
+                (Class.forName("com.metaview.chordprogressionhelper.MyApplication")
+                    .getDeclaredField("Companion")
+                    .apply { isAccessible = true }
+                    .get(null))?.let { companion ->
+                    Class.forName("com.metaview.chordprogressionhelper.MyApplication\$Companion")
+                        .getDeclaredMethod("getContext")
+                        .invoke(companion) as? android.content.Context
+                }
+            } catch (_: Exception) {
+                null
+            }
+
+            val cacheDir = context?.cacheDir ?: return false
+
+            val kickFile = java.io.File(cacheDir, "drum_kick_$sampleRate.cache")
+            val snareFile = java.io.File(cacheDir, "drum_snare_$sampleRate.cache")
+            val hihatFile = java.io.File(cacheDir, "drum_hihat_$sampleRate.cache")
+
+            // All three files must exist
+            if (!kickFile.exists() || !snareFile.exists() || !hihatFile.exists()) {
+                return false
+            }
+
+            // Load and verify file sizes
+            cachedKickSamples = loadShortArrayFromFile(kickFile)
+            cachedSnareSamples = loadShortArrayFromFile(snareFile)
+            cachedHiHatSamples = loadShortArrayFromFile(hihatFile)
+
+            if (cachedKickSamples == null || cachedSnareSamples == null || cachedHiHatSamples == null) {
+                return false
+            }
+
+            drumSamplesCachedForSampleRate = sampleRate
+            true
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "tryLoadDrumSamplesFromCache failed: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Save drum samples to disk cache for future sessions.
+     */
+    private fun saveDrumSamplesToCache() {
+        try {
+            val context = try {
+                (Class.forName("com.metaview.chordprogressionhelper.MyApplication")
+                    .getDeclaredField("Companion")
+                    .apply { isAccessible = true }
+                    .get(null))?.let { companion ->
+                    Class.forName("com.metaview.chordprogressionhelper.MyApplication\$Companion")
+                        .getDeclaredMethod("getContext")
+                        .invoke(companion) as? android.content.Context
+                }
+            } catch (_: Exception) {
+                null
+            }
+
+            val cacheDir = context?.cacheDir ?: return
+
+            val kickFile = java.io.File(cacheDir, "drum_kick_$sampleRate.cache")
+            val snareFile = java.io.File(cacheDir, "drum_snare_$sampleRate.cache")
+            val hihatFile = java.io.File(cacheDir, "drum_hihat_$sampleRate.cache")
+
+            // Save each sample array
+            cachedKickSamples?.let { saveShortArrayToFile(it, kickFile) }
+            cachedSnareSamples?.let { saveShortArrayToFile(it, snareFile) }
+            cachedHiHatSamples?.let { saveShortArrayToFile(it, hihatFile) }
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "saveDrumSamplesToCache failed: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Load a ShortArray from a binary file.
+     */
+    private fun loadShortArrayFromFile(file: java.io.File): ShortArray? {
+        return try {
+            file.inputStream().use { input ->
+                val bytes = input.readBytes()
+                if (bytes.size % 2 != 0) return null // Corrupted file
+                val shorts = ShortArray(bytes.size / 2)
+                for (i in shorts.indices) {
+                    shorts[i] = ((bytes[i * 2].toInt() and 0xFF) or
+                                 ((bytes[i * 2 + 1].toInt() and 0xFF) shl 8)).toShort()
+                }
+                shorts
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("AudioPlayer", "loadShortArrayFromFile failed for ${file.name}: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Save a ShortArray to a binary file.
+     */
+    private fun saveShortArrayToFile(shorts: ShortArray, file: java.io.File) {
+        file.outputStream().use { output ->
+            for (s in shorts) {
+                output.write((s.toInt() and 0xFF).toByte().toInt())
+                output.write(((s.toInt() shr 8) and 0xFF).toByte().toInt())
+            }
+        }
+    }
+
+    /**
+     * Spielt einen einzelnen Akkord-Strum für Template-Previews ab.
+     * Blockierende Methode, wartet bis der Strum abgespielt wurde.
+     */
+    suspend fun playChordStrum(chord: Chord) = withContext(Dispatchers.IO) {
+        // Verwende die bestehende previewChord Methode mit Soft Pluck
+        previewChord(chord, 3)
+    }
+
+    // Piano synthesis using additive synthesis instead of Karplus-Strong
+    private fun generatePianoSample(frequency: Double, durationSec: Double): DoubleArray {
+        val numSamples = (sampleRate * durationSec).toInt()
+        val samples = DoubleArray(numSamples)
+
+        // Piano has harmonics with specific amplitude ratios
+        // Reduced to 3 harmonics for better performance (was 6)
+        val harmonics = listOf(
+            1.0 to 1.0,      // Fundamental
+            2.0 to 0.6,      // 2nd harmonic (octave)
+            3.0 to 0.3       // 3rd harmonic
+        )
+
+        // Pre-calculate envelope parameters
+        val attackTime = 0.002  // 2ms attack (sehr schnell für sofortige Response)
+        val decayTime = 0.15   // 150ms decay
+        val sustainLevel = 0.3 // 30% sustain level
+
+        val attackSamples = (attackTime * sampleRate).toInt()
+        val decaySamples = (decayTime * sampleRate).toInt()
+        val attackDecaySamples = attackSamples + decaySamples
+
+        for (i in 0 until numSamples) {
+            val t = i.toDouble() / sampleRate
+            var sample = 0.0
+
+            // Add each harmonic
+            for ((harmonic, amplitude) in harmonics) {
+                val freq = frequency * harmonic
+                sample += amplitude * sin(2.0 * PI * freq * t)
+            }
+
+            // ADSR envelope - optimized with pre-calculated boundaries
+            val envelope = when {
+                i < attackSamples -> i.toDouble() / attackSamples
+                i < attackDecaySamples -> {
+                    val decayProgress = (i - attackSamples).toDouble() / decaySamples
+                    1.0 - (1.0 - sustainLevel) * decayProgress
+                }
+                else -> {
+                    val releaseProgress = (i - attackDecaySamples).toDouble() / (numSamples - attackDecaySamples)
+                    sustainLevel * (1.0 - releaseProgress)
+                }
+            }.coerceIn(0.0, 1.0)
+
+            samples[i] = sample * envelope
+        }
+
+        // Normalize
+        val maxVal = samples.maxOfOrNull { kotlin.math.abs(it) } ?: 1.0
+        if (maxVal > 0.0) {
+            for (i in samples.indices) {
+                samples[i] /= maxVal
+            }
+        }
+
+        return samples
+    }
+
+        // Mix multiple piano notes together
+        private fun mixPianoNotes(midiNotes: List<Int>, durationSec: Double): DoubleArray {
+            val numSamples = (sampleRate * durationSec).toInt()
+            val mixed = DoubleArray(numSamples)
+
+            for (midiNote in midiNotes) {
+                val freq = midiNoteToFrequency(midiNote)
+                val noteSamples = generatePianoSample(freq, durationSec)
+                for (i in 0 until minOf(numSamples, noteSamples.size)) {
+                    mixed[i] += noteSamples[i]
+                }
+            }
+
+            // Normalize mixed result
+            val maxVal = mixed.maxOfOrNull { kotlin.math.abs(it) } ?: 1.0
+            if (maxVal > 0.0) {
+                val normFactor = 0.8 / maxVal // Leave some headroom
+                for (i in mixed.indices) {
+                    mixed[i] *= normFactor
+                }
+            }
+
+            return mixed
+        }
+
+        /**
+         * Spielt eine einzelne Solo-Note mit verbesserter Synthese ab.
+         * Verwendet additive Synthese für Piano-Preset, KarplusStrong für andere.
+         * Optimiert für minimale Latenz durch progressive Generierung mit kontinuierlicher Phase.
+         */
+        suspend fun previewSoloNote(midiNote: Int, durationSec: Double = 0.6) = withContext(Dispatchers.IO) {
+            val startTime = System.currentTimeMillis()
+            val myPreviewId = ++currentPreviewId
+            android.util.Log.d("AudioPlayer", "previewPianoNote START: midiNote=$midiNote (previewId=$myPreviewId, threadId=${Thread.currentThread().id})")
+            ensureAudioThreadStarted()
+            val deferred = CompletableDeferred<Unit>()
+
+            audioHandler!!.post {
+                val handlerStartTime = System.currentTimeMillis()
+
+                // Check if this preview is still the current one
+                if (myPreviewId != currentPreviewId) {
+                    android.util.Log.d("AudioPlayer", "previewPianoNote: ABORT - superseded (myId=$myPreviewId, currentId=$currentPreviewId)")
+                    deferred.complete(Unit)
+                    return@post
+                }
+
+                try {
+                    val freq = midiNoteToFrequency(midiNote)
+                    val totalSamples = (sampleRate * durationSec).toInt()
+
+                    // Play using previewAudioTrack
+                    val at = previewAudioTrack
+                    if (at != null) {
+                        try {
+                            at.flush()
+                        } catch (e: Exception) {
+                            android.util.Log.w("AudioPlayer", "previewPianoNote flush failed: ${e.message}", e)
+                        }
+
+                        // OPTIMIZATION: Generate and write in chunks, but maintain continuous state
+                        val initialBufferMs = 20
+                        val initialSampleCount = (sampleRate * initialBufferMs / 1000)
+                        val chunkSize = sampleRate / 20 // 50ms chunks
+
+                        // Create synthesis state that persists across chunks
+                        // Use soloPreset instead of voicePreset for piano patterns
+                        val karplusString = if (soloPreset != com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                            KarplusStrongString(freq, sampleRate, 3, 0.998).apply { pluck() }
+                        } else null
+
+                        // Piano synthesis parameters (constant across chunks)
+                        // Reduced to 3 harmonics for better performance
+                        val harmonics = listOf(
+                            1.0 to 1.0, 2.0 to 0.6, 3.0 to 0.3
+                        )
+                        val attackTime = 0.002  // 2ms attack - sehr schnell
+                        val decayTime = 0.15
+                        val sustainLevel = 0.3
+
+                        // Pre-calculate envelope boundaries for optimization
+                        val attackSamples = (attackTime * sampleRate).toInt()
+                        val decaySamples = (decayTime * sampleRate).toInt()
+                        val attackDecaySamples = attackSamples + decaySamples
+
+                        // Calculate gain based on soloPreset and multiply with soloLevel setting
+                        val pianoGainBase = when (soloPreset) {
+                            com.metaview.chordprogressionhelper.data.SoundPreset.CLEAN -> 1.0
+                            com.metaview.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.9
+                            com.metaview.chordprogressionhelper.data.SoundPreset.PIANO -> 1.5
+                        }
+                        val pianoGain = pianoGainBase * soloLevel  // Apply soloLevel setting
+
+                        var samplesWritten = 0
+                        var isFirstChunk = true
+
+                        while (samplesWritten < totalSamples && myPreviewId == currentPreviewId) {
+                            val remainingSamples = totalSamples - samplesWritten
+                            val currentChunkSize = if (isFirstChunk) {
+                                minOf(initialSampleCount, remainingSamples)
+                            } else {
+                                minOf(chunkSize, remainingSamples)
+                            }
+
+                            // Generate chunk with continuous phase/state
+                            val chunkBuf = DoubleArray(currentChunkSize)
+
+                            if (soloPreset == com.metaview.chordprogressionhelper.data.SoundPreset.PIANO) {
+                                // Piano: Generate with continuous phase and optimized envelope
+                                for (i in 0 until currentChunkSize) {
+                                    val sampleIndex = samplesWritten + i
+                                    val t = sampleIndex.toDouble() / sampleRate
+                                    var sample = 0.0
+
+                                    // Add all harmonics (optimized to 3 for performance)
+                                    for ((harmonic, amplitude) in harmonics) {
+                                        val hFreq = freq * harmonic
+                                        sample += amplitude * sin(2.0 * PI * hFreq * t)
+                                    }
+
+                                    // Apply envelope - optimized with pre-calculated boundaries
+                                    val envelope = when {
+                                        sampleIndex < attackSamples -> sampleIndex.toDouble() / attackSamples
+                                        sampleIndex < attackDecaySamples -> {
+                                            val decayProgress = (sampleIndex - attackSamples).toDouble() / decaySamples
+                                            1.0 - (1.0 - sustainLevel) * decayProgress
+                                        }
+                                        else -> {
+                                            val releaseProgress = (sampleIndex - attackDecaySamples).toDouble() / (totalSamples - attackDecaySamples)
+                                            sustainLevel * (1.0 - releaseProgress)
+                                        }
+                                    }.coerceIn(0.0, 1.0)
+
+                                    chunkBuf[i] = sample * envelope
+                                }
+                            } else {
+                                // Karplus-Strong: Use persistent string instance
+                                for (i in 0 until currentChunkSize) {
+                                    chunkBuf[i] = karplusString!!.tick()
+                                }
+                            }
+
+                            // Convert to PCM16 without normalizing each chunk individually
+                            // (normalization would cause volume jumps between chunks)
+                            val chunkShorts = ShortArray(currentChunkSize)
+                            for (i in 0 until currentChunkSize) {
+                                val pcmValue = (chunkBuf[i] * pianoGain * 32767.0 * 0.8).toInt().coerceIn(-32768, 32767)
+                                chunkShorts[i] = pcmValue.toShort()
+                            }
+
+                            // Write chunk
+                            at.write(chunkShorts, 0, chunkShorts.size)
+
+                            if (isFirstChunk) {
+                                android.util.Log.d("AudioPlayer", "previewPianoNote: wrote initial ${currentChunkSize} samples - AUDIO STARTS NOW")
+                                isFirstChunk = false
+                            }
+
+                            samplesWritten += currentChunkSize
+                        }
+
+                        android.util.Log.d("AudioPlayer", "previewPianoNote: wrote total ${samplesWritten} samples")
+
+                        // Sleep for remaining duration
+                        val audioPlaybackMs = (durationSec * 1000).toLong()
+                        val elapsedMs = System.currentTimeMillis() - handlerStartTime
+                        val remainingSleepMs = maxOf(0, audioPlaybackMs - elapsedMs)
+
+                        if (remainingSleepMs > 0) {
+                            try {
+                                val checkIntervalMs = 10L
+                                var elapsed = 0L
+                                while (elapsed < remainingSleepMs && myPreviewId == currentPreviewId) {
+                                    Thread.sleep(minOf(checkIntervalMs, remainingSleepMs - elapsed))
+                                    elapsed += checkIntervalMs
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("AudioPlayer", "previewPianoNote sleep interrupted: ${e.message}", e)
+                            }
+                        }
+                    } else {
+                        // Fallback
+                        android.util.Log.w("AudioPlayer", "previewPianoNote: no previewAudioTrack available")
+                    }
+
+                    android.util.Log.d("AudioPlayer", "previewPianoNote: COMPLETED (handlerTime=${System.currentTimeMillis() - handlerStartTime}ms)")
+                    deferred.complete(Unit)
+                } catch (t: Throwable) {
+                    android.util.Log.e("AudioPlayer", "previewPianoNote: EXCEPTION", t)
+                    deferred.completeExceptionally(t)
+                }
+            }
+
+            deferred.await()
+            android.util.Log.d("AudioPlayer", "previewPianoNote FINISHED: midiNote=$midiNote (totalTime=${System.currentTimeMillis() - startTime}ms, previewId=$myPreviewId)")
+        }
+
+        // ...existing code...
+    }
+
+
+

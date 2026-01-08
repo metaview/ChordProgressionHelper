@@ -46,10 +46,10 @@
                     android:layout_marginBottom="6dp" />
 
                 <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/patternPreviewSwitch"
+                    android:id="@+id/strum_pattern_preview_switch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/pattern_preview_label"
+                    android:text="@string/strum_pattern_preview_label"
                     android:textSize="16sp"
                     android:layout_marginBottom="6dp" />
 
@@ -58,6 +58,14 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/drum_preview_label"
+                    android:textSize="16sp"
+                    android:layout_marginBottom="6dp" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/templatePreviewSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/template_preview_label"
                     android:textSize="16sp"
                     android:layout_marginBottom="6dp" />
 
@@ -143,6 +151,22 @@
                     android:layout_marginBottom="8dp" />
 
                 <TextView
+                    android:id="@+id/soloLevelLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/solo_level_format"
+                    android:layout_marginTop="4dp" />
+
+                <SeekBar
+                    android:id="@+id/soloLevelSeekBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="150"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
                     android:id="@+id/envelopeScaleLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -178,7 +202,7 @@
                     android:id="@+id/upStrokeOffsetLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/up_stroke_offset_label"
+                    android:text="Up Stroke Offset: 10ms"
                     android:layout_marginTop="8dp" />
 
                 <SeekBar
@@ -187,20 +211,14 @@
                     android:layout_height="wrap_content"
                     android:max="200"
                     android:progress="30"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:id="@+id/upStrokeOffsetValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ms_format"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
 
                 <TextView
                     android:id="@+id/upStringStaggerLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/up_string_stagger_label"
+                    android:text="Up String Stagger: 8ms"
                     android:layout_marginTop="8dp" />
 
                 <SeekBar
@@ -209,20 +227,14 @@
                     android:layout_height="wrap_content"
                     android:max="100"
                     android:progress="8"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:id="@+id/upStringStaggerValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ms_format"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
 
                 <TextView
                     android:id="@+id/downStrokeOffsetLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/down_stroke_offset_label"
+                    android:text="Down Stroke Offset: 0ms"
                     android:layout_marginTop="8dp" />
 
                 <SeekBar
@@ -231,20 +243,14 @@
                     android:layout_height="wrap_content"
                     android:max="200"
                     android:progress="0"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:id="@+id/downStrokeOffsetValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ms_format"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
 
                 <TextView
                     android:id="@+id/downStringStaggerLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/down_string_stagger_label"
+                    android:text="Down String Stagger: 0ms"
                     android:layout_marginTop="8dp" />
 
                 <SeekBar
@@ -253,14 +259,8 @@
                     android:layout_height="wrap_content"
                     android:max="100"
                     android:progress="0"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:id="@+id/downStringStaggerValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/ms_format"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
 
                 <Button
                     android:id="@+id/resetSoundButton"
@@ -269,6 +269,14 @@
                     android:layout_marginTop="4dp"
                     android:layout_marginBottom="12dp"
                     android:text="@string/reset_sound_label" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/strumming_instrument_label"
+                    android:textStyle="bold"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp" />
 
                 <RadioGroup
                     android:id="@+id/soundPresetRadioGroup"
@@ -292,6 +300,42 @@
 
                     <RadioButton
                         android:id="@+id/soundPresetPiano"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preset_piano" />
+
+                </RadioGroup>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/solo_instrument_label"
+                    android:textStyle="bold"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="4dp" />
+
+                <RadioGroup
+                    android:id="@+id/soloPresetRadioGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/soloPresetClean"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preset_clean"
+                        android:layout_marginEnd="12dp" />
+
+                    <RadioButton
+                        android:id="@+id/soloPresetOverdrive"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preset_overdrive"
+                        android:layout_marginEnd="12dp" />
+
+                    <RadioButton
+                        android:id="@+id/soloPresetPiano"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/preset_piano" />

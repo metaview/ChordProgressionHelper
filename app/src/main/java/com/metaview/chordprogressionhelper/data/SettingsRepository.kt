@@ -18,9 +18,12 @@ class SettingsRepository(context: Context) {
         const val KEY_IS_LOOPING = "key_is_looping"
         // Sound subgroup keys
         const val KEY_DRUM_LEVEL = "key_drum_level"
+        const val KEY_SOLO_LEVEL = "key_solo_level"  // Solo Pattern Lautstärke
         const val KEY_ENVELOPE_SCALE = "key_envelope_scale"
         const val KEY_HIHAT_HIGHPASS = "key_hihat_highpass"
-        const val KEY_SOUND_PRESET = "key_sound_preset"
+        const val KEY_STRUM_PRESET = "key_strum_preset"
+        // New key: separate solo instrument preset
+        const val KEY_SOLO_PRESET = "key_solo_preset"
         // Per-preset gain multipliers (percent stored as float 0.0..2.0)
         const val KEY_SOUND_GAIN_CLEAN = "key_sound_gain_clean"
         const val KEY_SOUND_GAIN_OVERDRIVE = "key_sound_gain_overdrive"
@@ -29,6 +32,8 @@ class SettingsRepository(context: Context) {
         const val KEY_PATTERN_PREVIEW = "key_pattern_preview"
         // New key: drum preview toggle (controls per-step immediate drum click preview)
         const val KEY_DRUM_PREVIEW = "key_drum_preview"
+        // New key: template preview toggle (controls preview when selecting templates)
+        const val KEY_TEMPLATE_PREVIEW = "key_template_preview"
         // Stroke offset for UP strokes in milliseconds
         const val KEY_STROKE_OFFSET_MS = "key_stroke_offset_ms"
         const val KEY_STRING_STAGGER_MS = "key_string_stagger_ms"
@@ -43,7 +48,7 @@ class SettingsRepository(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_CHORD_PREVIEW, value) }
 
     // Pattern Preview setting (new)
-    var isPatternPreviewEnabled: Boolean
+    var isStrumPatternPreviewEnabled: Boolean
         get() = prefs.getBoolean(KEY_PATTERN_PREVIEW, true)
         set(value) = prefs.edit { putBoolean(KEY_PATTERN_PREVIEW, value) }
 
@@ -51,6 +56,11 @@ class SettingsRepository(context: Context) {
     var isDrumPreviewEnabled: Boolean
         get() = prefs.getBoolean(KEY_DRUM_PREVIEW, true)
         set(value) = prefs.edit { putBoolean(KEY_DRUM_PREVIEW, value) }
+
+    // Template Preview setting: controls preview when selecting templates in New dialog
+    var isTemplatePreviewEnabled: Boolean
+        get() = prefs.getBoolean(KEY_TEMPLATE_PREVIEW, true)
+        set(value) = prefs.edit { putBoolean(KEY_TEMPLATE_PREVIEW, value) }
 
     // Stroke offset for UP strokes in milliseconds (0..200 typical)
     var strokeOffsetMs: Int
@@ -85,11 +95,16 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean(KEY_IS_LOOPING, false)
         set(value) = prefs.edit { putBoolean(KEY_IS_LOOPING, value) }
 
-    // Sound subgroup: drum level (multiplier), envelope scale, hi-hat highpass multiplier
+    // Sound subgroup: drum level (multiplier), solo level, envelope scale, hi-hat highpass multiplier
     @Suppress("unused")
     var drumLevel: Float
         get() = prefs.getFloat(KEY_DRUM_LEVEL, 1.0f)
         set(value) = prefs.edit { putFloat(KEY_DRUM_LEVEL, value) }
+
+    @Suppress("unused")
+    var soloLevel: Float
+        get() = prefs.getFloat(KEY_SOLO_LEVEL, 1.5f)  // Default 1.5 für mehr Lautstärke
+        set(value) = prefs.edit { putFloat(KEY_SOLO_LEVEL, value) }
 
     @Suppress("unused")
     var envelopeScale: Float
@@ -101,10 +116,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getFloat(KEY_HIHAT_HIGHPASS, 1.0f)
         set(value) = prefs.edit { putFloat(KEY_HIHAT_HIGHPASS, value) }
 
-    // Sound preset selection persisted as ordinal
-    var soundPreset: SoundPreset
-        get() = SoundPreset.entries.getOrElse(prefs.getInt(KEY_SOUND_PRESET, SoundPreset.CLEAN.ordinal)) { SoundPreset.CLEAN }
-        set(value) = prefs.edit { putInt(KEY_SOUND_PRESET, value.ordinal) }
+    // Strum preset selection persisted as ordinal (for strumming patterns)
+    var strumPreset: SoundPreset
+        get() = SoundPreset.entries.getOrElse(prefs.getInt(KEY_STRUM_PRESET, SoundPreset.CLEAN.ordinal)) { SoundPreset.CLEAN }
+        set(value) = prefs.edit { putInt(KEY_STRUM_PRESET, value.ordinal) }
+
+    // Piano instrument preset (separate from strumming) - defaults to PIANO
+    var soloPreset: SoundPreset
+        get() = SoundPreset.entries.getOrElse(prefs.getInt(KEY_SOLO_PRESET, SoundPreset.PIANO.ordinal)) { SoundPreset.PIANO }
+        set(value) = prefs.edit { putInt(KEY_SOLO_PRESET, value.ordinal) }
 
     // Per-preset gain multipliers (0.0 .. 2.0), defaults to 1.0
     var soundGainClean: Float

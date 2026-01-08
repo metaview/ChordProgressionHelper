@@ -18,12 +18,21 @@ import android.support.v4.media.MediaMetadataCompat
 import android.util.Log
 import com.metaview.chordprogressionhelper.MainActivity
 import com.metaview.chordprogressionhelper.R
+import com.metaview.chordprogressionhelper.SoloPatternActivity
 import com.metaview.chordprogressionhelper.data.ProgressionStore
 import com.metaview.chordprogressionhelper.data.SettingsRepository
 import com.metaview.chordprogressionhelper.model.ChordProgression
 import com.metaview.chordprogressionhelper.model.StrummingPattern
 import com.metaview.chordprogressionhelper.model.DrumPattern
+import com.metaview.chordprogressionhelper.model.DrumStep
+import com.metaview.chordprogressionhelper.model.Key
+import com.metaview.chordprogressionhelper.model.Measure
+import com.metaview.chordprogressionhelper.model.Mode
+import com.metaview.chordprogressionhelper.model.SoloPattern
+import com.metaview.chordprogressionhelper.model.Strum
 import com.metaview.chordprogressionhelper.util.AudioPlayer
+import com.metaview.chordprogressionhelper.util.AudioThreadReadyCallback
+import com.metaview.chordprogressionhelper.util.PreviewCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -84,11 +93,22 @@ class PlaybackService : Service() {
             try { startForeground(NOTIFICATION_ID, preparing) } catch (e: Exception) { Log.w(TAG, "early startForeground in onCreate failed: ${e.message}") }
         } catch (e: Exception) { Log.w(TAG, "failed to build early notification: ${e.message}") }
 
+        // Callback wenn AudioThread bereit ist
+        audioPlayer.audioThreadReadyCallback = object : AudioThreadReadyCallback {
+            override fun onAudioThreadReady() {
+                Log.d(TAG, "AudioThread ist bereit, starten Initialization Playback")
+                // Starte das Warmup-Playback eines stillen Takts
+                warmupAudioSystem()
+            }
+        }
+
         // Initialize audioPlayer live params from settings
         audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
+        audioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
         audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
         audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-        audioPlayer.voicePreset = settingsRepository.soundPreset
+        audioPlayer.voicePreset = settingsRepository.strumPreset
+        audioPlayer.soloPreset = settingsRepository.soloPreset
         // stroke offset (ms) for UP strokes
         try { audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs } catch (_: Exception) {}
         try { audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs } catch (_: Exception) {}
@@ -98,9 +118,11 @@ class PlaybackService : Service() {
         prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
                 SettingsRepository.KEY_DRUM_LEVEL -> audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
+                SettingsRepository.KEY_SOLO_LEVEL -> audioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
                 SettingsRepository.KEY_ENVELOPE_SCALE -> audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
                 SettingsRepository.KEY_HIHAT_HIGHPASS -> audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-                SettingsRepository.KEY_SOUND_PRESET -> audioPlayer.voicePreset = settingsRepository.soundPreset
+                SettingsRepository.KEY_STRUM_PRESET -> audioPlayer.voicePreset = settingsRepository.strumPreset
+                SettingsRepository.KEY_SOLO_PRESET -> audioPlayer.soloPreset = settingsRepository.soloPreset
                 SettingsRepository.KEY_STROKE_OFFSET_MS -> audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs
                 SettingsRepository.KEY_STRING_STAGGER_MS -> audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs
                 SettingsRepository.KEY_DOWN_STROKE_OFFSET_MS -> audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs
@@ -114,15 +136,15 @@ class PlaybackService : Service() {
         mediaSession = MediaSessionCompat(this, "ChordProgressionHelperSession").apply {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
-                    currentProgression?.let { startPlayback(it) }
+                    currentProgression?.let { this@PlaybackService.startPlayback(it) }
                 }
 
                 override fun onPause() {
-                    pausePlayback()
+                    this@PlaybackService.pausePlayback()
                 }
 
                 override fun onStop() {
-                    stopPlayback()
+                    this@PlaybackService.stopPlayback()
                 }
 
                 override fun onSeekTo(pos: Long) {
@@ -222,10 +244,19 @@ class PlaybackService : Service() {
         // Dispatch play handling onto a coroutine so onStartCommand returns promptly after calling startForeground
         when (intent?.action) {
             ACTION_PLAY -> {
+                Log.d(TAG, "onStartCommand: ACTION_PLAY received")
                 // capture preview flag and then parse/load progression in background
                 currentIsPreview = intent.getBooleanExtra(EXTRA_IS_PREVIEW, false)
                 currentIsLoopingPreview = intent.getBooleanExtra(EXTRA_IS_LOOPING_PREVIEW, false)
+                Log.d(TAG, "onStartCommand: ACTION_PLAY isPreview=$currentIsPreview, isLoopingPreview=$currentIsLoopingPreview")
+                // Register service as preview owner so Coordinator can stop it when another owner starts
+                if (currentIsPreview) {
+                    PreviewCoordinator.requestStart("SERVICE", currentIsLoopingPreview) {
+                        try { stopPreviewNow() } catch (_: Exception) {}
+                    }
+                }
                 serviceScope.launch {
+                    Log.d(TAG, "onStartCommand: ACTION_PLAY coroutine started, loading progression...")
                     // Read progression either from stored id, path or intent extra
                     var progressionString: String? = null
                     val progressionId = intent.getStringExtra(EXTRA_PROGRESSION_ID)
@@ -288,6 +319,7 @@ class PlaybackService : Service() {
 
                     // Determine which progression we will play: previewProgression if preview, else currentProgression
                     val toPlayCandidate = if (currentIsPreview) previewProgression else currentProgression
+                    Log.d(TAG, "onStartCommand: ACTION_PLAY progression loaded, toPlayCandidate=${toPlayCandidate?.measures?.size} measures, isPreview=$currentIsPreview")
                     if (toPlayCandidate == null) {
                         Log.e(TAG, "No valid progression provided for ACTION_PLAY (isPreview=$currentIsPreview)")
                         // Show a minimal fallback notification and stop service
@@ -307,7 +339,9 @@ class PlaybackService : Service() {
                     try {
                         // If this play call is a preview, do not resume from any paused position
                         if (currentIsPreview) pausedPosition = null
+                        Log.d(TAG, "onStartCommand: ACTION_PLAY calling startPlayback() with ${toPlayCandidate.measures.size} measures")
                         startPlayback(toPlayCandidate)
+                        Log.d(TAG, "onStartCommand: ACTION_PLAY startPlayback() returned")
                     } catch (e: Exception) { Log.w(TAG, "startPlayback failed: ${e.message}") }
                  }
                  return START_NOT_STICKY
@@ -382,6 +416,8 @@ class PlaybackService : Service() {
             if (currentIsPreview) {
                 currentIsPreview = false
                 currentIsLoopingPreview = false
+                // Inform coordinator that service preview ended
+                try { PreviewCoordinator.requestStop("SERVICE") } catch (_: Exception) {}
             }
             if (isLastService()) stopPlayback()
         }
@@ -406,36 +442,6 @@ class PlaybackService : Service() {
         stopForeground(false)
     }
 
-    fun stopPlayback() {
-        Log.i(TAG, "stopPlayback - begin (isPlaying=${_isPlaying.value}, currentIsPreview=$currentIsPreview, currentIsLoopingPreview=$currentIsLoopingPreview)")
-        try {
-            // First stop audio output to unblock any blocking writes
-            audioPlayer.stop()
-        } catch (e: Exception) { Log.w(TAG, "stopPlayback: audioPlayer.stop failed: ${e.message}") }
-        try {
-            playbackJob?.cancel()
-            playbackJob = null
-        } catch (e: Exception) { Log.w(TAG, "stopPlayback: cancel playbackJob failed: ${e.message}") }
-        _isPlaying.value = false
-        _currentPlaybackPosition.value = null
-        pausedPosition = null
-        currentIsPreview = false
-        currentIsLoopingPreview = false
-        // clear preview progression when stopping previews so main progression remains intact
-        previewProgression = null
-
-        mediaSession.setPlaybackState(PlaybackStateCompat.Builder()
-            .setState(PlaybackStateCompat.STATE_STOPPED, 0L, 0f)
-            .build())
-        try {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } catch (e: Exception) { Log.w(TAG, "stopPlayback: stopForeground failed: ${e.message}") }
-        try {
-            stopSelf()
-        } catch (e: Exception) { Log.w(TAG, "stopPlayback: stopSelf failed: ${e.message}") }
-        Log.i(TAG, "stopPlayback - end (cleared flags)")
-    }
-
     /**
      * stopPreviewNow()
      * Instance API: stop only preview playback (single or loop) without stopping the service
@@ -455,10 +461,78 @@ class PlaybackService : Service() {
             currentIsLoopingPreview = false
             previewProgression = null
             mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setState(PlaybackStateCompat.STATE_STOPPED, 0L, 0f).build())
+            // Inform coordinator service preview is stopped
+            try { PreviewCoordinator.requestStop("SERVICE") } catch (_: Exception) {}
         } catch (e: Exception) {
             Log.w(TAG, "stopPreviewNow failed: ${e.message}")
         }
         Log.i(TAG, "stopPreviewNow - end")
+    }
+
+    fun stopPlayback() {
+        Log.i(TAG, "stopPlayback - begin (isPlaying=${_isPlaying.value}, currentIsPreview=$currentIsPreview, currentIsLoopingPreview=$currentIsLoopingPreview)")
+        try {
+            // Stop audio output first to unblock any blocking writes
+            try { audioPlayer.stop() } catch (e: Exception) { Log.w(TAG, "stopPlayback: audioPlayer.stop failed: ${e.message}") }
+            try { playbackJob?.cancel(); playbackJob = null } catch (e: Exception) { Log.w(TAG, "stopPlayback: cancel playbackJob failed: ${e.message}") }
+
+            _isPlaying.value = false
+            _currentPlaybackPosition.value = null
+            pausedPosition = null
+
+            // clear preview-specific state
+            currentIsPreview = false
+            currentIsLoopingPreview = false
+            previewProgression = null
+
+            // update media session and notification
+            try {
+                mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setState(PlaybackStateCompat.STATE_STOPPED, 0L, 0f).build())
+            } catch (_: Exception) {}
+            try { currentProgression?.let { notificationManager.notify(NOTIFICATION_ID, createNotification(it, false)) } } catch (_: Exception) {}
+
+            @Suppress("DEPRECATION")
+            try { stopForeground(true) } catch (_: Exception) {}
+            try { stopSelf() } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "stopPlayback failed: ${e.message}")
+        }
+        Log.i(TAG, "stopPlayback - end")
+    }
+
+    fun warmupAudioSystem() {
+        Log.d(TAG, "warmupAudioSystem: starting initialization playback")
+        serviceScope.launch {
+            try {
+                // Erstelle eine leere Progression mit einem Takt
+                val tempProg = ChordProgression(name = "Preview", key = Key.C, mode = Mode.MAJOR, tempo = 240)
+                tempProg.measures.clear()
+                val m = Measure(1)
+                m.soloPattern = SoloPattern("Silent", emptyList())
+                // Ensure no drums are played during solo-only preview
+                m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                // Ensure no strumming is played
+                m.strummingPattern = StrummingPattern("Silent", List(8) { Strum.REST })
+                tempProg.measures.add(m)
+//                PlaybackService.play(this, tempProg, true, false)
+
+                // Spiele den leeren Takt ab (ohne Count-In, kein Loop)
+                audioPlayer.playProgression(
+                    progression = tempProg,
+                    shouldLoop = { false },
+                    pluckStrength = 1,
+                    countInBeats = 0,
+                    onPositionChanged = { _, _ -> },
+                    startMeasureIndex = 0,
+                    startStrumIndex = 0,
+                    isResuming = false
+                )
+
+                Log.d(TAG, "warmupAudioSystem: initialization playback completed")
+            } catch (e: Exception) {
+                Log.w(TAG, "warmupAudioSystem failed: ${e.message}")
+            }
+        }
     }
 
     private fun createPendingIntentForAction(action: String, requestCode: Int): PendingIntent {
@@ -617,6 +691,7 @@ class PlaybackService : Service() {
          }
      }
 
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_DEFAULT)
@@ -667,12 +742,14 @@ class PlaybackService : Service() {
 
         // Public helper: start playback by saving progression to ProgressionStore and starting the service
         fun play(context: android.content.Context, progression: ChordProgression, isPreview: Boolean = false, isLoopingPreview: Boolean = false) {
+            Log.d("PlaybackService", "play() called: isPreview=$isPreview, isLoopingPreview=$isLoopingPreview, progression=${progression.measures.size} measures")
             val progressionString = Json.encodeToString(progression)
             val id = try { ProgressionStore.saveProgression(context, null, progressionString) } catch (e: Exception) { Log.w("PlaybackService", "Failed to save progression to store: ${e.message}"); null }
             val intent = Intent(context, PlaybackService::class.java).apply { action = ACTION_PLAY }
             if (!id.isNullOrEmpty()) intent.putExtra(EXTRA_PROGRESSION_ID, id) else intent.putExtra(EXTRA_PROGRESSION, progressionString)
             intent.putExtra(EXTRA_IS_PREVIEW, isPreview)
             intent.putExtra(EXTRA_IS_LOOPING_PREVIEW, isLoopingPreview)
+            Log.d("PlaybackService", "play() starting service with intent action=${intent.action}")
             try { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent) } catch (e: Exception) { Log.w("PlaybackService", "play start service failed: ${e.message}") }
         }
 
@@ -739,5 +816,70 @@ class PlaybackService : Service() {
             Log.w(TAG, "normalizeLooseJson failed: ${e.message}")
         }
         return out
+    }
+
+    /**
+     * Spielt ein Template-Preview ab - alle Strums des Patterns pro Akkord, einmal durchgespielt
+     */
+    fun playTemplatePreview(progression: ChordProgression) {
+        Log.i(TAG, "playTemplatePreview - start")
+
+        // Stoppe alles (Preview oder reguläres Playback)
+        try { audioPlayer.stop() } catch (e: Exception) { Log.w(TAG, "playTemplatePreview: audioPlayer.stop failed: ${e.message}") }
+        try { playbackJob?.cancel(); playbackJob = null } catch (e: Exception) { Log.w(TAG, "playTemplatePreview: cancel playbackJob failed: ${e.message}") }
+
+        // Setze Flags zurück
+        _isPlaying.value = false
+        _currentPlaybackPosition.value = null
+        pausedPosition = null
+
+        // Wenn vorher ein Preview lief, stoppe es beim Coordinator
+        if (currentIsPreview) {
+            currentIsPreview = false
+            currentIsLoopingPreview = false
+            previewProgression = null
+            try { PreviewCoordinator.requestStop("SERVICE") } catch (_: Exception) {}
+        }
+
+        // Registriere neues Preview beim Coordinator
+        PreviewCoordinator.requestStart("SERVICE", false) {
+            // onStop callback - wird aufgerufen wenn Preview gestoppt werden soll
+            try { audioPlayer.stop() } catch (_: Exception) {}
+            try { playbackJob?.cancel() } catch (_: Exception) {}
+            _isPlaying.value = false
+            currentIsPreview = false
+        }
+
+        currentIsPreview = true
+        currentIsLoopingPreview = false
+        previewProgression = progression
+        _isPlaying.value = true
+
+        playbackJob = serviceScope.launch {
+            try {
+                // Verwende die normale playProgression Methode, aber ohne Loop
+                audioPlayer.playProgression(
+                    progression = progression,
+                    shouldLoop = { false }, // Kein Loop - nur einmal durchspielen
+                    pluckStrength = 3, // Soft pluck
+                    countInBeats = 0, // Kein Count-in für Preview
+                    onPositionChanged = { _, _ -> },
+                    startMeasureIndex = 0,
+                    startStrumIndex = 0,
+                    isResuming = false
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "playTemplatePreview error: ${e.message}")
+            } finally {
+                // Preview beenden
+                currentIsPreview = false
+                currentIsLoopingPreview = false
+                previewProgression = null
+                _isPlaying.value = false
+                _currentPlaybackPosition.value = null
+                PreviewCoordinator.requestStop("SERVICE")
+                Log.i(TAG, "playTemplatePreview - end")
+            }
+        }
     }
 }

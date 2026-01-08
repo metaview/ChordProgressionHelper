@@ -43,15 +43,22 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.metaview.chordprogressionhelper.databinding.ActivityMainBinding
 import com.metaview.chordprogressionhelper.databinding.DialogSaveProgressionBinding
 import com.metaview.chordprogressionhelper.model.Key
+import com.metaview.chordprogressionhelper.model.Note
 import com.metaview.chordprogressionhelper.model.Chord
 import com.metaview.chordprogressionhelper.model.ChordType
+import com.metaview.chordprogressionhelper.model.ChordProgression
 import com.metaview.chordprogressionhelper.model.StrummingPattern
 import com.metaview.chordprogressionhelper.model.DrumPattern
-import com.metaview.chordprogressionhelper.model.PianoPattern
+import com.metaview.chordprogressionhelper.model.SoloPattern
+import com.metaview.chordprogressionhelper.model.Measure
+import com.metaview.chordprogressionhelper.model.ProgressionTemplate
+import com.metaview.chordprogressionhelper.model.ProgressionTemplates
 import com.metaview.chordprogressionhelper.service.PlaybackService
+import com.metaview.chordprogressionhelper.util.PreviewCoordinator
 import com.metaview.chordprogressionhelper.ui.ChordAdapter
 import com.metaview.chordprogressionhelper.ui.MeasureAdapter
 import com.metaview.chordprogressionhelper.ui.ProgressionViewModel
+import com.metaview.chordprogressionhelper.ui.TemplateAdapter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -68,7 +75,8 @@ class MainActivity : AppCompatActivity() {
     private val TAG = "MainActivity"
     private lateinit var chordAdapter: ChordAdapter
     private lateinit var relatedChordAdapter: ChordAdapter
-    private lateinit var borrowedChordAdapter: ChordAdapter
+    private lateinit var borrowedMinorChordAdapter: ChordAdapter
+    private lateinit var borrowedMajorChordAdapter: ChordAdapter
     private lateinit var measureAdapter: MeasureAdapter
     private lateinit var itemTouchHelper: ItemTouchHelper
     private lateinit var strumPatternLauncher: ActivityResultLauncher<Intent>
@@ -95,6 +103,7 @@ class MainActivity : AppCompatActivity() {
 
     private var areExtraChordsExpanded = false
     private var lastScrolledMeasure = -1
+    private var isSyncingBorrowedScroll = false
 
     private var playbackService: PlaybackService? = null
     private var isBound = false
@@ -103,12 +112,18 @@ class MainActivity : AppCompatActivity() {
 
     // Indicates whether the last started playback was a temporary preview spawned by the dialog
     private var isDialogPreviewActive = false
+    // Keep a reference to the PreviewCoordinator listener so we can remove it on destroy
+    private var previewOwnerListener: ((owner: String?, isLooping: Boolean) -> Unit)? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
             val binder = service as PlaybackService.LocalBinder
             playbackService = binder.getService()
             isBound = true
+
+            // Trigger AudioSystem warm-up im PlaybackService
+            playbackService?.warmupAudioSystem()
+
             observeServiceState()
             // If a pending Stop was requested while we were unbound, execute it now
             if (pendingStopRequest) {
@@ -167,6 +182,13 @@ class MainActivity : AppCompatActivity() {
     private fun promptChooseAndExport() {
         val savedNames = viewModel.getSavedProgressionNames()
         if (savedNames.isEmpty()) { Toast.makeText(this, getString(R.string.no_saved_progressions_export), Toast.LENGTH_SHORT).show(); return }
+
+        // Custom Layout mit Fade-Effekten
+        val dialogView = layoutInflater.inflate(R.layout.dialog_list_with_fade, null)
+        val listView = dialogView.findViewById<android.widget.ListView>(android.R.id.list)
+        val topFade = dialogView.findViewById<View>(R.id.topFade)
+        val bottomFade = dialogView.findViewById<View>(R.id.bottomFade)
+
         val repo = (application as MyApplication).progressionRepository
         val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
         val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
@@ -181,23 +203,43 @@ class MainActivity : AppCompatActivity() {
                 return v
             }
         }
+
+        listView.adapter = adapter
+        listView.setOnItemClickListener { _, _, which, _ ->
+            val name = items[which].first
+            pendingExportName = name
+            val suggested = "${name}.json"
+            exportCreateLauncher.launch(suggested)
+        }
+
+        // Setup Fade-Effekte
+        setupListViewFadeEffects(listView, topFade, bottomFade)
+
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(getString(R.string.export_progression_title))
-            .setAdapter(adapter) { _, which ->
-                 val name = items[which].first
-                 pendingExportName = name
-                 val suggested = "${name}.json"
-                 exportCreateLauncher.launch(suggested)
-             }
+            .setView(dialogView)
             .setNegativeButton(getString(R.string.cancel), null)
-             .create()
-         dialog.setOnShowListener { styleDialogButtons(dialog) }
-         dialog.show()
-     }
+            .create()
+
+        dialog.setOnShowListener {
+            styleDialogButtons(dialog)
+            listView.post {
+                setupListViewFadeEffects(listView, topFade, bottomFade)
+            }
+        }
+        dialog.show()
+    }
 
     private fun promptChooseAndShare() {
         val savedNames = viewModel.getSavedProgressionNames()
         if (savedNames.isEmpty()) { Toast.makeText(this, getString(R.string.no_saved_progressions_share), Toast.LENGTH_SHORT).show(); return }
+
+        // Custom Layout mit Fade-Effekten
+        val dialogView = layoutInflater.inflate(R.layout.dialog_list_with_fade, null)
+        val listView = dialogView.findViewById<android.widget.ListView>(android.R.id.list)
+        val topFade = dialogView.findViewById<View>(R.id.topFade)
+        val bottomFade = dialogView.findViewById<View>(R.id.bottomFade)
+
         val repo = (application as MyApplication).progressionRepository
         val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
         val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
@@ -212,17 +254,30 @@ class MainActivity : AppCompatActivity() {
                 return v
             }
         }
+
+        listView.adapter = adapter
+        listView.setOnItemClickListener { _, _, which, _ ->
+            val name = items[which].first
+            shareExportedProgression(name)
+        }
+
+        // Setup Fade-Effekte
+        setupListViewFadeEffects(listView, topFade, bottomFade)
+
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(getString(R.string.share_progression_title))
-            .setAdapter(adapter) { _, which ->
-                 val name = items[which].first
-                 shareExportedProgression(name)
-             }
+            .setView(dialogView)
             .setNegativeButton(getString(R.string.cancel), null)
-             .create()
-         dialog.setOnShowListener { styleDialogButtons(dialog) }
-         dialog.show()
-     }
+            .create()
+
+        dialog.setOnShowListener {
+            styleDialogButtons(dialog)
+            listView.post {
+                setupListViewFadeEffects(listView, topFade, bottomFade)
+            }
+        }
+        dialog.show()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -231,8 +286,12 @@ class MainActivity : AppCompatActivity() {
 
         viewModel = ViewModelProvider(this)[ProgressionViewModel::class.java]
 
-        // Register SAF launchers for export/import
-        exportCreateLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        // Listen to preview ownership changes so we can reflect MAIN-owned previews in the UI
+        previewOwnerListener = { owner: String?, _: Boolean -> isDialogPreviewActive = (owner == "MAIN") }
+        previewOwnerListener?.let { PreviewCoordinator.addListener(it) }
+
+         // Register SAF launchers for export/import
+         exportCreateLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
             if (uri == null) return@registerForActivityResult
             // Write selected progression JSON to the created uri via contentResolver
             val name = pendingExportName
@@ -321,12 +380,23 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode == RESULT_OK) {
                 val data = result.data
                 val mIndex = data?.getIntExtra(DrumPatternActivity.EXTRA_MEASURE_INDEX, -1) ?: -1
-                val json = data?.getStringExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON)
-                if (mIndex >= 0 && !json.isNullOrEmpty()) {
+
+                // Check for DrumPattern result
+                val drumJson = data?.getStringExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON)
+                if (mIndex >= 0 && !drumJson.isNullOrEmpty()) {
                     try {
-                        val pattern = Json.decodeFromString(DrumPattern.serializer(), json)
+                        val pattern = Json.decodeFromString(DrumPattern.serializer(), drumJson)
                         viewModel.setDrumPattern(mIndex, pattern)
                     } catch (e: Exception) { Log.w(TAG, "Failed to decode DrumPattern from activity result: ${e.message}") }
+                }
+
+                // Check for SoloPattern result
+                val soloJson = data?.getStringExtra(SoloPatternActivity.EXTRA_SOLO_PATTERN_JSON)
+                if (mIndex >= 0 && !soloJson.isNullOrEmpty()) {
+                    try {
+                        val pattern = Json.decodeFromString(SoloPattern.serializer(), soloJson)
+                        viewModel.setSoloPattern(mIndex, pattern)
+                    } catch (e: Exception) { Log.w(TAG, "Failed to decode PianoPattern from activity result: ${e.message}") }
                 }
             }
         }
@@ -387,19 +457,25 @@ class MainActivity : AppCompatActivity() {
 
         binding.menuButton.setOnClickListener { showMenu(it) }
         binding.playPauseButton.setOnClickListener {
+             Log.d(TAG, "playPauseButton clicked: isBound=$isBound, playbackService=$playbackService, isPlaying=${playbackService?.isPlaying?.value}")
              // Optimistically animate immediately for snappy UX
              val willPlay = playbackService?.isPlaying?.value != true
+             Log.d(TAG, "playPauseButton: willPlay=$willPlay, animating...")
              animatePlayPause(willPlay)
              if (playbackService?.isPlaying?.value == true) {
+                Log.d(TAG, "playPauseButton: service is playing, handling pause/stop")
                 // If a dialog preview is running, the user's 'play' intent should stop the preview and start the main progression
                 if (isDialogPreviewActive) {
+                    Log.d(TAG, "playPauseButton: stopping dialog preview, starting main")
                     try { PlaybackService.stop(this) } catch (_: Exception) {}
                     isDialogPreviewActive = false
                     PlaybackService.play(this, viewModel.progression)
                 } else {
+                    Log.d(TAG, "playPauseButton: pausing playback")
                     PlaybackService.pause(this)
                 }
             } else {
+                Log.d(TAG, "playPauseButton: starting main progression playback")
                 // No playback active -> start main progression
                 PlaybackService.play(this, viewModel.progression)
             }
@@ -468,6 +544,13 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, getString(R.string.no_saved_progressions_found), Toast.LENGTH_SHORT).show()
             return
         }
+
+        // Custom Layout mit Fade-Effekten
+        val dialogView = layoutInflater.inflate(R.layout.dialog_list_with_fade, null)
+        val listView = dialogView.findViewById<android.widget.ListView>(android.R.id.list)
+        val topFade = dialogView.findViewById<View>(R.id.topFade)
+        val bottomFade = dialogView.findViewById<View>(R.id.bottomFade)
+
         val repo = (application as MyApplication).progressionRepository
         val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
         val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
@@ -482,15 +565,28 @@ class MainActivity : AppCompatActivity() {
                 return v
             }
         }
+
+        listView.adapter = adapter
+        listView.setOnItemClickListener { _, _, which, _ ->
+            viewModel.loadProgression(items[which].first)
+        }
+
+        // Setup Fade-Effekte
+        setupListViewFadeEffects(listView, topFade, bottomFade)
+
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(getString(R.string.load_title))
-            .setAdapter(adapter) { d, which ->
-                viewModel.loadProgression(items[which].first)
-                d.dismiss()
-            }
+            .setView(dialogView)
             .setNegativeButton(getString(R.string.cancel), null)
-             .create()
-        dialog.setOnShowListener { styleDialogButtons(dialog) }
+            .create()
+
+        dialog.setOnShowListener {
+            styleDialogButtons(dialog)
+            // Trigger initial fade check after dialog is shown
+            listView.post {
+                setupListViewFadeEffects(listView, topFade, bottomFade)
+            }
+        }
         dialog.show()
     }
 
@@ -500,6 +596,13 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, getString(R.string.no_saved_progressions_delete), Toast.LENGTH_SHORT).show()
             return
         }
+
+        // Custom Layout mit Fade-Effekten
+        val dialogView = layoutInflater.inflate(R.layout.dialog_list_with_fade, null)
+        val listView = dialogView.findViewById<android.widget.ListView>(android.R.id.list)
+        val topFade = dialogView.findViewById<View>(R.id.topFade)
+        val bottomFade = dialogView.findViewById<View>(R.id.bottomFade)
+
         val repo = (application as MyApplication).progressionRepository
         val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
         val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
@@ -514,27 +617,41 @@ class MainActivity : AppCompatActivity() {
                 return v
             }
         }
+
+        listView.adapter = adapter
+        listView.setOnItemClickListener { _, _, which, _ ->
+            val originalName = items[which].first
+            val confirm = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+                .setTitle(getString(R.string.confirm_delete_title))
+                .setMessage(getString(R.string.confirm_delete_message, originalName))
+                .setPositiveButton(getString(R.string.delete_measure_title)) { _, _ ->
+                    viewModel.deleteProgression(originalName)
+                    Toast.makeText(this, getString(R.string.deleted_message, originalName), Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(getString(R.string.cancel), null)
+                .create()
+            confirm.setOnShowListener { styleDialogButtons(confirm) }
+            confirm.show()
+        }
+
+        // Setup Fade-Effekte
+        setupListViewFadeEffects(listView, topFade, bottomFade)
+
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(getString(R.string.delete_title))
-            .setAdapter(adapter) { _, which ->
-                 val originalName = items[which].first
-                 val confirm = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-                     .setTitle(getString(R.string.confirm_delete_title))
-                     .setMessage(getString(R.string.confirm_delete_message, originalName))
-                     .setPositiveButton(getString(R.string.delete_measure_title)) { _, _ ->
-                         viewModel.deleteProgression(originalName)
-                         Toast.makeText(this, getString(R.string.deleted_message, originalName), Toast.LENGTH_SHORT).show()
-                     }
-                     .setNegativeButton(getString(R.string.cancel), null)
-                      .create()
-                 confirm.setOnShowListener { styleDialogButtons(confirm) }
-                 confirm.show()
-             }
-             .setNegativeButton(getString(R.string.cancel), null)
-              .create()
-          dialog.setOnShowListener { styleDialogButtons(dialog) }
-          dialog.show()
-      }
+            .setView(dialogView)
+            .setNegativeButton(getString(R.string.cancel), null)
+            .create()
+
+        dialog.setOnShowListener {
+            styleDialogButtons(dialog)
+            // Trigger initial fade check after dialog is shown
+            listView.post {
+                setupListViewFadeEffects(listView, topFade, bottomFade)
+            }
+        }
+        dialog.show()
+    }
 
     private fun showSaveDialog() {
         val dialogBinding = DialogSaveProgressionBinding.inflate(LayoutInflater.from(this))
@@ -557,6 +674,14 @@ class MainActivity : AppCompatActivity() {
         dialogBinding.savedProgressionsListView.setOnItemClickListener { _, _, position, _ ->
             dialogBinding.saveNameEditText.setText(items[position].first)
         }
+
+        // Setup Fade-Effekte für die ListView
+        setupListViewFadeEffects(
+            dialogBinding.savedProgressionsListView,
+            dialogBinding.topFade,
+            dialogBinding.bottomFade
+        )
+
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setView(dialogBinding.root)
             .setPositiveButton(getString(R.string.save_button), null)
@@ -565,6 +690,16 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             // Ensure theme-styled buttons are applied
             styleDialogButtons(dialog)
+
+            // Trigger initial fade check after dialog is shown
+            dialogBinding.savedProgressionsListView.post {
+                setupListViewFadeEffects(
+                    dialogBinding.savedProgressionsListView,
+                    dialogBinding.topFade,
+                    dialogBinding.bottomFade
+                )
+            }
+
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                  val name = dialogBinding.saveNameEditText.text.toString()
                  if (name.isBlank()) {
@@ -603,8 +738,8 @@ class MainActivity : AppCompatActivity() {
         binding.relatedChordContainer.visibility = newVisibility
         binding.relatedChordRecyclerView.visibility = newVisibility
         binding.borrowedChordsLabel.visibility = newVisibility
-        binding.borrowedChordContainer.visibility = newVisibility
-        binding.borrowedChordRecyclerView.visibility = newVisibility
+        binding.borrowedMinorContainer.visibility = newVisibility
+        binding.borrowedMajorContainer.visibility = newVisibility
         binding.expandRelatedChordsButton.rotation = if (areExtraChordsExpanded) 180f else 0f
 
         // Force inner recyclers to layout and update fade overlays (the lists are never empty)
@@ -612,9 +747,13 @@ class MainActivity : AppCompatActivity() {
             binding.relatedChordRecyclerView.requestLayout()
             updateRecyclerFade(binding.relatedChordRecyclerView, binding.relatedFadeLeft, binding.relatedFadeRight)
         }
-        binding.borrowedChordRecyclerView.post {
-            binding.borrowedChordRecyclerView.requestLayout()
-            updateRecyclerFade(binding.borrowedChordRecyclerView, binding.borrowedFadeLeft, binding.borrowedFadeRight)
+        binding.borrowedMinorChordRecyclerView.post {
+            binding.borrowedMinorChordRecyclerView.requestLayout()
+            updateRecyclerFade(binding.borrowedMinorChordRecyclerView, binding.borrowedMinorFadeLeft, binding.borrowedMinorFadeRight)
+        }
+        binding.borrowedMajorChordRecyclerView.post {
+            binding.borrowedMajorChordRecyclerView.requestLayout()
+            updateRecyclerFade(binding.borrowedMajorChordRecyclerView, binding.borrowedMajorFadeLeft, binding.borrowedMajorFadeRight)
         }
 
         // Force a relayout of the measure list (and parent) after visibility change so it snaps into place.
@@ -681,29 +820,74 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerViews() {
-        chordAdapter = ChordAdapter({ viewModel.setSelectedChord(it) }) { chord ->
-            // Convert chord to power chord and select it
-            try {
-                val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
-                viewModel.setSelectedChord(powerChord)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to make power chord: ${e.message}")
-            }
-        }
-        relatedChordAdapter = ChordAdapter({ viewModel.setSelectedChord(it) }) { chord ->
+        chordAdapter = ChordAdapter({ chord ->
+            // OPTIMIZATION: Start preview IMMEDIATELY on click for better responsiveness
+            // Update visual state first for instant feedback
+            viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
+        }, { chord ->
+             // Convert chord to power chord and select it
+             try {
+                 val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
+                Log.d(TAG, "MainActivity: requesting viewModel.stopPreviewNow() (power chord)")
+                try {
+                    viewModel.stopPreviewNow()
+                    Log.d(TAG, "MainActivity: viewModel.stopPreviewNow() returned (power chord)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "viewModel.stopPreviewNow() failed", e)
+                }
+                Log.d(TAG, "MainActivity: attempting to stop service preview for power chord (bound=$isBound)")
+                try {
+                    if (isBound && playbackService != null) {
+                        try { playbackService?.stopPreviewNow(); Log.d(TAG, "MainActivity: playbackService.stopPreviewNow() returned (power chord)") } catch (e: Exception) { Log.w(TAG, "playbackService.stopPreviewNow() failed", e) }
+                    } else {
+                        try { PlaybackService.stopPreview(this); Log.d(TAG, "MainActivity: PlaybackService.stopPreview(companion) returned (power chord)") } catch (e: Exception) { Log.w(TAG, "PlaybackService.stopPreview(companion) failed", e) }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "stop service preview block failed", e)
+                }
+                Log.d(TAG, "MainActivity: calling PreviewCoordinator.forceStopAll() (power chord)")
+                try {
+                    PreviewCoordinator.forceStopAll(); Log.d(TAG, "MainActivity: PreviewCoordinator.forceStopAll() returned (power chord)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "PreviewCoordinator.forceStopAll() failed", e)
+                }
+                 viewModel.setSelectedChord(powerChord, ownerId = "MAIN")
+             } catch (e: Exception) {
+                 Log.w(TAG, "Failed to make power chord: ${e.message}")
+             }
+         })
+        relatedChordAdapter = ChordAdapter({ chord ->
+            viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
+        }) { chord ->
             val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
-            viewModel.setSelectedChord(powerChord)
+            viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
         }
-        borrowedChordAdapter = ChordAdapter({ viewModel.setSelectedChord(it) }) { chord ->
+        borrowedMinorChordAdapter = ChordAdapter({ chord ->
+            viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
+        }) { chord ->
             val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
-            viewModel.setSelectedChord(powerChord)
+            viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
+        }
+        borrowedMajorChordAdapter = ChordAdapter({ chord ->
+            viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
+        }) { chord ->
+            val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
+            viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
         }
         binding.chordRecyclerView.adapter = chordAdapter
         binding.relatedChordRecyclerView.adapter = relatedChordAdapter
-        binding.borrowedChordRecyclerView.adapter = borrowedChordAdapter
+        binding.borrowedMinorChordRecyclerView.adapter = borrowedMinorChordAdapter
+        binding.borrowedMajorChordRecyclerView.adapter = borrowedMajorChordAdapter
         binding.chordRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.relatedChordRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        binding.borrowedChordRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        binding.borrowedMinorChordRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        binding.borrowedMajorChordRecyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+
+        // Disable item animations for instant visual feedback (no lag)
+        binding.chordRecyclerView.itemAnimator = null
+        binding.relatedChordRecyclerView.itemAnimator = null
+        binding.borrowedMinorChordRecyclerView.itemAnimator = null
+        binding.borrowedMajorChordRecyclerView.itemAnimator = null
 
         measureAdapter = MeasureAdapter(
             onChordClick = { measureIndex, eighthNoteIndex -> viewModel.addChordToMeasure(measureIndex, eighthNoteIndex) },
@@ -780,35 +964,48 @@ class MainActivity : AppCompatActivity() {
                  drumPatternLauncher.launch(intent)
             },
             onPianoPatternClick = { index ->
-                val intent = Intent(this, PianoPatternActivity::class.java)
-                intent.putExtra(PianoPatternActivity.EXTRA_MEASURE_INDEX, index)
-                // Pass current drum pattern to editor
+                val intent = Intent(this, SoloPatternActivity::class.java)
+                intent.putExtra(SoloPatternActivity.EXTRA_MEASURE_INDEX, index)
+                // Pass current piano pattern to editor
                 try {
-                    val pp = viewModel.progression.measures.getOrNull(index)?.pianoPattern
+                    val pp = viewModel.progression.measures.getOrNull(index)?.soloPattern
                     if (pp != null) {
-                        intent.putExtra(PianoPatternActivity.EXTRA_PIANO_PATTERN_JSON, Json.encodeToString(PianoPattern.serializer(), pp))
+                        intent.putExtra(SoloPatternActivity.EXTRA_SOLO_PATTERN_JSON, Json.encodeToString(SoloPattern.serializer(), pp))
                     }
                 } catch (_: Exception) {}
+                // Pass context for preview (tonic chord, key, mode, tempo)
+                try {
+                    val tonicChord = viewModel.progression.measures.getOrNull(index)?.chordEvents?.firstOrNull()?.chord
+                    if (tonicChord != null) {
+                        intent.putExtra(SoloPatternActivity.EXTRA_TONIC_CHORD_JSON, Json.encodeToString(Chord.serializer(), tonicChord))
+                    }
+                    intent.putExtra(SoloPatternActivity.EXTRA_KEY, viewModel.progression.key)
+                    intent.putExtra(SoloPatternActivity.EXTRA_MODE, viewModel.progression.mode)
+                    intent.putExtra(SoloPatternActivity.EXTRA_TEMPO, viewModel.progression.tempo)
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "Failed to pass preview context to PianoPatternActivity: ${e.message}")
+                }
                 // Also collect all unique piano patterns used in the progression and pass them to the editor
                 try {
                     val seen = mutableSetOf<String>()
-                    val patterns = mutableListOf<PianoPattern>()
+                    val patterns = mutableListOf<SoloPattern>()
                     viewModel.progression.measures.forEach { m ->
                         try {
-                            val p = m.pianoPattern
-                            val key = p.notes.joinToString(",") { it.toString() }
+                            val p = m.soloPattern
+                            val key = p.elements.joinToString(",") { it.toString() }
                             if (!seen.contains(key)) { seen.add(key); patterns.add(p) }
                         } catch (_: Exception) {}
                     }
                     if (patterns.isNotEmpty()) {
-                        val arrJson = Json.encodeToString(ListSerializer(PianoPattern.serializer()), patterns)
-                        intent.putExtra(PianoPatternActivity.EXTRA_ALL_PATTERNS_JSON, arrJson)
+                        val arrJson = Json.encodeToString(ListSerializer(SoloPattern.serializer()), patterns)
+                        intent.putExtra(SoloPatternActivity.EXTRA_ALL_PATTERNS_JSON, arrJson)
                     }
                 } catch (_: Exception) {}
                 drumPatternLauncher.launch(intent)
             },
             onChordDrop = { measureIndex, eighthNoteIndex, chord -> viewModel.addChordToMeasure(measureIndex, eighthNoteIndex, chord) },
             onRemoveMeasureClick = { viewModel.removeMeasure(it) },
+            onDuplicateMeasureClick = { viewModel.duplicateMeasure(it) },
             onAddMeasureClick = { viewModel.addMeasure() },
             onStartDrag = { viewHolder -> itemTouchHelper.startDrag(viewHolder) }
         )
@@ -820,7 +1017,35 @@ class MainActivity : AppCompatActivity() {
         // Setup fade overlays for horizontal chord scrollers
         setupRecyclerFadeOverlays(binding.chordRecyclerView, binding.chordFadeLeft, binding.chordFadeRight)
         setupRecyclerFadeOverlays(binding.relatedChordRecyclerView, binding.relatedFadeLeft, binding.relatedFadeRight)
-        setupRecyclerFadeOverlays(binding.borrowedChordRecyclerView, binding.borrowedFadeLeft, binding.borrowedFadeRight)
+        setupRecyclerFadeOverlays(binding.borrowedMinorChordRecyclerView, binding.borrowedMinorFadeLeft, binding.borrowedMinorFadeRight)
+        setupRecyclerFadeOverlays(binding.borrowedMajorChordRecyclerView, binding.borrowedMajorFadeLeft, binding.borrowedMajorFadeRight)
+
+        val borrowedMinorLayoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        val borrowedMajorLayoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+
+        // Synchronize scrolling between borrowedMinorChordRecyclerView and borrowedMajorChordRecyclerView
+        val scrollListener = object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                if (isSyncingBorrowedScroll) return  // Prevent infinite loop
+
+                isSyncingBorrowedScroll = true
+                try {
+                    if (recyclerView == binding.borrowedMinorChordRecyclerView) {
+                        binding.borrowedMajorChordRecyclerView.scrollBy(dx, dy)
+                    } else if (recyclerView == binding.borrowedMajorChordRecyclerView) {
+                        binding.borrowedMinorChordRecyclerView.scrollBy(dx, dy)
+                    }
+                } finally {
+                    isSyncingBorrowedScroll = false
+                }
+            }
+        }
+
+        binding.borrowedMinorChordRecyclerView.addOnScrollListener(scrollListener)
+        binding.borrowedMajorChordRecyclerView.addOnScrollListener(scrollListener)
+
+        binding.borrowedMinorChordRecyclerView.layoutManager = borrowedMinorLayoutManager
+        binding.borrowedMajorChordRecyclerView.layoutManager = borrowedMajorLayoutManager
     }
 
     // Update fade visibility based on RecyclerView scroll state
@@ -974,13 +1199,19 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
 
+            private var originalBackground: android.graphics.drawable.Drawable? = null
+
             override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
                 super.onSelectedChanged(viewHolder, actionState)
                 // Provide immediate visual feedback for the dragged view
                 viewHolder?.itemView?.let { v ->
                     if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                        // Store original background before changing it
+                        originalBackground = v.background
                         v.alpha = 0.95f
                         v.elevation = 24f
+                        // Lighten background during drag
+                        v.setBackgroundColor(Color.parseColor("#F0F0F0"))
                         // Temporarily disable item animator change animations while dragging
                         binding.measureRecyclerView.itemAnimator?.let { if (it is androidx.recyclerview.widget.SimpleItemAnimator) it.supportsChangeAnimations = false }
                     }
@@ -992,6 +1223,9 @@ class MainActivity : AppCompatActivity() {
                 // Reset visual state
                 viewHolder.itemView.alpha = 1.0f
                 viewHolder.itemView.elevation = 0f
+                // Restore original background
+                viewHolder.itemView.background = originalBackground
+                originalBackground = null
                 Log.d(TAG, "clearView: finalizing move and saving session")
                 viewModel.finalizeMeasureMove()
                 // Re-enable change animations after the move
@@ -1024,13 +1258,26 @@ class MainActivity : AppCompatActivity() {
             binding.relatedChordRecyclerView.visibility = visibility
             updateRecyclerFade(binding.relatedChordRecyclerView, binding.relatedFadeLeft, binding.relatedFadeRight)
         }
-        viewModel.borrowedChords.observe(this) { chords ->
-            borrowedChordAdapter.submitList(chords)
+        viewModel.borrowedMinorChords.observe(this) { chords ->
+            borrowedMinorChordAdapter.submitList(chords)
             val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
             binding.borrowedChordsLabel.visibility = visibility
-            binding.borrowedChordContainer.visibility = visibility
-            binding.borrowedChordRecyclerView.visibility = visibility
-            updateRecyclerFade(binding.borrowedChordRecyclerView, binding.borrowedFadeLeft, binding.borrowedFadeRight)
+            binding.borrowedMinorContainer.visibility = visibility
+            updateRecyclerFade(binding.borrowedMinorChordRecyclerView, binding.borrowedMinorFadeLeft, binding.borrowedMinorFadeRight)
+
+            // Set label text to current key root note (e.g., "C" instead of "C / Am")
+            binding.borrowedMinorLabel.text = viewModel.progression.key.rootNote.displayName
+        }
+        viewModel.borrowedMajorChords.observe(this) { chords ->
+            borrowedMajorChordAdapter.submitList(chords)
+            val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
+            binding.borrowedMajorContainer.visibility = visibility
+            updateRecyclerFade(binding.borrowedMajorChordRecyclerView, binding.borrowedMajorFadeLeft, binding.borrowedMajorFadeRight)
+
+            // Set label text to relative minor key (e.g., "Am" for key C - 3 semitones down)
+            val relativeMinorMidiOffset = (viewModel.progression.key.rootNote.midiOffset - 3 + 12) % 12
+            val relativeMinorRootNote = Note.entries.first { it.midiOffset == relativeMinorMidiOffset }
+            binding.borrowedMajorLabel.text = relativeMinorRootNote.displayName + "m"
         }
         viewModel.measures.observe(this) { measures ->
             val items = measures.map { MeasureAdapter.DisplayableItem.MeasureItem(it) } + MeasureAdapter.DisplayableItem.AddMeasureItem
@@ -1039,17 +1286,20 @@ class MainActivity : AppCompatActivity() {
         viewModel.selectedChord.observe(this) { chord ->
             chordAdapter.setSelectedChord(chord)
             relatedChordAdapter.setSelectedChord(chord)
-            borrowedChordAdapter.setSelectedChord(chord)
+            borrowedMinorChordAdapter.setSelectedChord(chord)
+            borrowedMajorChordAdapter.setSelectedChord(chord)
         }
         viewModel.targetChord.observe(this) { chord ->
             chordAdapter.setTargetChord(chord)
             relatedChordAdapter.setTargetChord(chord)
-            borrowedChordAdapter.setTargetChord(chord)
+            borrowedMinorChordAdapter.setTargetChord(chord)
+            borrowedMajorChordAdapter.setTargetChord(chord)
         }
         viewModel.suggestedChord.observe(this) { chord ->
             chordAdapter.setSuggestedChord(chord)
             relatedChordAdapter.setSuggestedChord(chord)
-            borrowedChordAdapter.setSuggestedChord(chord)
+            borrowedMinorChordAdapter.setSuggestedChord(chord)
+            borrowedMajorChordAdapter.setSuggestedChord(chord)
         }
         viewModel.isLooping.observe(this) { isToggled ->
             val typedValue = TypedValue()
@@ -1119,14 +1369,173 @@ class MainActivity : AppCompatActivity() {
 
     @OptIn(InternalSerializationApi::class)
     private fun showNewProgressionConfirmationDialog() {
-        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+        // Zeige zuerst eine Warnung, dass alles gelöscht wird
+        MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(getString(R.string.start_new_title))
             .setMessage(getString(R.string.start_new_message))
-            .setPositiveButton(getString(R.string.new_button)) { _, _ -> viewModel.confirmNewProgression() }
-            .setNegativeButton(getString(R.string.cancel), null)
-             .setOnDismissListener { viewModel.onNewProgressionConfirmationHandled() }
-             .create()
-        dialog.setOnShowListener { styleDialogButtons(dialog) }
+            .setPositiveButton(getString(R.string.continue_button)) { _, _ ->
+                // Wenn bestätigt, zeige Template-Auswahl
+                showTemplateSelectionDialog()
+            }
+            .setNegativeButton(getString(R.string.cancel)) { _, _ ->
+                viewModel.onNewProgressionConfirmationHandled()
+            }
+            .setOnDismissListener { viewModel.onNewProgressionConfirmationHandled() }
+            .create()
+            .apply {
+                setOnShowListener { styleDialogButtons(this) }
+                show()
+            }
+    }
+
+    private fun showTemplateSelectionDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_choose_template, null)
+        val recyclerView = dialogView.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.templateRecyclerView)
+        val topFade = dialogView.findViewById<View>(R.id.topFade)
+        val bottomFade = dialogView.findViewById<View>(R.id.bottomFade)
+        val cancelButton = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.cancelButton)
+        val continueButton = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.continueButton)
+
+        // Liste mit allen Templates + "Empty" am Anfang
+        val templates = mutableListOf<ProgressionTemplate?>(null)
+        templates.addAll(ProgressionTemplates.getAllTemplates())
+
+        // Dialog ohne Standard-Buttons (wir verwenden custom Buttons)
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setView(dialogView)
+            .create()
+
+        // Hole die aktuelle Tonart aus dem ViewModel
+        val currentKey = viewModel.key.value ?: Key.C
+        val settingsRepository = (application as MyApplication).settingsRepository
+        val isPreviewEnabled = settingsRepository.isTemplatePreviewEnabled
+
+        // Variable für das aktuell ausgewählte Template
+        var selectedTemplate: ProgressionTemplate? = null
+
+        val adapter = TemplateAdapter(templates, currentKey) { template ->
+            selectedTemplate = template
+            continueButton.isEnabled = true
+
+            // Preview abspielen, wenn aktiviert
+            if (isPreviewEnabled) {
+                previewTemplate(template, currentKey)
+            }
+        }
+
+        recyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        recyclerView.adapter = adapter
+
+        // Scroll-Listener für Fade-Effekte
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+
+                // Prüfe, ob wir am Anfang sind
+                val canScrollUp = recyclerView.canScrollVertically(-1)
+                topFade.visibility = if (canScrollUp) View.VISIBLE else View.GONE
+
+                // Prüfe, ob wir am Ende sind
+                val canScrollDown = recyclerView.canScrollVertically(1)
+                bottomFade.visibility = if (canScrollDown) View.VISIBLE else View.GONE
+            }
+        })
+
+        // Initiale Sichtbarkeit setzen
+        recyclerView.post {
+            topFade.visibility = View.GONE
+            bottomFade.visibility = if (recyclerView.canScrollVertically(1)) View.VISIBLE else View.GONE
+        }
+
+        // Button-Listener
+        cancelButton.setOnClickListener {
+            // Preview stoppen
+            playbackService?.stopPreviewNow()
+            dialog.dismiss()
+        }
+
+        continueButton.setOnClickListener {
+            // Preview stoppen
+            playbackService?.stopPreviewNow()
+            selectedTemplate?.let { template ->
+                viewModel.confirmNewProgression(template)
+            }
+            dialog.dismiss()
+        }
+
+        dialog.setOnDismissListener {
+            // Preview stoppen wenn Dialog geschlossen wird
+            playbackService?.stopPreviewNow()
+        }
+
         dialog.show()
+    }
+
+    /**
+     * Spielt ein Template-Preview ab (ein Strum pro Akkord)
+     */
+    private fun previewTemplate(template: ProgressionTemplate?, key: Key) {
+        if (template == null) {
+            // Leeres Template - kein Preview
+            playbackService?.stopPreviewNow()
+            return
+        }
+
+        playbackService?.let { service ->
+            // Erstelle eine temporäre Mini-Progression für das Preview
+            val previewProgression = ProgressionTemplates.createProgressionFromTemplate(template, key)
+
+            // Übernehme das aktuelle Tempo aus dem ViewModel
+            previewProgression.tempo = viewModel.tempo.value ?: 120
+
+            // Stoppe aktuelles Preview
+            service.stopPreviewNow()
+
+            // Starte neues Preview mit einem Strum pro Akkord
+            lifecycleScope.launch {
+                kotlinx.coroutines.delay(50) // Kurze Pause zwischen Previews
+                service.playTemplatePreview(previewProgression)
+            }
+        }
+    }
+
+    /**
+     * Aktiviert Fade-Effekte für eine ListView basierend auf der Scroll-Position.
+     */
+    private fun setupListViewFadeEffects(listView: android.widget.ListView, topFade: View, bottomFade: View) {
+        listView.setOnScrollListener(object : android.widget.AbsListView.OnScrollListener {
+            override fun onScrollStateChanged(view: android.widget.AbsListView?, scrollState: Int) {}
+
+            override fun onScroll(
+                view: android.widget.AbsListView?,
+                firstVisibleItem: Int,
+                visibleItemCount: Int,
+                totalItemCount: Int
+            ) {
+                // Prüfe, ob wir am Anfang sind
+                val canScrollUp = firstVisibleItem > 0 || (listView.childCount > 0 && listView.getChildAt(0).top < 0)
+                topFade.visibility = if (canScrollUp) View.VISIBLE else View.GONE
+
+                // Prüfe, ob wir am Ende sind
+                val lastVisibleItem = firstVisibleItem + visibleItemCount
+                val canScrollDown = lastVisibleItem < totalItemCount ||
+                    (listView.childCount > 0 && listView.getChildAt(listView.childCount - 1).bottom > listView.height)
+                bottomFade.visibility = if (canScrollDown) View.VISIBLE else View.GONE
+            }
+        })
+
+        // Initiale Sichtbarkeit setzen
+        listView.post {
+            topFade.visibility = View.GONE
+            val canScrollDown = listView.count > 0 &&
+                (listView.childCount == 0 || listView.getChildAt(listView.childCount - 1).bottom > listView.height)
+            bottomFade.visibility = if (canScrollDown) View.VISIBLE else View.GONE
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Remove the preview owner listener
+        previewOwnerListener?.let { PreviewCoordinator.removeListener(it) }
     }
 }

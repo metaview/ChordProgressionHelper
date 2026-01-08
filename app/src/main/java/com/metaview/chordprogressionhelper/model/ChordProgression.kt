@@ -37,6 +37,29 @@ data class ChordProgression(
         }
     }
 
+    fun getParallelMajorChords(): List<Chord> {
+        if (mode != Mode.MAJOR) return emptyList()
+        // Get the relative minor root note (e.g., C major -> A minor, which is 3 semitones down)
+        val relativeMinorMidiOffset = (key.rootNote.midiOffset - 3 + 12) % 12
+        val relativeMinorRootNote = Note.entries.first { it.midiOffset == relativeMinorMidiOffset }
+
+        // Find the Key enum that has this root note (we need a Key for getScale)
+        val relativeMinorKey = Key.entries.first { it.rootNote == relativeMinorRootNote }
+
+        // Now get major chords from that relative minor's parallel major (e.g., A minor -> A major)
+        val parallelMajorMode = Mode.MAJOR
+        val scale = parallelMajorMode.getScale(relativeMinorKey)
+        val numerals = listOf("I", "ii", "iii", "IV", "V", "vi", "vii°")
+
+        // Return degrees 2 through 7, as the tonic major might conflict
+        return (2..7).map { degree ->
+            val rootNote = scale[degree - 1]
+            val chordType = parallelMajorMode.getChordTypeForDegree(degree)
+            val romanNumeral = numerals[degree - 1]
+            Chord(rootNote, chordType, romanNumeral)
+        }
+    }
+
     fun addMeasure(withChord: Chord? = null) {
         // Create new measure and copy patterns from the last measure if present.
         val newMeasure = Measure(measures.size + 1)

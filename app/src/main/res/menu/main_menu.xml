@@ -20,7 +20,7 @@
         android:title="Import" />
     <item
         android:id="@+id/action_share"
-        android:title="Share Exported" />
+        android:title="Share" />
     <item
         android:id="@+id/action_settings"
         android:title="Settings" />

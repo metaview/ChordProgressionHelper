@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/dialogBackground">
+
+    <ListView
+        android:id="@android:id/list"
+        android:layout_width="match_parent"
+        android:layout_height="400dp"
+        android:scrollbars="vertical"
+        android:fadeScrollbars="false"
+        android:clipToPadding="false"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:divider="?android:attr/listDivider"
+        android:dividerHeight="1dp" />
+
+    <!-- Top fade -->
+    <View
+        android:id="@+id/topFade"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_gravity="top"
+        android:background="@drawable/fade_top"
+        android:visibility="gone" />
+
+    <!-- Bottom fade -->
+    <View
+        android:id="@+id/bottomFade"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/fade_bottom" />
+
+</FrameLayout>
+

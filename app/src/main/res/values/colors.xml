@@ -18,4 +18,7 @@
 
     <color name="color_target">#777700</color>
     <color name="color_suggestion">#FFFF00</color>
+
+    <!-- Launcher icon -->
+    <color name="ic_launcher_background">#7C4DFF</color>
 </resources>

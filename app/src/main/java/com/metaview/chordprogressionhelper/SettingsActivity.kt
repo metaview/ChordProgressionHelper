@@ -48,9 +48,11 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadSettings() {
         binding.chordPreviewSwitch.isChecked = settingsRepository.isChordPreviewEnabled
         // New: pattern preview switch kept separate from chord preview
-        binding.patternPreviewSwitch.isChecked = settingsRepository.isPatternPreviewEnabled
+        binding.strumPatternPreviewSwitch.isChecked = settingsRepository.isStrumPatternPreviewEnabled
         // New: drum preview switch (per-step immediate drum sounds)
         binding.drumPreviewSwitch.isChecked = settingsRepository.isDrumPreviewEnabled
+        // New: template preview switch (preview when selecting templates)
+        binding.templatePreviewSwitch.isChecked = settingsRepository.isTemplatePreviewEnabled
         binding.loopByDefaultSwitch.isChecked = settingsRepository.isLoopingEnabled
 
         // Initialize Count-In spinner (options: No / 2 / 4 / 8)
@@ -89,6 +91,10 @@ class SettingsActivity : AppCompatActivity() {
         binding.drumLevelSeekBar.progress = drumLevelPercent
         binding.drumLevelLabel.text = getString(R.string.drum_level_format, drumLevelPercent)
 
+        val soloLevelPercent = (settingsRepository.soloLevel * 100f).toInt().coerceIn(0, 200)
+        binding.soloLevelSeekBar.progress = soloLevelPercent
+        binding.soloLevelLabel.text = getString(R.string.solo_level_format, soloLevelPercent)
+
         val envelopePercent = (settingsRepository.envelopeScale * 100f).toInt().coerceIn(0, 200)
         binding.envelopeScaleSeekBar.progress = envelopePercent
         binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, envelopePercent)
@@ -97,32 +103,39 @@ class SettingsActivity : AppCompatActivity() {
         binding.hihatHighpassSeekBar.progress = hiHatPercent
         binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, hiHatPercent)
 
-        // Sound preset selection
-        when (settingsRepository.soundPreset) {
+        // Strum preset selection
+        when (settingsRepository.strumPreset) {
             SoundPreset.CLEAN -> binding.soundPresetRadioGroup.check(R.id.soundPresetClean)
             SoundPreset.OVERDRIVE -> binding.soundPresetRadioGroup.check(R.id.soundPresetOverdrive)
             SoundPreset.PIANO -> binding.soundPresetRadioGroup.check(R.id.soundPresetPiano)
         }
 
+        // Piano preset selection
+        when (settingsRepository.soloPreset) {
+            SoundPreset.CLEAN -> binding.soloPresetRadioGroup.check(R.id.soloPresetClean)
+            SoundPreset.OVERDRIVE -> binding.soloPresetRadioGroup.check(R.id.soloPresetOverdrive)
+            SoundPreset.PIANO -> binding.soloPresetRadioGroup.check(R.id.soloPresetPiano)
+        }
+
         // Ensure strum timing controls are enabled/disabled according to current preset
-        setStrumSeekbarsEnabled(settingsRepository.soundPreset != SoundPreset.PIANO)
+        setStrumSeekbarsEnabled(settingsRepository.strumPreset != SoundPreset.PIANO)
 
         // Initialize strumming timing seekbars and labels (ms values)
         val upOffset = settingsRepository.strokeOffsetMs.coerceIn(0, 100)
         binding.upStrokeOffsetSeekBar.progress = upOffset
-        binding.upStrokeOffsetValue.text = getString(R.string.ms_format, upOffset)
+        binding.upStrokeOffsetLabel.text = "Up Stroke Offset: ${upOffset}ms"
 
         val upStagger = settingsRepository.stringStaggerMs.coerceIn(0, 100)
         binding.upStringStaggerSeekBar.progress = upStagger
-        binding.upStringStaggerValue.text = getString(R.string.ms_format, upStagger)
+        binding.upStringStaggerLabel.text = "Up String Stagger: ${upStagger}ms"
 
         val downOffset = settingsRepository.downStrokeOffsetMs.coerceIn(0, 100)
         binding.downStrokeOffsetSeekBar.progress = downOffset
-        binding.downStrokeOffsetValue.text = getString(R.string.ms_format, downOffset)
+        binding.downStrokeOffsetLabel.text = "Down Stroke Offset: ${downOffset}ms"
 
         val downStagger = settingsRepository.downStringStaggerMs.coerceIn(0, 100)
         binding.downStringStaggerSeekBar.progress = downStagger
-        binding.downStringStaggerValue.text = getString(R.string.ms_format, downStagger)
+        binding.downStringStaggerLabel.text = "Down String Stagger: ${downStagger}ms"
 
         // Sound SeekBars: write settings already during onProgressChanged when moved by the user
         binding.drumLevelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -131,6 +144,21 @@ class SettingsActivity : AppCompatActivity() {
                 if (fromUser) {
                     val value = (progress).toFloat() / 100f
                     settingsRepository.drumLevel = value
+                    // update running playback service immediately
+                    updatePlaybackServiceParams()
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        binding.soloLevelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                binding.soloLevelLabel.text = getString(R.string.solo_level_format, progress)
+                if (fromUser) {
+                    val value = (progress).toFloat() / 100f
+                    settingsRepository.soloLevel = value
                     // update running playback service immediately
                     updatePlaybackServiceParams()
                 }
@@ -171,7 +199,7 @@ class SettingsActivity : AppCompatActivity() {
         // New: up/down stroke offset and string stagger SeekBars
         binding.upStrokeOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.upStrokeOffsetValue.text = getString(R.string.ms_format, progress)
+                binding.upStrokeOffsetLabel.text = "Up Stroke Offset: ${progress}ms"
                 if (fromUser) {
                     settingsRepository.strokeOffsetMs = progress
                     updatePlaybackServiceParams()
@@ -184,7 +212,7 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.upStringStaggerSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.upStringStaggerValue.text = getString(R.string.ms_format, progress)
+                binding.upStringStaggerLabel.text = "Up String Stagger: ${progress}ms"
                 if (fromUser) {
                     settingsRepository.stringStaggerMs = progress
                     updatePlaybackServiceParams()
@@ -197,7 +225,7 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.downStrokeOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.downStrokeOffsetValue.text = getString(R.string.ms_format, progress)
+                binding.downStrokeOffsetLabel.text = "Down Stroke Offset: ${progress}ms"
                 if (fromUser) {
                     settingsRepository.downStrokeOffsetMs = progress
                     updatePlaybackServiceParams()
@@ -210,7 +238,7 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.downStringStaggerSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.downStringStaggerValue.text = getString(R.string.ms_format, progress)
+                binding.downStringStaggerLabel.text = "Down String Stagger: ${progress}ms"
                 if (fromUser) {
                     settingsRepository.downStringStaggerMs = progress
                     updatePlaybackServiceParams()
@@ -221,20 +249,32 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // Sound preset radio group: write selection immediately
+        // Strum preset radio group: write selection immediately
         binding.soundPresetRadioGroup.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
-                R.id.soundPresetClean -> settingsRepository.soundPreset = SoundPreset.CLEAN
-                R.id.soundPresetOverdrive -> settingsRepository.soundPreset = SoundPreset.OVERDRIVE
-                R.id.soundPresetPiano -> settingsRepository.soundPreset = SoundPreset.PIANO
+                R.id.soundPresetClean -> settingsRepository.strumPreset = SoundPreset.CLEAN
+                R.id.soundPresetOverdrive -> settingsRepository.strumPreset = SoundPreset.OVERDRIVE
+                R.id.soundPresetPiano -> settingsRepository.strumPreset = SoundPreset.PIANO
             }
             // Enable/disable the strum timing seekbars based on the chosen preset
-            setStrumSeekbarsEnabled(settingsRepository.soundPreset != SoundPreset.PIANO)
+            setStrumSeekbarsEnabled((settingsRepository.strumPreset != SoundPreset.PIANO) || (settingsRepository.soloPreset != SoundPreset.PIANO))
         }
 
-        // Reset button - restore defaults (100% => 1.0)
+        // Solo preset radio group: write selection immediately
+        binding.soloPresetRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+            when (checkedId) {
+                R.id.soloPresetClean -> settingsRepository.soloPreset = SoundPreset.CLEAN
+                R.id.soloPresetOverdrive -> settingsRepository.soloPreset = SoundPreset.OVERDRIVE
+                R.id.soloPresetPiano -> settingsRepository.soloPreset = SoundPreset.PIANO
+            }
+            // Enable/disable the strum timing seekbars based on the chosen preset
+            setStrumSeekbarsEnabled((settingsRepository.strumPreset != SoundPreset.PIANO) || (settingsRepository.soloPreset != SoundPreset.PIANO))
+        }
+
+        // Reset button - restore defaults (100% => 1.0, Solo 150% => 1.5)
         binding.resetSoundButton.setOnClickListener {
             settingsRepository.drumLevel = 1.0f
+            settingsRepository.soloLevel = 1.5f
             settingsRepository.envelopeScale = 1.0f
             settingsRepository.hiHatHighpass = 1.0f
             settingsRepository.strokeOffsetMs = 10
@@ -245,33 +285,39 @@ class SettingsActivity : AppCompatActivity() {
             // Update UI
             binding.drumLevelSeekBar.progress = kotlin.math.floor(settingsRepository.drumLevel * 100).toInt()
             binding.drumLevelLabel.text = getString(R.string.drum_level_format, binding.drumLevelSeekBar.progress)
+            binding.soloLevelSeekBar.progress = kotlin.math.floor(settingsRepository.soloLevel * 100).toInt()
+            binding.soloLevelLabel.text = getString(R.string.solo_level_format, binding.soloLevelSeekBar.progress)
             binding.envelopeScaleSeekBar.progress = kotlin.math.floor(settingsRepository.envelopeScale * 100).toInt()
             binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, binding.envelopeScaleSeekBar.progress)
             binding.hihatHighpassSeekBar.progress = kotlin.math.floor(settingsRepository.hiHatHighpass * 100).toInt()
             binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, binding.hihatHighpassSeekBar.progress)
             binding.upStrokeOffsetSeekBar.progress = settingsRepository.strokeOffsetMs
+            binding.upStrokeOffsetLabel.text = "Up Stroke Offset: ${settingsRepository.strokeOffsetMs}ms"
             binding.upStringStaggerSeekBar.progress = settingsRepository.stringStaggerMs
+            binding.upStringStaggerLabel.text = "Up String Stagger: ${settingsRepository.stringStaggerMs}ms"
             binding.downStrokeOffsetSeekBar.progress = settingsRepository.downStrokeOffsetMs
+            binding.downStrokeOffsetLabel.text = "Down Stroke Offset: ${settingsRepository.downStrokeOffsetMs}ms"
             binding.downStringStaggerSeekBar.progress = settingsRepository.downStringStaggerMs
+            binding.downStringStaggerLabel.text = "Down String Stagger: ${settingsRepository.downStringStaggerMs}ms"
             // Apply changes to running playback service as well
             updatePlaybackServiceParams()
         }
     }
 
-    // Enable or disable the four strum timing seekbars (and visually dim their value labels)
+    // Enable or disable the four strum timing seekbars (and visually dim their labels)
     private fun setStrumSeekbarsEnabled(enabled: Boolean) {
         val alpha = if (enabled) 1.0f else 0.45f
         binding.upStrokeOffsetSeekBar.isEnabled = enabled
-        binding.upStrokeOffsetValue.alpha = alpha
+        binding.upStrokeOffsetLabel.alpha = alpha
 
         binding.upStringStaggerSeekBar.isEnabled = enabled
-        binding.upStringStaggerValue.alpha = alpha
+        binding.upStringStaggerLabel.alpha = alpha
 
         binding.downStrokeOffsetSeekBar.isEnabled = enabled
-        binding.downStrokeOffsetValue.alpha = alpha
+        binding.downStrokeOffsetLabel.alpha = alpha
 
         binding.downStringStaggerSeekBar.isEnabled = enabled
-        binding.downStringStaggerValue.alpha = alpha
+        binding.downStringStaggerLabel.alpha = alpha
     }
 
     private fun setupListeners() {
@@ -279,11 +325,14 @@ class SettingsActivity : AppCompatActivity() {
         binding.chordPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isChordPreviewEnabled = isChecked
         }
-        binding.patternPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
-            settingsRepository.isPatternPreviewEnabled = isChecked
+        binding.strumPatternPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isStrumPatternPreviewEnabled = isChecked
         }
         binding.drumPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isDrumPreviewEnabled = isChecked
+        }
+        binding.templatePreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settingsRepository.isTemplatePreviewEnabled = isChecked
         }
         binding.loopByDefaultSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isLoopingEnabled = isChecked

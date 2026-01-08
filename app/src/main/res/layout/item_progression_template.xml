@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true">
+
+    <TextView
+        android:id="@+id/templateNameText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Pop Progression"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="?android:textColorPrimary" />
+
+    <TextView
+        android:id="@+id/templateDescriptionText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="C - G - Am - F"
+        android:textSize="14sp"
+        android:textColor="?android:textColorSecondary"
+        android:paddingTop="4dp" />
+
+</LinearLayout>
+

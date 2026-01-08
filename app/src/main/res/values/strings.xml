@@ -38,6 +38,10 @@
     <string name="start_new_title">Start New Progression?</string>
     <string name="start_new_message">This will clear the current progression. Are you sure?</string>
     <string name="new_button">New</string>
+    <string name="continue_button">Continue</string>
+
+    <string name="template_empty">Empty</string>
+    <string name="template_empty_description">Start with an empty progression</string>
 
     <string name="delete_measure_title">Delete Measure?</string>
     <string name="delete_measure_message">This measure contains chords. Are you sure you want to delete it?</string>
@@ -48,7 +52,7 @@
     <string name="imported_failed">Import failed</string>
 
     <!-- Missing strings added below -->
-    <string name="measure_format">Measure %1$d</string>
+    <string name="measure_format">%1$d</string>
     <string name="strum_content_description">%1$s, position %2$d</string>
     <string name="drums_label">Drums</string>
     <string name="keyboard">Keyboard</string>
@@ -65,10 +69,10 @@
     <string name="strum_rest_label">Rest (Silence)</string>
 
     <!-- Settings format strings -->
-    <string name="drum_level_format">%1$d%%</string>
-    <string name="envelope_scale_format">%1$d%%</string>
-    <string name="hihat_highpass_format">%1$d%%</string>
-    <string name="ms_format">%1$d ms</string>
+    <string name="drum_level_format">Drum Level: %1$d%%</string>
+    <string name="solo_level_format">Solo Level: %1$d%%</string>
+    <string name="envelope_scale_format">Envelope Scale: %1$d%%</string>
+    <string name="hihat_highpass_format">HiHat Highpass: %1$d%%</string>
     <string name="notification_playing">Playing</string>
     <string name="key_label">Key</string>
     <string name="bpm_label">BPM</string>
@@ -80,20 +84,23 @@
     <string name="available_chords">Available Chords</string>
     <string name="expand_related_cd">Toggle related chords</string>
     <string name="secondary_dominants">Secondary dominants</string>
-    <string name="parallel_minor_chords">Parallel minor chords</string>
+    <string name="parallel_chords">Parallel chords</string>
     <string name="progression_label">Progression</string>
     <string name="play_pause_cd">Play or pause</string>
     <string name="stop_cd">Stop playback</string>
     <string name="toggle_repeat">Toggle repeat</string>
     <string name="settings_title">Settings</string>
     <string name="chord_preview_label">Chord preview</string>
-    <string name="pattern_preview_label">Pattern preview</string>
+    <string name="strum_pattern_preview_label">Strumming pattern preview</string>
     <string name="drum_preview_label">Drum preview</string>
+    <string name="template_preview_label">Template preview</string>
     <string name="loop_by_default_label">Loop by default</string>
 
     <string name="drag_to_reorder">Drag to reorder</string>
     <string name="dash">—</string>
     <string name="remove_measure">Remove measure</string>
+    <string name="duplicate_measure">Duplicate</string>
+    <string name="clear_chords">Clear chords</string>
     <string name="edit_strumming_pattern">Edit Strumming Pattern</string>
     <string name="suggested_patterns">Suggested Patterns</string>
     <string name="save">Save</string>
@@ -106,11 +113,13 @@
     <string name="down_stroke_offset_label">Down stroke offset (ms)</string>
     <string name="down_string_stagger_label">Down-string stagger (ms)</string>
     <string name="reset_sound_label">Reset sound</string>
+    <string name="strumming_instrument_label">Strumming Instrument:</string>
+    <string name="solo_instrument_label">Solo Instrument:</string>
     <string name="preset_clean">Clean</string>
     <string name="preset_overdrive">Overdrive</string>
     <string name="preset_piano">Piano</string>
-    <string name="piano_editor_title">Piano Editor — Measure %1$s</string>
-    <string name="piano_tap_hint">Tap the piano to preview the note</string>
+    <string name="solo_pattern_editor_title">Solo Pattern Editor — Measure %1$s</string>
+    <string name="piano_tap_hint">Tap the keyboard to preview the note</string>
     <string name="octave_up">Octave up</string>
     <string name="octave_down">Octave down</string>
     <string name="octave_current">Octave %1$d</string>

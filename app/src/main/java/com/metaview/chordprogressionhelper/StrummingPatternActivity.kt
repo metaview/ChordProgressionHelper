@@ -102,7 +102,9 @@ class StrummingPatternActivity : AppCompatActivity() {
                     try {
                         binding.btnTest.setIconResource(R.drawable.ic_stop)
                         binding.btnTest.contentDescription = getString(R.string.stop)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set Test button to stop icon: ${e.message}", e)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to start pending preview: ${e.message}")
@@ -134,7 +136,9 @@ class StrummingPatternActivity : AppCompatActivity() {
             val testEnabled = allowed || isPreviewActive
             binding.btnTest.isEnabled = testEnabled
             binding.btnTest.alpha = if (testEnabled) 1.0f else 0.45f
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set Test button state: ${e.message}", e)
+        }
         // Disable/enable chips
         try {
             val editor = binding.strummingPatternEditor
@@ -144,7 +148,9 @@ class StrummingPatternActivity : AppCompatActivity() {
                 child.isEnabled = allowed
                 child.alpha = if (allowed) 1.0f else 0.45f
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set strumming pattern editor chip states: ${e.message}", e)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -161,14 +167,34 @@ class StrummingPatternActivity : AppCompatActivity() {
 
         measureIndex = intent?.getIntExtra(EXTRA_MEASURE_INDEX, -1) ?: -1
         val startPattern = (intent?.getStringExtra(EXTRA_STRUMMING_PATTERN_JSON))?.let {
-            try { Json.decodeFromString(StrummingPattern.serializer(), it) } catch (_: Exception) { null }
+            try {
+                Json.decodeFromString(StrummingPattern.serializer(), it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to decode start pattern from intent: ${e.message}", e)
+                null
+            }
         } ?: StrummingPattern.DEFAULT
 
         // Try to deserialize a tonic chord (first scale degree) and other context provided by MainActivity for preview playback
         val tonicJson = intent?.getStringExtra(EXTRA_TONIC_CHORD_JSON)
-        tonicChord = try { if (!tonicJson.isNullOrEmpty()) Json.decodeFromString(Chord.serializer(), tonicJson) else null } catch (_: Exception) { null }
-        keyVal = try { Key.valueOf(intent?.getStringExtra("extra_key") ?: Key.C.name) } catch (_: Exception) { Key.C }
-        modeVal = try { Mode.valueOf(intent?.getStringExtra("extra_mode") ?: Mode.MAJOR.name) } catch (_: Exception) { Mode.MAJOR }
+        tonicChord = try {
+            if (!tonicJson.isNullOrEmpty()) Json.decodeFromString(Chord.serializer(), tonicJson) else null
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to decode tonic chord: ${e.message}", e)
+            null
+        }
+        keyVal = try {
+            Key.valueOf(intent?.getStringExtra("extra_key") ?: Key.C.name)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse extra_key: ${e.message}", e)
+            Key.C
+        }
+        modeVal = try {
+            Mode.valueOf(intent?.getStringExtra("extra_mode") ?: Mode.MAJOR.name)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse extra_mode: ${e.message}", e)
+            Mode.MAJOR
+        }
         tempoVal = intent?.getIntExtra("extra_tempo", 120) ?: 120
 
         currentStrums = startPattern.strums.toMutableList()
@@ -177,9 +203,17 @@ class StrummingPatternActivity : AppCompatActivity() {
         try {
             val allJson = intent?.getStringExtra(EXTRA_ALL_PATTERNS_JSON)
             if (!allJson.isNullOrEmpty()) {
-                extraPatterns = try { Json.decodeFromString(ListSerializer(StrummingPattern.serializer()), allJson) } catch (_: Exception) { emptyList() }
+                extraPatterns = try {
+                    Json.decodeFromString(ListSerializer(StrummingPattern.serializer()), allJson)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to decode EXTRA_ALL_PATTERNS_JSON: ${e.message}", e)
+                    emptyList()
+                }
             }
-        } catch (_: Exception) { extraPatterns = emptyList() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error while parsing EXTRA_ALL_PATTERNS_JSON: ${e.message}", e)
+            extraPatterns = emptyList()
+        }
 
         setupFadesAndScroll()
         setupStrumChips()
@@ -193,13 +227,20 @@ class StrummingPatternActivity : AppCompatActivity() {
                 override fun handleOnBackPressed() {
                     try {
                         performCancel()
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.w(TAG, "performCancel() failed in onBackPressed callback: ${e.message}", e)
                         // fallback: close activity safely from the callback
-                        try { this@StrummingPatternActivity.finish() } catch (_: Exception) { /* best-effort */ }
+                        try {
+                            this@StrummingPatternActivity.finish()
+                        } catch (ex: Exception) {
+                            Log.w(TAG, "finish() failed in onBackPressed fallback: ${ex.message}", ex)
+                        }
                     }
                 }
             })
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "onCreate: failed to add onBackPressed callback: ${e.message}", e)
+        }
     }
 
     override fun onStart() {
@@ -213,7 +254,9 @@ class StrummingPatternActivity : AppCompatActivity() {
         try {
             val intent = Intent(this, PlaybackService::class.java)
             bindService(intent, serviceConnection, BIND_AUTO_CREATE)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to bind service in onStart: ${e.message}", e)
+        }
     }
 
     override fun onStop() {
@@ -226,22 +269,31 @@ class StrummingPatternActivity : AppCompatActivity() {
         super.onStop()
         // Ensure any active preview is stopped immediately when dialog is left
         if (isPreviewActive) {
-            try { if (isServiceBound && playbackService != null) playbackService?.stopPreviewNow() else PlaybackService.stopPreview(this)
-            } catch (_: Exception) {}
+            try {
+                if (isServiceBound && playbackService != null) playbackService?.stopPreviewNow() else PlaybackService.stopPreview(this)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to stop preview in onStop: ${e.message}", e)
+            }
             isPreviewActive = false
             // update UI after stopping preview
             setPreviewsAllowed(previewsAllowed)
             try {
                 binding.btnTest.setIconResource(R.drawable.ic_play_arrow)
                 binding.btnTest.contentDescription = getString(R.string.test)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set Test button to play icon: ${e.message}", e)
+            }
         }
         // If binding is in progress but a pending preview was set, clear it so it won't start after onStop
         pendingPreviewProgression = null
         pendingPreviewLooping = false
 
         if (isServiceBound) {
-            try { unbindService(serviceConnection) } catch (_: Exception) {}
+            try {
+                unbindService(serviceConnection)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to unbind service in onStop: ${e.message}", e)
+            }
             isServiceBound = false
             playbackService = null
             playbackStateJob?.cancel()
@@ -283,7 +335,12 @@ class StrummingPatternActivity : AppCompatActivity() {
                     updateDialogFades()
                 }
             }
-            try { scroll.setOnScrollChangeListener { _, _, _, _, _ -> updateDialogFades() } } catch (_: Exception) { scroll.viewTreeObserver.addOnScrollChangedListener { updateDialogFades() } }
+            try {
+                scroll.setOnScrollChangeListener { _, _, _, _, _ -> updateDialogFades() }
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "setOnScrollChangeListener not available, falling back: ${e.message}", e)
+                scroll.viewTreeObserver.addOnScrollChangedListener { updateDialogFades() }
+            }
             scroll.post { updateDialogFades() }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to setup dialog fades", e)
@@ -335,7 +392,11 @@ class StrummingPatternActivity : AppCompatActivity() {
          * oder aktualisiert eine laufende Preview via PlaybackService.updateProgression/updateStrummingPattern.
          */
         binding.defaultPatternsLayout.removeAllViews()
-        try { binding.defaultPatternsLayout.orientation = LinearLayout.VERTICAL } catch (_: Exception) {}
+        try {
+            binding.defaultPatternsLayout.orientation = LinearLayout.VERTICAL
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set defaultPatternsLayout orientation: ${e.message}", e)
+        }
         // Increase vertical spacing: itemPadding controls internal vertical padding of the card,
         // rowMargin controls space between rows. Raise to provide clearer separation.
         val itemPadding = (2 * resources.displayMetrics.density).toInt()
@@ -354,8 +415,17 @@ class StrummingPatternActivity : AppCompatActivity() {
                     text = getString(R.string.used_patterns_header)
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
                     setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 4)
-                    try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
-                    try { typeface = ResourcesCompat.getFont(context, R.font.roboto_mono) } catch (_: Exception) {}
+                    try {
+                        val tv = android.util.TypedValue()
+                        if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to resolve colorOnSurface for pattern header: ${e.message}", e)
+                    }
+                    try {
+                        typeface = ResourcesCompat.getFont(context, R.font.roboto_mono)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to load roboto_mono font: ${e.message}", e)
+                    }
                 }
                 binding.defaultPatternsLayout.addView(header)
 
@@ -366,7 +436,9 @@ class StrummingPatternActivity : AppCompatActivity() {
                         seen.add(k)
                         val row = createPatternRow(p, showName = false, iconSize = iconSize, nameMargin = nameMargin, itemPadding = itemPadding, rowMargin = rowMargin)
                         binding.defaultPatternsLayout.addView(row)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to create pattern row for extra pattern: ${e.message}", e)
+                    }
                 }
 
                 // add a thin divider before defaults
@@ -376,11 +448,15 @@ class StrummingPatternActivity : AppCompatActivity() {
                         val tv = android.util.TypedValue()
                         val color = if (theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) tv.data else android.graphics.Color.WHITE
                         setBackgroundColor(color)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set divider background color: ${e.message}", e)
+                    }
                 }
                 binding.defaultPatternsLayout.addView(divider)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to process extra patterns for used patterns section: ${e.message}", e)
+        }
 
         // Now render default patterns with a header (skip those already seen)
         try {
@@ -388,18 +464,31 @@ class StrummingPatternActivity : AppCompatActivity() {
                 text = getString(R.string.other_patterns_header)
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 4)
-                try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
-                try { typeface = ResourcesCompat.getFont(context, R.font.roboto_mono) } catch (_: Exception) {}
+                try {
+                    val tv = android.util.TypedValue()
+                    if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to resolve colorOnSurface for pattern header: ${e.message}", e)
+                }
+                try {
+                    typeface = ResourcesCompat.getFont(context, R.font.roboto_mono)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to load roboto_mono font: ${e.message}", e)
+                }
             }
             binding.defaultPatternsLayout.addView(headerDefaults)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to add header for default patterns: ${e.message}", e)
+        }
 
         StrummingPattern.defaultPatterns.forEach { pattern ->
             try {
                 val k = keyOf(pattern)
                 //if (seen.contains(k)) return@forEach
                 seen.add(k)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to process default pattern for seen key: ${e.message}", e)
+            }
             val row = createPatternRow(pattern, showName = true, iconSize = iconSize, nameMargin = nameMargin, itemPadding = itemPadding, rowMargin = rowMargin)
             binding.defaultPatternsLayout.addView(row)
         }
@@ -421,13 +510,23 @@ class StrummingPatternActivity : AppCompatActivity() {
                 val iv = ImageView(this).apply {
                     setImageResource(drawableId)
                     layoutParams = LinearLayout.LayoutParams((20 * resources.displayMetrics.density).toInt(), (20 * resources.displayMetrics.density).toInt())
-                    try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data) } catch (_: Exception) {}
+                    try {
+                        val tv = android.util.TypedValue()
+                        if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to resolve colorOnSurface for legend icon: ${e.message}", e)
+                    }
                 }
                 val tv = TextView(this).apply {
                     text = getString(labelResId)
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins((8 * resources.displayMetrics.density).toInt(), 0, 0, 0) }
-                    try { val t = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, t, true)) setTextColor(t.data) } catch (_: Exception) {}
+                    try {
+                        val t = android.util.TypedValue()
+                        if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, t, true)) setTextColor(t.data)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to resolve colorOnSurface for legend label: ${e.message}", e)
+                    }
                 }
                 row.addView(iv)
                 row.addView(tv)
@@ -441,7 +540,9 @@ class StrummingPatternActivity : AppCompatActivity() {
             addLegendRow(strumToDrawable(Strum.REST), R.string.strum_rest_label)
 
             binding.defaultPatternsLayout.addView(legendContainer)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to add legend container for strumming symbols: ${e.message}", e)
+        }
 
         // Rows use container padding to ensure correct visible width; no programmatic width adjustment needed
     }
@@ -498,12 +599,30 @@ class StrummingPatternActivity : AppCompatActivity() {
                     val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
                     tempProg.measures.clear()
                     val m = Measure(1)
-                    try { tonicChord?.let { m.addChord(it, 0) } } catch (_: Exception) {}
+                    try {
+                        tonicChord?.let { m.addChord(it, 0) }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to add tonic chord to preview measure: ${e.message}", e)
+                    }
                     m.strummingPattern = livePattern
                     // Ensure no drums are played during a strumming-only preview
-                    try { m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() }) } catch (_: Exception) {}
+                    try {
+                        m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set silent drum pattern for preview measure: ${e.message}", e)
+                    }
+                    // Ensure no solo/piano parts in strumming preview
+                    try {
+                        m.soloPattern = SoloPattern("Silent", emptyList())
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set silent piano pattern for preview measure: ${e.message}", e)
+                    }
                     tempProg.measures.add(m)
-                    try { PlaybackService.stopPreview(this) } catch (_: Exception) {}
+                    try {
+                        PlaybackService.stopPreview(this)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "PlaybackService.stopPreview failed when starting strum preview: ${e.message}", e)
+                    }
                     try {
                         if (isServiceBound) {
                             // start immediately via companion
@@ -513,7 +632,12 @@ class StrummingPatternActivity : AppCompatActivity() {
                             // Save pending preview and bind; it will start in onServiceConnected
                             pendingPreviewProgression = tempProg
                             pendingPreviewLooping = true
-                            try { val bindIntent = Intent(this, PlaybackService::class.java); bindService(bindIntent, serviceConnection, BIND_AUTO_CREATE) } catch (_: Exception) {}
+                            try {
+                                val bindIntent = Intent(this, PlaybackService::class.java)
+                                bindService(bindIntent, serviceConnection, BIND_AUTO_CREATE)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to bind service for pending preview: ${e.message}", e)
+                            }
                             isPreviewActive = true
                         }
                     } catch (e: Exception) {
@@ -526,7 +650,9 @@ class StrummingPatternActivity : AppCompatActivity() {
                             setIconResource(R.drawable.ic_stop)
                             contentDescription = getString(R.string.stop)
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set Test button to stop icon: ${e.message}", e)
+                    }
                 } else {
                     // stop looping preview - prefer bound stop to avoid timing foreground issues
                     try {
@@ -544,7 +670,9 @@ class StrummingPatternActivity : AppCompatActivity() {
                             setIconResource(R.drawable.ic_play_arrow)
                             contentDescription = getString(R.string.test)
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set Test button to play icon: ${e.message}", e)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Test toggle failed: ${e.message}")
@@ -565,7 +693,11 @@ class StrummingPatternActivity : AppCompatActivity() {
             intent.putExtra(EXTRA_MEASURE_INDEX, measureIndex)
             intent.putExtra(EXTRA_STRUMMING_PATTERN_JSON, json)
             setResult(RESULT_OK, intent)
-            if (isPreviewActive) try { PlaybackService.stopPreview(this) } catch (_: Exception) {}
+            if (isPreviewActive) try {
+                PlaybackService.stopPreview(this)
+            } catch (e: Exception) {
+                Log.w(TAG, "performOk: stopPreview failed: ${e.message}", e)
+            }
             finish()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save strumming pattern", e)
@@ -578,7 +710,11 @@ class StrummingPatternActivity : AppCompatActivity() {
          * performCancel()
          * Verwirft Änderungen, beendet die Activity mit RESULT_CANCELED und stoppt ggf. aktive Previews.
          */
-        if (isPreviewActive) try { PlaybackService.stopPreview(this) } catch (_: Exception) {}
+        if (isPreviewActive) try {
+            PlaybackService.stopPreview(this)
+        } catch (e: Exception) {
+            Log.w(TAG, "performCancel: stopPreview failed: ${e.message}", e)
+        }
         setResult(RESULT_CANCELED)
         finish()
     }
@@ -596,7 +732,8 @@ class StrummingPatternActivity : AppCompatActivity() {
         // zu einem "Unresolved reference 'Builder'" Compilerfehler geführt hat.
         try {
             textView.typeface = android.graphics.Typeface.MONOSPACE
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "requestAndApplyMonospace failed: ${e.message}", e)
             // if anything goes wrong, ensure we at least don't crash
             textView.typeface = null
         }
@@ -614,7 +751,9 @@ class StrummingPatternActivity : AppCompatActivity() {
             if (isPreviewActive) {
                 if (isServiceBound && playbackService != null) playbackService?.stopPreviewNow() else PlaybackService.stopPreview(this)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to stop preview in onDestroy: ${e.message}", e)
+        }
         isPreviewActive = false
         pendingPreviewProgression = null
         pendingPreviewLooping = false
@@ -674,14 +813,21 @@ class StrummingPatternActivity : AppCompatActivity() {
                 setStroke(strokePx, strokeColor)
             }
             card.background = gd
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set card background drawable: ${e.message}", e)
+        }
 
         // Add icons into the inner card
         pattern.strums.forEach { s ->
             val iv = ImageView(this).apply {
                 setImageResource(strumToDrawable(s))
                 layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply { setMargins(0, 0, 0, 0) }
-                try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data) } catch (_: Exception) {}
+                try {
+                    val tv = android.util.TypedValue()
+                    if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to resolve colorOnSurface for strum icon: ${e.message}", e)
+                }
             }
             card.addView(iv)
         }
@@ -698,9 +844,20 @@ class StrummingPatternActivity : AppCompatActivity() {
             setHorizontallyScrolling(true)
             includeFontPadding = false
             letterSpacing = 0f
-            try { val tv = android.util.TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data) } catch (_: Exception) {}
+            try {
+                val tv = android.util.TypedValue()
+                if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to resolve colorOnSurface for pattern name: ${e.message}", e)
+            }
         }
-        try { val embedded = ResourcesCompat.getFont(this, R.font.roboto_mono); if (embedded != null) nameTv.typeface = embedded } catch (_: Exception) { requestAndApplyMonospace(nameTv) }
+        try {
+            val embedded = ResourcesCompat.getFont(this, R.font.roboto_mono)
+            if (embedded != null) nameTv.typeface = embedded
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load embedded font for pattern name: ${e.message}", e)
+            requestAndApplyMonospace(nameTv)
+        }
         card.addView(nameTv)
 
         // Click handler: unified behavior for preview/update — attach to card so clicks inside card trigger
@@ -709,7 +866,12 @@ class StrummingPatternActivity : AppCompatActivity() {
             pattern.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
             updateStrumViews()
 
-            val isPatternPreviewEnabled = try { (application as MyApplication).settingsRepository.isPatternPreviewEnabled } catch (_: Exception) { true }
+            val isPatternPreviewEnabled = try {
+                (application as MyApplication).settingsRepository.isStrumPatternPreviewEnabled
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read isPatternPreviewEnabled setting: ${e.message}", e)
+                true
+            }
             if (!isPatternPreviewEnabled) return@setOnClickListener
 
             try {
@@ -720,38 +882,59 @@ class StrummingPatternActivity : AppCompatActivity() {
                         // A looping preview is running: replace the pattern in the running preview.
                         try {
                             if (isServiceBound && playbackService != null) {
-                                try { playbackService?.updateStrummingPattern(0, livePattern) } catch (_: Exception) {}
+                                try {
+                                    playbackService?.updateStrummingPattern(0, livePattern)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to update strumming pattern on service: ${e.message}", e)
+                                }
                             } else {
                                 try {
                                     if (pendingPreviewProgression != null) {
-                                        try { pendingPreviewProgression?.measures?.getOrNull(0)?.let { it.strummingPattern = livePattern } } catch (_: Exception) {}
-                                        try { PlaybackService.updateProgression(this, pendingPreviewProgression!!) } catch (_: Exception) {}
+                                        try {
+                                            pendingPreviewProgression?.measures?.getOrNull(0)?.let { it.strummingPattern = livePattern }
+                                            PlaybackService.updateProgression(this, pendingPreviewProgression!!)
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "Failed to PlaybackService.updateProgression for pending preview: ${e.message}", e)
+                                        }
                                     } else {
                                         val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
-                                        try { tempProg.measures.clear() } catch (_: Exception) {}
-                                        val m = Measure(1)
-                                        try { m.addChord(chord, 0) } catch (_: Exception) {}
-                                        m.strummingPattern = livePattern
-                                        tempProg.measures.add(m)
-                                        try { m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() }) } catch (_: Exception) {}
-                                        try { PlaybackService.updateProgression(this, tempProg) } catch (_: Exception) {}
+                                        try {
+                                            tempProg.measures.clear()
+                                            val m = Measure(1)
+                                            m.addChord(chord, 0)
+                                            m.strummingPattern = livePattern
+                                            tempProg.measures.add(m)
+                                            m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                                            PlaybackService.updateProgression(this, tempProg)
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "Failed to PlaybackService.updateProgression for pending preview: ${e.message}", e)
+                                        }
                                         pendingPreviewProgression = tempProg
                                         pendingPreviewLooping = true
                                     }
-                                } catch (e: Exception) { Log.w(TAG, "Failed to send updateProgression for pending preview: ${e.message}") }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to send updateProgression for pending preview: ${e.message}")
+                                }
                             }
                             setPreviewsAllowed(previewsAllowed)
-                        } catch (e: Exception) { Log.w(TAG, "Failed to update running preview: ${e.message}") }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to update running preview: ${e.message}")
+                        }
                     } else if (singlePlayInFlight) {
                         // A single (non-looping) preview is currently playing: stop it and start the newly selected single-play.
                         try {
                             // Prefer instance stop when bound to ensure immediate stop without relying on service start timing
                             if (isServiceBound && playbackService != null) {
-                                try { playbackService?.stopPreviewNow() } catch (_: Exception) { /* best-effort */ }
-                            } else {
-                                try { PlaybackService.stopPreview(this) } catch (_: Exception) { /* best-effort */ }
+                                try {
+                                    playbackService?.stopPreviewNow()
+                                    PlaybackService.stopPreview(this)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to stop running single-play preview: ${e.message}")
+                                }
                             }
-                        } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to stop running single-play preview: ${e.message}")
+                        }
                         // start new single-play (fresh progression)
                         val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
                         try {
@@ -760,8 +943,11 @@ class StrummingPatternActivity : AppCompatActivity() {
                             m.addChord(chord, 0)
                             m.strummingPattern = livePattern
                             m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                            m.soloPattern = SoloPattern("Silent", emptyList())
                             tempProg.measures.add(m)
-                        } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to create preview progression for single-play: ${e.message}")
+                        }
                         try {
                             // start single-play preview
                             PlaybackService.play(this, tempProg, true)
@@ -778,8 +964,11 @@ class StrummingPatternActivity : AppCompatActivity() {
                             m.addChord(chord, 0)
                             m.strummingPattern = livePattern
                             m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                            m.soloPattern = SoloPattern("Silent", emptyList())
                             tempProg.measures.add(m)
-                        } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to create preview progression for single-play: ${e.message}")
+                        }
                         try {
                             // start single-play preview
                             PlaybackService.play(this, tempProg, true)
@@ -789,7 +978,9 @@ class StrummingPatternActivity : AppCompatActivity() {
                         }
                     }
                 }
-            } catch (e: Exception) { Log.w(TAG, "Failed to handle pattern click: ${e.message}") }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to handle pattern click: ${e.message}")
+            }
         }
 
         // Add card into container; matching layout params (MATCH_PARENT + margins) ensure
