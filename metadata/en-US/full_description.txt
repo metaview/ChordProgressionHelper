@@ -1,0 +1,6 @@
+A music app to write chord progressions, add simple drum beats and some little melody to play, sing and perform along with your phone:
+
+Select key
+Select tempo
+Add measures with chords from a collection of step, dominant seven and parallel chords
+Specify strumming pattern, drum pattern and if you want a little melody per measure

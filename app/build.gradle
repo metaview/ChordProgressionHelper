@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace 'com.metaview.chordprogressionhelper'
+    namespace 'de.metaviewsoft.chordprogressionhelper'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.metaview.chordprogressionhelper"
+        applicationId "de.metaviewsoft.chordprogressionhelper"
         minSdk 24
         targetSdk 34
         versionCode 1
-        versionName "1.0"
+        versionName "0.9"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

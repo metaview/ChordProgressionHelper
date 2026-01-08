@@ -29,16 +29,16 @@
 -keepclasseswithmembers class kotlinx.serialization.json.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keep,includedescriptorclasses class com.metaview.chordprogressionhelper.**$$serializer { *; }
--keepclassmembers class com.metaview.chordprogressionhelper.** {
+-keep,includedescriptorclasses class de.metaviewsoft.chordprogressionhelper.**$$serializer { *; }
+-keepclassmembers class de.metaviewsoft.chordprogressionhelper.** {
     *** Companion;
 }
--keepclasseswithmembers class com.metaview.chordprogressionhelper.** {
+-keepclasseswithmembers class de.metaviewsoft.chordprogressionhelper.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
 # Keep data classes
--keep class com.metaview.chordprogressionhelper.model.** { *; }
+-keep class de.metaviewsoft.chordprogressionhelper.model.** { *; }
 
 # Keep enums
 -keepclassmembers enum * {
