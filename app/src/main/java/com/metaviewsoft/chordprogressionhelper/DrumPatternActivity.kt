@@ -112,12 +112,12 @@ class DrumPatternActivity : AppCompatActivity() {
                 binding.btnTest.isClickable = true
                 binding.btnTest.isFocusable = true
                 binding.btnTest.alpha = 1.0f
-                try {
-                    val tv = TypedValue()
-                    val resolved = theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, tv, true)
-                    val color = if (resolved) tv.data else 0xFF000000.toInt()
-                    binding.btnTest.iconTint = ColorStateList.valueOf(color)
-                } catch (_: Exception) {}
+            try {
+                val tv = TypedValue()
+                val resolved = theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)
+                val color = if (resolved) tv.data else 0xFF000000.toInt()
+                binding.btnTest.iconTint = ColorStateList.valueOf(color)
+            } catch (_: Exception) {}
             } catch (_: Exception) {}
         }
 
@@ -349,7 +349,7 @@ class DrumPatternActivity : AppCompatActivity() {
                         m.soloPattern = SoloPattern("Silent", emptyList())
                         tempProg.measures.add(m)
                     } catch (e: Exception) {
-                        Log.w(DrumPatternActivity.Companion.TAG, "Failed to create preview progression for single-play: ${e.message}")
+                        Log.w(TAG, "Failed to create preview progression for single-play: ${e.message}")
                     }
                     try {
                         PlaybackService.stop(this)
@@ -357,7 +357,7 @@ class DrumPatternActivity : AppCompatActivity() {
                         PlaybackService.play(this, tempProg, true)
                         isPreviewActive = true
                     } catch (e: Exception) {
-                        Log.w(DrumPatternActivity.Companion.TAG, "Failed to start single-play preview: ${e.message}")
+                        Log.w(TAG, "Failed to start single-play preview: ${e.message}")
                     }
                     try {
                         if (isServiceBound) {

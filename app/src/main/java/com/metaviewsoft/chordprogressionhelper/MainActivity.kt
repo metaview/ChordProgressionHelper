@@ -34,11 +34,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.documentfile.provider.DocumentFile
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.metaviewsoft.chordprogressionhelper.databinding.ActivityMainBinding
 import de.metaviewsoft.chordprogressionhelper.databinding.DialogSaveProgressionBinding
@@ -279,8 +283,25 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Stelle sicher, dass System-Bars (Status- und Navigationsleiste) sichtbar bleiben
+        // und das Layout nicht hinter ihnen verschwindet
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+
+        // Window Insets manuell anwenden für zusätzliche Sicherheit
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(
+                systemBars.left + 16.dpToPx(),
+                systemBars.top + 16.dpToPx(),
+                systemBars.right + 16.dpToPx(),
+                systemBars.bottom + 16.dpToPx()
+            )
+            insets
+        }
 
         viewModel = ViewModelProvider(this)[ProgressionViewModel::class.java]
 
@@ -327,7 +348,11 @@ class MainActivity : AppCompatActivity() {
                         tmp.writeText(text)
                         val name = repo.importProgressionFromFile(tmp, overwrite = false)
                         tmp.delete()
-                        if (name != null) Toast.makeText(this, getString(R.string.imported_x, name), Toast.LENGTH_SHORT).show()
+                        if (name != null) {
+                            Toast.makeText(this, getString(R.string.imported_x, name), Toast.LENGTH_SHORT).show()
+                            // Lade die importierte Progression direkt
+                            viewModel.loadProgression(name)
+                        }
                     }
                 } catch (e: Exception) { Log.w(TAG, "importOpenLauncher failed: ${e.message}") }
             }
@@ -339,7 +364,7 @@ class MainActivity : AppCompatActivity() {
                 try {
                     val takeFlags = Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
                     contentResolver.takePersistableUriPermission(uri, takeFlags)
-                    val docFile = androidx.documentfile.provider.DocumentFile.fromTreeUri(this, uri)
+                    val docFile = DocumentFile.fromTreeUri(this, uri)
                     if (docFile != null && docFile.isDirectory) {
                         val repo = (application as MyApplication).progressionRepository
                         val exported = repo.exportAllProgressionsToDir(java.io.File(cacheDir, "exports"))
@@ -551,9 +576,9 @@ class MainActivity : AppCompatActivity() {
 
         val repo = (application as MyApplication).progressionRepository
         val items = savedNames.map { name -> Pair(name, try { repo.getPreviewFor(name) } catch (_: Exception) { null }) }
-        val adapter = object : ArrayAdapter<Pair<String, String?>>(this, android.R.layout.simple_list_item_2, items) {
+        val adapter = object : ArrayAdapter<Pair<String, String?>>(this, R.layout.list_item_two_line_selectable, items) {
             override fun getView(position: Int, convertView: android.view.View?, parent: ViewGroup): android.view.View {
-                val v = convertView ?: LayoutInflater.from(context).inflate(android.R.layout.simple_list_item_2, parent, false)
+                val v = convertView ?: LayoutInflater.from(context).inflate(R.layout.list_item_two_line_selectable, parent, false)
                 val tv1 = v.findViewById<TextView>(android.R.id.text1)
                 val tv2 = v.findViewById<TextView>(android.R.id.text2)
                 val item = getItem(position)!!
@@ -565,26 +590,42 @@ class MainActivity : AppCompatActivity() {
         }
 
         listView.adapter = adapter
-        listView.setOnItemClickListener { _, _, which, _ ->
-            viewModel.loadProgression(items[which].first)
-        }
 
-        // Setup Fade-Effekte
-        setupListViewFadeEffects(listView, topFade, bottomFade)
+        // Variable für ausgewählten Eintrag
+        var selectedPosition: Int = -1
 
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(getString(R.string.load_title))
             .setView(dialogView)
+            .setPositiveButton(getString(R.string.ok)) { _, _ ->
+                if (selectedPosition >= 0) {
+                    viewModel.loadProgression(items[selectedPosition].first)
+                }
+            }
             .setNegativeButton(getString(R.string.cancel), null)
             .create()
 
         dialog.setOnShowListener {
             styleDialogButtons(dialog)
+            val okButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            okButton.isEnabled = false
+
+            // OK-Button aktivieren, wenn etwas ausgewählt wird
+            listView.setOnItemClickListener { _, _, which, _ ->
+                selectedPosition = which
+                listView.setItemChecked(which, true)
+                okButton.isEnabled = true
+            }
+
             // Trigger initial fade check after dialog is shown
             listView.post {
                 setupListViewFadeEffects(listView, topFade, bottomFade)
             }
         }
+
+        // Setup Fade-Effekte
+        setupListViewFadeEffects(listView, topFade, bottomFade)
+
         dialog.show()
     }
 
@@ -617,6 +658,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         listView.adapter = adapter
+
+        // Dialog zuerst erstellen
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.delete_title))
+            .setView(dialogView)
+            .setNegativeButton(getString(R.string.cancel), null)
+            .create()
+
         listView.setOnItemClickListener { _, _, which, _ ->
             val originalName = items[which].first
             val confirm = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
@@ -625,6 +674,7 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton(getString(R.string.delete_measure_title)) { _, _ ->
                     viewModel.deleteProgression(originalName)
                     Toast.makeText(this, getString(R.string.deleted_message, originalName), Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()  // Schließe den Haupt-Dialog nach der Löschung
                 }
                 .setNegativeButton(getString(R.string.cancel), null)
                 .create()
@@ -635,11 +685,6 @@ class MainActivity : AppCompatActivity() {
         // Setup Fade-Effekte
         setupListViewFadeEffects(listView, topFade, bottomFade)
 
-        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-            .setTitle(getString(R.string.delete_title))
-            .setView(dialogView)
-            .setNegativeButton(getString(R.string.cancel), null)
-            .create()
 
         dialog.setOnShowListener {
             styleDialogButtons(dialog)
@@ -1144,8 +1189,9 @@ class MainActivity : AppCompatActivity() {
             val negative = alert.getButton(AlertDialog.BUTTON_NEGATIVE)
             val neutral = alert.getButton(AlertDialog.BUTTON_NEUTRAL)
             val tv = TypedValue()
-            val primaryColor = if (theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, tv, true)) tv.data else resolveSurfaceColor()
-            val onPrimary = if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnPrimary, tv, true)) tv.data else Color.WHITE
+            val primaryColor = if (theme.resolveAttribute(android.R.attr.colorPrimary, tv, true)) tv.data else resolveSurfaceColor()
+            // Calculate on-primary color based on luminance of primary color
+            val onPrimary = if (Color.luminance(primaryColor) > 0.5f) Color.BLACK else Color.WHITE
             // Create a rounded GradientDrawable to force the button background color across OEMs
             val radiusPx = (8f * resources.displayMetrics.density)
             fun applyButtonStyle(button: android.widget.Button?) {
@@ -1302,14 +1348,16 @@ class MainActivity : AppCompatActivity() {
         viewModel.isLooping.observe(this) { isToggled ->
             val typedValue = TypedValue()
             if (isToggled) {
-                theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, typedValue, true)
-                binding.repeatButton.backgroundTintList = ColorStateList.valueOf(typedValue.data)
-                theme.resolveAttribute(com.google.android.material.R.attr.colorOnPrimary, typedValue, true)
-                binding.repeatButton.setColorFilter(typedValue.data)
+                theme.resolveAttribute(android.R.attr.colorPrimary, typedValue, true)
+                val primaryColor = typedValue.data
+                binding.repeatButton.backgroundTintList = ColorStateList.valueOf(primaryColor)
+                // Calculate on-primary color based on luminance
+                val onPrimary = if (Color.luminance(primaryColor) > 0.5f) Color.BLACK else Color.WHITE
+                binding.repeatButton.setColorFilter(onPrimary)
                 binding.repeatButton.alpha = 1.0f
             } else {
                 // Use surface color for untoggled state
-                theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, typedValue, true)
+                theme.resolveAttribute(android.R.attr.colorBackground, typedValue, true)
                 binding.repeatButton.backgroundTintList = ColorStateList.valueOf(typedValue.data)
                 binding.repeatButton.clearColorFilter()
                 binding.repeatButton.alpha = 0.9f
@@ -1424,6 +1472,9 @@ class MainActivity : AppCompatActivity() {
         recyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         recyclerView.adapter = adapter
 
+        // Continue-Button initial deaktivieren
+        continueButton.isEnabled = false
+
         // Scroll-Listener für Fade-Effekte
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -1455,9 +1506,15 @@ class MainActivity : AppCompatActivity() {
         continueButton.setOnClickListener {
             // Preview stoppen
             playbackService?.stopPreviewNow()
-            selectedTemplate?.let { template ->
-                viewModel.confirmNewProgression(template)
+
+            if (selectedTemplate == null) {
+                // Leeres Template ausgewählt
+                viewModel.confirmNewProgression(null)
+            } else {
+                // Spezifisches Template ausgewählt
+                viewModel.confirmNewProgression(selectedTemplate)
             }
+
             dialog.dismiss()
         }
 
@@ -1529,6 +1586,13 @@ class MainActivity : AppCompatActivity() {
                 (listView.childCount == 0 || listView.getChildAt(listView.childCount - 1).bottom > listView.height)
             bottomFade.visibility = if (canScrollDown) View.VISIBLE else View.GONE
         }
+    }
+
+    /**
+     * Konvertiert dp zu Pixel.
+     */
+    private fun Int.dpToPx(): Int {
+        return (this * resources.displayMetrics.density).toInt()
     }
 
     override fun onDestroy() {

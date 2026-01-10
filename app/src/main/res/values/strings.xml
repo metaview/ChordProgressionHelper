@@ -18,7 +18,7 @@
     <string name="exported_n_files">Exported %1$d files</string>
 
     <string name="about_title">About Chord Progression Helper</string>
-    <string name="about_message">Version 0.9\n\nDeveloped by MetaViewSoft with assistance from an AI assistant.</string>
+    <string name="about_message">Version 0.91\n\nDeveloped by MetaViewSoft with assistance from an AI assistant.</string>
     <string name="ok">OK</string>
 
     <string name="load_title">Load Progression</string>
