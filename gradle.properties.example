@@ -1,0 +1,19 @@
+# Wenn Gradle beim Konfigurieren mit "Unsupported class file major version 69" scheitert,
+# liegt das oft an einer inkompatiblen JVM-Version (z. B. JDK 25) im Gradle-Launcher.
+# Gradle und einige Plugins sind am stabilsten mit JDK 17 oder JDK 21.
+#
+# Du kannst Gradle anweisen, eine bestimmte JVM zu benutzen, indem du eine lokale
+# gradle.properties (nicht versioniert) mit dieser Zeile erstellst:
+#
+# org.gradle.java.home=C:/Program Files/Java/jdk-17
+#
+# Ersetze den Pfad mit dem Installationsverzeichnis deines JDK 17/21.
+#
+# Alternativ kannst du in PowerShell temporär JAVA_HOME setzen, bevor du gradlew aufrufst:
+#   $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17'
+#   $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+#   .\gradlew.bat assembleRelease
+#
+# Nach Anpassung: committe nicht die lokale gradle.properties, sondern verwende dieses
+# Beispiel als Anleitung.
+

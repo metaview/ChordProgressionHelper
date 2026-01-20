@@ -44,6 +44,17 @@ android {
     }
 }
 
+// Configure Zip tasks globally so APK/ZIP entries are reproducible across environments
+// This approach works with Gradle's Zip task properties and avoids relying on the
+// android->packagingOptions API that may differ between AGP versions.
+tasks.withType(org.gradle.api.tasks.bundling.Zip).configureEach { zipTask ->
+    preserveFileTimestamps = false
+    // Set reproducibleFileOrder only when the property exists on the task (safer compatibility check)
+    if (zipTask.hasProperty('reproducibleFileOrder')) {
+        zipTask.reproducibleFileOrder = true
+    }
+}
+
 dependencies {
     implementation 'androidx.core:core-ktx:1.17.0'
     implementation 'androidx.appcompat:appcompat:1.7.1'
