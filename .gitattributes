@@ -1,0 +1,11 @@
+# Normalize line endings to LF for text files so builds are comparable across OSes
+* text=auto eol=lf
+
+# Explicitly ensure common source file types use LF
+*.kt text eol=lf
+*.java text eol=lf
+*.xml text eol=lf
+*.gradle text eol=lf
+*.properties text eol=lf
+*.md text eol=lf
+
