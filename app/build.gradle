@@ -1,11 +1,12 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.3.0"
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.0'
 }
 
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 android {
-    namespace 'de.metaviewsoft.chordprogressionhelper'
+    namespace = 'de.metaviewsoft.chordprogressionhelper'
     compileSdk 36
 
     defaultConfig {
@@ -25,19 +26,41 @@ android {
         includeInBundle = false
     }
 
+    // Properties aus local.properties laden
+    def localProperties = new Properties()
+    def localPropertiesFile = rootProject.file('local.properties')
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.withInputStream { localProperties.load(it) }
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(localProperties.getProperty('RELEASE_STORE_FILE'))
+            storePassword localProperties.getProperty('RELEASE_STORE_PASSWORD')
+            keyAlias localProperties.getProperty('RELEASE_KEY_ALIAS')
+            keyPassword localProperties.getProperty('RELEASE_KEY_PASSWORD')
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig = signingConfigs.release
+        }
+        debug {
+            applicationIdSuffix ".debug"
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = '1.8'
-        freeCompilerArgs += ["-opt-in=kotlinx.serialization.InternalSerializationApi"]
+    kotlin {
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_17
+            freeCompilerArgs.add("-opt-in=kotlinx.serialization.InternalSerializationApi")
+        }
     }
     buildFeatures {
         viewBinding true
@@ -47,7 +70,7 @@ android {
 // Configure Zip tasks globally so APK/ZIP entries are reproducible across environments
 // This approach works with Gradle's Zip task properties and avoids relying on the
 // android->packagingOptions API that may differ between AGP versions.
-tasks.withType(org.gradle.api.tasks.bundling.Zip).configureEach { zipTask ->
+tasks.withType(Zip).configureEach { zipTask ->
     preserveFileTimestamps = false
     // Set reproducibleFileOrder only when the property exists on the task (safer compatibility check)
     if (zipTask.hasProperty('reproducibleFileOrder')) {

@@ -65,6 +65,10 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     private val _showNewProgressionConfirmation = MutableLiveData<Boolean>()
     val showNewProgressionConfirmation: LiveData<Boolean> = _showNewProgressionConfirmation
 
+    // Transposition dialog: stores the new key to transpose to
+    private val _showTransposeConfirmation = MutableLiveData<Key?>()
+    val showTransposeConfirmation: LiveData<Key?> = _showTransposeConfirmation
+
     val tempo: MutableLiveData<Int>
     private val _key = MutableLiveData<Key>()
     val key: LiveData<Key> = _key
@@ -140,13 +144,92 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setKey(key: Key) {
         if (progression.key == key) return
-        progression.key = key
-        _key.value = key
+
+        // Check if there are any chords in the progression
+        val hasChords = progression.measures.any { measure ->
+            measure.chordEvents.isNotEmpty()
+        }
+
+        if (hasChords) {
+            // Show transpose confirmation dialog
+            _showTransposeConfirmation.value = key
+        } else {
+            // No chords, just change the key
+            applyKeyChange(key, transpose = false)
+        }
+    }
+
+    fun confirmTranspose(newKey: Key, transpose: Boolean) {
+        applyKeyChange(newKey, transpose)
+        _showTransposeConfirmation.value = null
+    }
+
+    fun onTransposeConfirmationHandled() {
+        _showTransposeConfirmation.value = null
+    }
+
+    private fun applyKeyChange(newKey: Key, transpose: Boolean) {
+        val oldKey = progression.key
+        progression.key = newKey
+        _key.value = newKey
+
+        if (transpose) {
+            transposeProgression(oldKey, newKey)
+        }
+
         updateAllChords()
         _selectedChord.value = null
         _targetChord.value = null
         _suggestedChord.value = null
         saveCurrentSession()
+    }
+
+    private fun transposeProgression(oldKey: Key, newKey: Key) {
+        // Calculate semitone difference
+        val oldRootMidi = oldKey.rootNote.midiOffset
+        val newRootMidi = newKey.rootNote.midiOffset
+        val semitoneShift = (newRootMidi - oldRootMidi + 12) % 12
+
+        if (semitoneShift == 0) return // No transposition needed
+
+        // Transpose all chords in all measures
+        progression.measures.forEach { measure ->
+            val transposedEvents = measure.chordEvents.map { event ->
+                val transposedChord = transposeChord(event.chord, semitoneShift)
+                Measure.ChordEvent(transposedChord, event.quarterNote)
+            }
+            measure.chordEvents.clear()
+            measure.chordEvents.addAll(transposedEvents)
+
+            // Transpose solo pattern notes
+            try {
+                val soloPattern = measure.soloPattern
+                if (soloPattern != null && !soloPattern.isEmpty()) {
+                    val transposedElements = soloPattern.elements.map { element ->
+                        when (element) {
+                            is SoloElement.Note -> {
+                                val transposedMidi = (element.midi + semitoneShift) % 128
+                                SoloElement.Note(transposedMidi, element.lengthEighths)
+                            }
+                            else -> element // Rest and LetRing remain unchanged
+                        }
+                    }
+                    measure.soloPattern = SoloPattern(soloPattern.name, transposedElements)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to transpose solo pattern: ${e.message}")
+            }
+        }
+    }
+
+    private fun transposeChord(chord: Chord, semitoneShift: Int): Chord {
+        // Calculate new root note
+        val oldRootMidi = chord.root.midiOffset
+        val newRootMidi = (oldRootMidi + semitoneShift) % 12
+        val newRoot = Note.entries.first { it.midiOffset == newRootMidi }
+
+        // Keep the same chord quality and scale degree name
+        return Chord(newRoot, chord.quality, chord.scaleDegreeName)
     }
 
     fun setTempo(newTempo: Int) {
@@ -431,7 +514,10 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
             val currentKey = _key.value ?: Key.C
             ProgressionTemplates.createProgressionFromTemplate(template, currentKey)
         } else {
-            ChordProgression()
+            // Neue leere Progression mit aktuellem shuffleFactor aus den Einstellungen
+            ChordProgression().apply {
+                shuffleFactor = settingsRepository.shuffleFactor
+            }
         }
         tempo.value = progression.tempo
         _key.value = progression.key

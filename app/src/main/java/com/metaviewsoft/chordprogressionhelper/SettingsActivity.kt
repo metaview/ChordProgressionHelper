@@ -19,6 +19,8 @@ class SettingsActivity : AppCompatActivity() {
         val intent = Intent(this, PlaybackService::class.java).apply {
             action = PlaybackService.ACTION_UPDATE_PARAMS
             putExtra(PlaybackService.EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
+            putExtra(PlaybackService.EXTRA_SOLO_LEVEL, settingsRepository.soloLevel)
+            putExtra(PlaybackService.EXTRA_STRUM_LEVEL, settingsRepository.strumLevel)
             putExtra(PlaybackService.EXTRA_ENVELOPE_SCALE, settingsRepository.envelopeScale)
             putExtra(PlaybackService.EXTRA_HIHAT_HIGHPASS, settingsRepository.hiHatHighpass)
             // new strum timing params
@@ -26,6 +28,8 @@ class SettingsActivity : AppCompatActivity() {
             putExtra(PlaybackService.EXTRA_UP_STRING_STAGGER_MS, settingsRepository.stringStaggerMs)
             putExtra(PlaybackService.EXTRA_DOWN_STROKE_OFFSET_MS, settingsRepository.downStrokeOffsetMs)
             putExtra(PlaybackService.EXTRA_DOWN_STRING_STAGGER_MS, settingsRepository.downStringStaggerMs)
+            putExtra(PlaybackService.EXTRA_STRUM_CRUNCH_LEVEL, settingsRepository.strumCrunchLevel)
+            putExtra(PlaybackService.EXTRA_SOLO_CRUNCH_LEVEL, settingsRepository.soloCrunchLevel)
         }
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
@@ -95,13 +99,27 @@ class SettingsActivity : AppCompatActivity() {
         binding.soloLevelSeekBar.progress = soloLevelPercent
         binding.soloLevelLabel.text = getString(R.string.solo_level_format, soloLevelPercent)
 
-        val envelopePercent = (settingsRepository.envelopeScale * 100f).toInt().coerceIn(0, 200)
-        binding.envelopeScaleSeekBar.progress = envelopePercent
-        binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, envelopePercent)
+        val strumLevelPercent = (settingsRepository.strumLevel * 100f).toInt().coerceIn(0, 200)
+        binding.strumLevelSeekBar.progress = strumLevelPercent
+        binding.strumLevelLabel.text = getString(R.string.strum_level_format, strumLevelPercent)
 
-        val hiHatPercent = (settingsRepository.hiHatHighpass * 100f).toInt().coerceIn(0, 200)
-        binding.hihatHighpassSeekBar.progress = hiHatPercent
-        binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, hiHatPercent)
+        // Set envelope scale and hihat highpass to fixed 100% (1.0f)
+        settingsRepository.envelopeScale = 1.0f
+        settingsRepository.hiHatHighpass = 1.0f
+
+        // Shuffle factor SeekBar initialization
+        val shuffleFactorPercent = (settingsRepository.shuffleFactor * 100f).toInt().coerceIn(0, 200)
+        binding.shuffleFactorSeekBar.progress = shuffleFactorPercent
+        binding.shuffleFactorLabel.text = getString(R.string.shuffle_factor_format, shuffleFactorPercent)
+
+        // Crunch level SeekBar initialization
+        val strumCrunchPercent = (settingsRepository.strumCrunchLevel * 100f).toInt().coerceIn(0, 200)
+        binding.strumCrunchLevelSeekBar.progress = strumCrunchPercent
+        binding.strumCrunchLevelLabel.text = getString(R.string.strum_crunch_level_format, strumCrunchPercent)
+
+        val soloCrunchPercent = (settingsRepository.soloCrunchLevel * 100f).toInt().coerceIn(0, 200)
+        binding.soloCrunchLevelSeekBar.progress = soloCrunchPercent
+        binding.soloCrunchLevelLabel.text = getString(R.string.solo_crunch_level_format, soloCrunchPercent)
 
         // Strum preset selection
         when (settingsRepository.strumPreset) {
@@ -118,24 +136,13 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         // Ensure strum timing controls are enabled/disabled according to current preset
-        setStrumSeekbarsEnabled(settingsRepository.strumPreset != SoundPreset.PIANO)
+        // (removed - timing controls are now in separate activity)
 
-        // Initialize strumming timing seekbars and labels (ms values)
-        val upOffset = settingsRepository.strokeOffsetMs.coerceIn(0, 100)
-        binding.upStrokeOffsetSeekBar.progress = upOffset
-        binding.upStrokeOffsetLabel.text = "Up Stroke Offset: ${upOffset}ms"
-
-        val upStagger = settingsRepository.stringStaggerMs.coerceIn(0, 100)
-        binding.upStringStaggerSeekBar.progress = upStagger
-        binding.upStringStaggerLabel.text = "Up String Stagger: ${upStagger}ms"
-
-        val downOffset = settingsRepository.downStrokeOffsetMs.coerceIn(0, 100)
-        binding.downStrokeOffsetSeekBar.progress = downOffset
-        binding.downStrokeOffsetLabel.text = "Down Stroke Offset: ${downOffset}ms"
-
-        val downStagger = settingsRepository.downStringStaggerMs.coerceIn(0, 100)
-        binding.downStringStaggerSeekBar.progress = downStagger
-        binding.downStringStaggerLabel.text = "Down String Stagger: ${downStagger}ms"
+        // Initialize strumming timing button
+        binding.strummingTimingButton.setOnClickListener {
+            val intent = Intent(this, StrummingTimingActivity::class.java)
+            startActivity(intent)
+        }
 
         // Sound SeekBars: write settings already during onProgressChanged when moved by the user
         binding.drumLevelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -168,12 +175,13 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        binding.envelopeScaleSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        binding.strumLevelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, progress)
+                binding.strumLevelLabel.text = getString(R.string.strum_level_format, progress)
                 if (fromUser) {
                     val value = (progress).toFloat() / 100f
-                    settingsRepository.envelopeScale = value
+                    settingsRepository.strumLevel = value
+                    // update running playback service immediately
                     updatePlaybackServiceParams()
                 }
             }
@@ -182,12 +190,13 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        binding.hihatHighpassSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        // Crunch level SeekBar listeners
+        binding.strumCrunchLevelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, progress)
+                binding.strumCrunchLevelLabel.text = getString(R.string.strum_crunch_level_format, progress)
                 if (fromUser) {
                     val value = (progress).toFloat() / 100f
-                    settingsRepository.hiHatHighpass = value
+                    settingsRepository.strumCrunchLevel = value
                     updatePlaybackServiceParams()
                 }
             }
@@ -196,12 +205,12 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // New: up/down stroke offset and string stagger SeekBars
-        binding.upStrokeOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        binding.soloCrunchLevelSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.upStrokeOffsetLabel.text = "Up Stroke Offset: ${progress}ms"
+                binding.soloCrunchLevelLabel.text = getString(R.string.solo_crunch_level_format, progress)
                 if (fromUser) {
-                    settingsRepository.strokeOffsetMs = progress
+                    val value = (progress).toFloat() / 100f
+                    settingsRepository.soloCrunchLevel = value
                     updatePlaybackServiceParams()
                 }
             }
@@ -210,37 +219,14 @@ class SettingsActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        binding.upStringStaggerSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+
+        // Shuffle factor SeekBar listener
+        binding.shuffleFactorSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.upStringStaggerLabel.text = "Up String Stagger: ${progress}ms"
+                binding.shuffleFactorLabel.text = getString(R.string.shuffle_factor_format, progress)
                 if (fromUser) {
-                    settingsRepository.stringStaggerMs = progress
-                    updatePlaybackServiceParams()
-                }
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
-        binding.downStrokeOffsetSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.downStrokeOffsetLabel.text = "Down Stroke Offset: ${progress}ms"
-                if (fromUser) {
-                    settingsRepository.downStrokeOffsetMs = progress
-                    updatePlaybackServiceParams()
-                }
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
-        binding.downStringStaggerSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                binding.downStringStaggerLabel.text = "Down String Stagger: ${progress}ms"
-                if (fromUser) {
-                    settingsRepository.downStringStaggerMs = progress
+                    val value = (progress).toFloat() / 100f
+                    settingsRepository.shuffleFactor = value
                     updatePlaybackServiceParams()
                 }
             }
@@ -256,8 +242,6 @@ class SettingsActivity : AppCompatActivity() {
                 R.id.soundPresetOverdrive -> settingsRepository.strumPreset = SoundPreset.OVERDRIVE
                 R.id.soundPresetPiano -> settingsRepository.strumPreset = SoundPreset.PIANO
             }
-            // Enable/disable the strum timing seekbars based on the chosen preset
-            setStrumSeekbarsEnabled((settingsRepository.strumPreset != SoundPreset.PIANO) || (settingsRepository.soloPreset != SoundPreset.PIANO))
         }
 
         // Solo preset radio group: write selection immediately
@@ -267,57 +251,46 @@ class SettingsActivity : AppCompatActivity() {
                 R.id.soloPresetOverdrive -> settingsRepository.soloPreset = SoundPreset.OVERDRIVE
                 R.id.soloPresetPiano -> settingsRepository.soloPreset = SoundPreset.PIANO
             }
-            // Enable/disable the strum timing seekbars based on the chosen preset
-            setStrumSeekbarsEnabled((settingsRepository.strumPreset != SoundPreset.PIANO) || (settingsRepository.soloPreset != SoundPreset.PIANO))
         }
 
         // Reset button - restore defaults (100% => 1.0, Solo 150% => 1.5)
         binding.resetSoundButton.setOnClickListener {
             settingsRepository.drumLevel = 1.0f
             settingsRepository.soloLevel = 1.5f
+            settingsRepository.strumLevel = 1.0f
             settingsRepository.envelopeScale = 1.0f
             settingsRepository.hiHatHighpass = 1.0f
             settingsRepository.strokeOffsetMs = 10
             settingsRepository.stringStaggerMs = 12
             settingsRepository.downStrokeOffsetMs = 0
             settingsRepository.downStringStaggerMs = 12
+            settingsRepository.shuffleFactor = 0.0f // Reset shuffle factor to default (no shuffle)
+
+            settingsRepository.strumCrunchLevel = 1.0f // Reset crunch level to default (medium)
+            settingsRepository.soloCrunchLevel = 1.0f // Reset crunch level to default (medium)
 
             // Update UI
             binding.drumLevelSeekBar.progress = kotlin.math.floor(settingsRepository.drumLevel * 100).toInt()
             binding.drumLevelLabel.text = getString(R.string.drum_level_format, binding.drumLevelSeekBar.progress)
             binding.soloLevelSeekBar.progress = kotlin.math.floor(settingsRepository.soloLevel * 100).toInt()
             binding.soloLevelLabel.text = getString(R.string.solo_level_format, binding.soloLevelSeekBar.progress)
-            binding.envelopeScaleSeekBar.progress = kotlin.math.floor(settingsRepository.envelopeScale * 100).toInt()
-            binding.envelopeScaleLabel.text = getString(R.string.envelope_scale_format, binding.envelopeScaleSeekBar.progress)
-            binding.hihatHighpassSeekBar.progress = kotlin.math.floor(settingsRepository.hiHatHighpass * 100).toInt()
-            binding.hihatHighpassLabel.text = getString(R.string.hihat_highpass_format, binding.hihatHighpassSeekBar.progress)
-            binding.upStrokeOffsetSeekBar.progress = settingsRepository.strokeOffsetMs
-            binding.upStrokeOffsetLabel.text = "Up Stroke Offset: ${settingsRepository.strokeOffsetMs}ms"
-            binding.upStringStaggerSeekBar.progress = settingsRepository.stringStaggerMs
-            binding.upStringStaggerLabel.text = "Up String Stagger: ${settingsRepository.stringStaggerMs}ms"
-            binding.downStrokeOffsetSeekBar.progress = settingsRepository.downStrokeOffsetMs
-            binding.downStrokeOffsetLabel.text = "Down Stroke Offset: ${settingsRepository.downStrokeOffsetMs}ms"
-            binding.downStringStaggerSeekBar.progress = settingsRepository.downStringStaggerMs
-            binding.downStringStaggerLabel.text = "Down String Stagger: ${settingsRepository.downStringStaggerMs}ms"
+            binding.strumLevelSeekBar.progress = kotlin.math.floor(settingsRepository.strumLevel * 100).toInt()
+            binding.strumLevelLabel.text = getString(R.string.strum_level_format, binding.strumLevelSeekBar.progress)
+            binding.shuffleFactorSeekBar.progress = kotlin.math.floor(settingsRepository.shuffleFactor * 100).toInt()
+            binding.shuffleFactorLabel.text = getString(R.string.shuffle_factor_format, binding.shuffleFactorSeekBar.progress)
+            binding.strumCrunchLevelSeekBar.progress = kotlin.math.floor(settingsRepository.strumCrunchLevel * 100).toInt()
+            binding.strumCrunchLevelLabel.text = getString(R.string.strum_crunch_level_format, binding.strumCrunchLevelSeekBar.progress)
+            binding.soloCrunchLevelSeekBar.progress = kotlin.math.floor(settingsRepository.soloCrunchLevel * 100).toInt()
+            binding.soloCrunchLevelLabel.text = getString(R.string.solo_crunch_level_format, binding.soloCrunchLevelSeekBar.progress)
             // Apply changes to running playback service as well
             updatePlaybackServiceParams()
         }
     }
 
     // Enable or disable the four strum timing seekbars (and visually dim their labels)
+    // (removed - timing controls are now in separate activity)
     private fun setStrumSeekbarsEnabled(enabled: Boolean) {
-        val alpha = if (enabled) 1.0f else 0.45f
-        binding.upStrokeOffsetSeekBar.isEnabled = enabled
-        binding.upStrokeOffsetLabel.alpha = alpha
-
-        binding.upStringStaggerSeekBar.isEnabled = enabled
-        binding.upStringStaggerLabel.alpha = alpha
-
-        binding.downStrokeOffsetSeekBar.isEnabled = enabled
-        binding.downStrokeOffsetLabel.alpha = alpha
-
-        binding.downStringStaggerSeekBar.isEnabled = enabled
-        binding.downStringStaggerLabel.alpha = alpha
+        // This method is no longer needed but kept for compatibility
     }
 
     private fun setupListeners() {

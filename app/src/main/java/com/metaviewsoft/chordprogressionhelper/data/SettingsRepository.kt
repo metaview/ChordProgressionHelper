@@ -19,6 +19,7 @@ class SettingsRepository(context: Context) {
         // Sound subgroup keys
         const val KEY_DRUM_LEVEL = "key_drum_level"
         const val KEY_SOLO_LEVEL = "key_solo_level"  // Solo Pattern Lautstärke
+        const val KEY_STRUM_LEVEL = "key_strum_level"  // Strumming Lautstärke
         const val KEY_ENVELOPE_SCALE = "key_envelope_scale"
         const val KEY_HIHAT_HIGHPASS = "key_hihat_highpass"
         const val KEY_STRUM_PRESET = "key_strum_preset"
@@ -40,6 +41,11 @@ class SettingsRepository(context: Context) {
         // Down-stroke equivalents
         const val KEY_DOWN_STROKE_OFFSET_MS = "key_down_stroke_offset_ms"
         const val KEY_DOWN_STRING_STAGGER_MS = "key_down_string_stagger_ms"
+        // Shuffle rhythm factor (adjustable)
+        const val KEY_SHUFFLE_FACTOR = "key_shuffle_factor"
+        // Crunch/Overdrive gain levels (separate for strum and solo)
+        const val KEY_STRUM_CRUNCH_LEVEL = "key_strum_crunch_level"
+        const val KEY_SOLO_CRUNCH_LEVEL = "key_solo_crunch_level"
     }
 
     // Chord Preview setting
@@ -107,6 +113,11 @@ class SettingsRepository(context: Context) {
         set(value) = prefs.edit { putFloat(KEY_SOLO_LEVEL, value) }
 
     @Suppress("unused")
+    var strumLevel: Float
+        get() = prefs.getFloat(KEY_STRUM_LEVEL, 1.0f)  // Default 1.0 für normale Lautstärke
+        set(value) = prefs.edit { putFloat(KEY_STRUM_LEVEL, value) }
+
+    @Suppress("unused")
     var envelopeScale: Float
         get() = prefs.getFloat(KEY_ENVELOPE_SCALE, 1.0f)
         set(value) = prefs.edit { putFloat(KEY_ENVELOPE_SCALE, value) }
@@ -138,6 +149,21 @@ class SettingsRepository(context: Context) {
     var soundGainPiano: Float
         get() = prefs.getFloat(KEY_SOUND_GAIN_PIANO, 1.0f)
         set(value) = prefs.edit { putFloat(KEY_SOUND_GAIN_PIANO, value.coerceIn(0.0f, 2.0f)) }
+
+    // Shuffle rhythm factor setting
+    var shuffleFactor: Float
+        get() = prefs.getFloat(KEY_SHUFFLE_FACTOR, 0.0f) // Default to 0.0 (no shuffle)
+        set(value) = prefs.edit { putFloat(KEY_SHUFFLE_FACTOR, value.coerceIn(0.0f, 2.0f)) }
+
+    // Crunch/Overdrive gain levels (separate for strum and solo)
+    // Range 0.0 (no crunch) to 2.0 (heavy crunch), default 1.0 (medium)
+    var strumCrunchLevel: Float
+        get() = prefs.getFloat(KEY_STRUM_CRUNCH_LEVEL, 1.0f)
+        set(value) = prefs.edit { putFloat(KEY_STRUM_CRUNCH_LEVEL, value.coerceIn(0.0f, 2.0f)) }
+
+    var soloCrunchLevel: Float
+        get() = prefs.getFloat(KEY_SOLO_CRUNCH_LEVEL, 1.0f)
+        set(value) = prefs.edit { putFloat(KEY_SOLO_CRUNCH_LEVEL, value.coerceIn(0.0f, 2.0f)) }
 
     // Allow external registration for preference change notifications
     fun registerChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {

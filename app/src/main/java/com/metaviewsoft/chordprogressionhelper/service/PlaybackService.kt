@@ -104,6 +104,7 @@ class PlaybackService : Service() {
         // Initialize audioPlayer live params from settings
         audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
         audioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
+        audioPlayer.strumLevel = settingsRepository.strumLevel.toDouble()
         audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
         audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
         audioPlayer.voicePreset = settingsRepository.strumPreset
@@ -113,11 +114,17 @@ class PlaybackService : Service() {
         try { audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs } catch (_: Exception) {}
         try { audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs } catch (_: Exception) {}
         try { audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs } catch (_: Exception) {}
+        // Initialize shuffle factor from settings
+        audioPlayer.shuffleFactor = settingsRepository.shuffleFactor.toFloat()
+        // Initialize crunch levels from settings
+        audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
+        audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
 
         prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
                 SettingsRepository.KEY_DRUM_LEVEL -> audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
                 SettingsRepository.KEY_SOLO_LEVEL -> audioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
+                SettingsRepository.KEY_STRUM_LEVEL -> audioPlayer.strumLevel = settingsRepository.strumLevel.toDouble()
                 SettingsRepository.KEY_ENVELOPE_SCALE -> audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
                 SettingsRepository.KEY_HIHAT_HIGHPASS -> audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
                 SettingsRepository.KEY_STRUM_PRESET -> audioPlayer.voicePreset = settingsRepository.strumPreset
@@ -126,7 +133,9 @@ class PlaybackService : Service() {
                 SettingsRepository.KEY_STRING_STAGGER_MS -> audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs
                 SettingsRepository.KEY_DOWN_STROKE_OFFSET_MS -> audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs
                 SettingsRepository.KEY_DOWN_STRING_STAGGER_MS -> audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs
-
+                SettingsRepository.KEY_SHUFFLE_FACTOR -> audioPlayer.shuffleFactor = settingsRepository.shuffleFactor.toFloat()
+                SettingsRepository.KEY_STRUM_CRUNCH_LEVEL -> audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
+                SettingsRepository.KEY_SOLO_CRUNCH_LEVEL -> audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
             }
         }
         settingsRepository.registerChangeListener(prefsListener)
@@ -194,9 +203,13 @@ class PlaybackService : Service() {
         if (intent?.action == ACTION_UPDATE_PARAMS) {
              try {
                  val drum = intent.getFloatExtra(EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
+                 val solo = intent.getFloatExtra(EXTRA_SOLO_LEVEL, settingsRepository.soloLevel)
+                 val strum = intent.getFloatExtra(EXTRA_STRUM_LEVEL, settingsRepository.strumLevel)
                  val env = intent.getFloatExtra(EXTRA_ENVELOPE_SCALE, settingsRepository.envelopeScale)
                  val hh = intent.getFloatExtra(EXTRA_HIHAT_HIGHPASS, settingsRepository.hiHatHighpass)
                  audioPlayer.drumLevel = drum.toDouble()
+                 audioPlayer.soloLevel = solo.toDouble()
+                 audioPlayer.strumLevel = strum.toDouble()
                  audioPlayer.envelopeScale = env.toDouble()
                  audioPlayer.hiHatHighpass = hh.toDouble()
                 // strum timing params (ms)
@@ -204,6 +217,9 @@ class PlaybackService : Service() {
                 try { audioPlayer.upStringStaggerMs = intent.getIntExtra(EXTRA_UP_STRING_STAGGER_MS, settingsRepository.stringStaggerMs) } catch (_: Exception) {}
                 try { audioPlayer.downStrokeOffsetMs = intent.getIntExtra(EXTRA_DOWN_STROKE_OFFSET_MS, settingsRepository.downStrokeOffsetMs) } catch (_: Exception) {}
                 try { audioPlayer.downStringStaggerMs = intent.getIntExtra(EXTRA_DOWN_STRING_STAGGER_MS, settingsRepository.downStringStaggerMs) } catch (_: Exception) {}
+                // crunch level params
+                try { audioPlayer.strumCrunchLevel = intent.getFloatExtra(EXTRA_STRUM_CRUNCH_LEVEL, settingsRepository.strumCrunchLevel) } catch (_: Exception) {}
+                try { audioPlayer.soloCrunchLevel = intent.getFloatExtra(EXTRA_SOLO_CRUNCH_LEVEL, settingsRepository.soloCrunchLevel) } catch (_: Exception) {}
              } catch (e: Exception) {
                  Log.w(TAG, "Failed to update params from intent: ${e.message}")
              }
@@ -722,12 +738,16 @@ class PlaybackService : Service() {
         const val ACTION_UPDATE_PROGRESSION = "com.metaview.chordprogressionhelper.action.UPDATE_PROGRESSION"
 
         const val EXTRA_DRUM_LEVEL = "com.metaview.chordprogressionhelper.extra.DRUM_LEVEL"
+        const val EXTRA_SOLO_LEVEL = "com.metaview.chordprogressionhelper.extra.SOLO_LEVEL"
+        const val EXTRA_STRUM_LEVEL = "com.metaview.chordprogressionhelper.extra.STRUM_LEVEL"
         const val EXTRA_ENVELOPE_SCALE = "com.metaview.chordprogressionhelper.extra.ENVELOPE_SCALE"
         const val EXTRA_HIHAT_HIGHPASS = "com.metaview.chordprogressionhelper.extra.HIHAT_HIGHPASS"
         const val EXTRA_UP_STROKE_OFFSET_MS = "com.metaview.chordprogressionhelper.extra.UP_STROKE_OFFSET_MS"
         const val EXTRA_UP_STRING_STAGGER_MS = "com.metaview.chordprogressionhelper.extra.UP_STRING_STAGGER_MS"
         const val EXTRA_DOWN_STROKE_OFFSET_MS = "com.metaview.chordprogressionhelper.extra.DOWN_STROKE_OFFSET_MS"
         const val EXTRA_DOWN_STRING_STAGGER_MS = "com.metaview.chordprogressionhelper.extra.DOWN_STRING_STAGGER_MS"
+        const val EXTRA_STRUM_CRUNCH_LEVEL = "com.metaview.chordprogressionhelper.extra.STRUM_CRUNCH_LEVEL"
+        const val EXTRA_SOLO_CRUNCH_LEVEL = "com.metaview.chordprogressionhelper.extra.SOLO_CRUNCH_LEVEL"
 
         const val EXTRA_PROGRESSION = "com.metaview.chordprogressionhelper.extra.PROGRESSION"
         const val EXTRA_PROGRESSION_PATH = "com.metaview.chordprogressionhelper.extra.PROGRESSION_PATH"

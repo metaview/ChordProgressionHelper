@@ -71,6 +71,7 @@
     <!-- Settings format strings -->
     <string name="drum_level_format">Drum Level: %1$d%%</string>
     <string name="solo_level_format">Solo Level: %1$d%%</string>
+    <string name="strum_level_format">Strum Level: %1$d%%</string>
     <string name="envelope_scale_format">Envelope Scale: %1$d%%</string>
     <string name="hihat_highpass_format">HiHat Highpass: %1$d%%</string>
     <string name="notification_playing">Playing</string>
@@ -125,4 +126,28 @@
     <string name="octave_current">Octave %1$d</string>
     <string name="rest">Rest</string>
     <string name="let_ring">Let Ring</string>
+    <string name="up_stroke_offset">Up Stroke Offset: %1$dms</string>
+    <string name="up_string_stagger">Up String Stagger: %1$dms</string>
+    <string name="down_stroke_offset">Down Stroke Offset: %1$dms</string>
+    <string name="down_string_stagger">Down String Stagger: %1$dms</string>
+    <string name="shuffle_factor_format">Shuffle Factor: %1$d%%</string>
+
+    <!-- Crunch level format strings -->
+    <string name="strum_crunch_level_format">Crunch Level: %1$d%%</string>
+    <string name="solo_crunch_level_format">Crunch Level: %1$d%%</string>
+
+    <!-- Settings UI strings -->
+    <string name="instrument_label">Instrument</string>
+    <string name="volume_label">Volume</string>
+    <string name="timing_settings_button">Timing Settings…</string>
+    <string name="drums_title">Drums</string>
+    <string name="advanced_settings_title">Advanced Settings</string>
+    <string name="strumming_timing_title">Strumming Timing Parameters</string>
+    <string name="reset_to_defaults">Reset to Defaults</string>
+
+    <!-- Transpose dialog -->
+    <string name="transpose_title">Transpose Progression?</string>
+    <string name="transpose_message">You are changing the key from %1$s to %2$s.\n\nDo you want to transpose all chords and solo notes to the new key?</string>
+    <string name="transpose_yes">Yes, transpose</string>
+    <string name="transpose_no">No, just change key</string>
 </resources>

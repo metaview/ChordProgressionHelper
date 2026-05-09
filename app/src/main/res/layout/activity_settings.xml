@@ -112,7 +112,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Sound group -->
+        <!-- Solo group -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -130,173 +130,130 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/sound_label"
+                    android:text="@string/solo_instrument_label"
                     android:textStyle="bold"
+                    android:textSize="18sp"
                     android:layout_marginBottom="8dp" />
 
                 <TextView
-                    android:id="@+id/drumLevelLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/drum_level_format"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/instrument_label"
+                    android:textStyle="bold" />
 
-                <SeekBar
-                    android:id="@+id/drumLevelSeekBar"
+                <RadioGroup
+                    android:id="@+id/soloPresetRadioGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:max="200"
-                    android:progress="100"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp" />
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                    <RadioButton
+                        android:id="@+id/soloPresetClean"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="12dp"
+                        android:text="@string/preset_clean" />
+
+                    <RadioButton
+                        android:id="@+id/soloPresetOverdrive"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="12dp"
+                        android:text="@string/preset_overdrive" />
+
+                    <RadioButton
+                        android:id="@+id/soloPresetPiano"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preset_piano" />
+
+                </RadioGroup>
 
                 <TextView
                     android:id="@+id/soloLevelLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/solo_level_format"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="4dp"
+                    android:text="@string/solo_level_format" />
 
                 <SeekBar
                     android:id="@+id/soloLevelSeekBar"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
                     android:max="200"
-                    android:progress="150"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp" />
+                    android:progress="150" />
 
                 <TextView
-                    android:id="@+id/envelopeScaleLabel"
+                    android:id="@+id/soloCrunchLevelLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/envelope_scale_format"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="12dp"
+                    android:text="@string/solo_crunch_level_format" />
 
                 <SeekBar
-                    android:id="@+id/envelopeScaleSeekBar"
+                    android:id="@+id/soloCrunchLevelSeekBar"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
                     android:max="200"
-                    android:progress="100"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp" />
+                    android:progress="100" />
 
-                <TextView
-                    android:id="@+id/hihatHighpassLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/hihat_highpass_format"
-                    android:layout_marginTop="4dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
-                <SeekBar
-                    android:id="@+id/hihatHighpassSeekBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="200"
-                    android:progress="100"
-                    android:layout_marginTop="4dp" />
+        <!-- Strumming group -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="12dp"
+            app:cardUseCompatPadding="true">
 
-                <!-- Strumming timing: up/down offsets and staggers -->
-                <TextView
-                    android:id="@+id/upStrokeOffsetLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Up Stroke Offset: 10ms"
-                    android:layout_marginTop="8dp" />
-
-                <SeekBar
-                    android:id="@+id/upStrokeOffsetSeekBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="200"
-                    android:progress="30"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp" />
-
-                <TextView
-                    android:id="@+id/upStringStaggerLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Up String Stagger: 8ms"
-                    android:layout_marginTop="8dp" />
-
-                <SeekBar
-                    android:id="@+id/upStringStaggerSeekBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="100"
-                    android:progress="8"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp" />
-
-                <TextView
-                    android:id="@+id/downStrokeOffsetLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Down Stroke Offset: 0ms"
-                    android:layout_marginTop="8dp" />
-
-                <SeekBar
-                    android:id="@+id/downStrokeOffsetSeekBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="200"
-                    android:progress="0"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp" />
-
-                <TextView
-                    android:id="@+id/downStringStaggerLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Down String Stagger: 0ms"
-                    android:layout_marginTop="8dp" />
-
-                <SeekBar
-                    android:id="@+id/downStringStaggerSeekBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="100"
-                    android:progress="0"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="8dp" />
-
-                <Button
-                    android:id="@+id/resetSoundButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="12dp"
-                    android:text="@string/reset_sound_label" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/strumming_instrument_label"
                     android:textStyle="bold"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="4dp" />
+                    android:textSize="18sp"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/instrument_label"
+                    android:textStyle="bold" />
 
                 <RadioGroup
                     android:id="@+id/soundPresetRadioGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
 
                     <RadioButton
                         android:id="@+id/soundPresetClean"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/preset_clean"
-                        android:layout_marginEnd="12dp" />
+                        android:layout_marginEnd="12dp"
+                        android:text="@string/preset_clean" />
 
                     <RadioButton
                         android:id="@+id/soundPresetOverdrive"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/preset_overdrive"
-                        android:layout_marginEnd="12dp" />
+                        android:layout_marginEnd="12dp"
+                        android:text="@string/preset_overdrive" />
 
                     <RadioButton
                         android:id="@+id/soundPresetPiano"
@@ -307,40 +264,134 @@
                 </RadioGroup>
 
                 <TextView
+                    android:id="@+id/strumLevelLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/solo_instrument_label"
-                    android:textStyle="bold"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="4dp" />
+                    android:layout_marginTop="4dp"
+                    android:text="@string/strum_level_format" />
 
-                <RadioGroup
-                    android:id="@+id/soloPresetRadioGroup"
+                <SeekBar
+                    android:id="@+id/strumLevelSeekBar"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="12dp"
+                    android:max="200"
+                    android:progress="100" />
 
-                    <RadioButton
-                        android:id="@+id/soloPresetClean"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/preset_clean"
-                        android:layout_marginEnd="12dp" />
+                <TextView
+                    android:id="@+id/strumCrunchLevelLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/strum_crunch_level_format" />
 
-                    <RadioButton
-                        android:id="@+id/soloPresetOverdrive"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/preset_overdrive"
-                        android:layout_marginEnd="12dp" />
+                <SeekBar
+                    android:id="@+id/strumCrunchLevelSeekBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="12dp"
+                    android:max="200"
+                    android:progress="100" />
 
-                    <RadioButton
-                        android:id="@+id/soloPresetPiano"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/preset_piano" />
+                <Button
+                    android:id="@+id/strummingTimingButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/timing_settings_button" />
 
-                </RadioGroup>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Drums group -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="12dp"
+            app:cardUseCompatPadding="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/drums_title"
+                    android:textStyle="bold"
+                    android:textSize="18sp"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:id="@+id/drumLevelLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/drum_level_format" />
+
+                <SeekBar
+                    android:id="@+id/drumLevelSeekBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:max="200"
+                    android:progress="100" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Advanced Sound Settings group -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            app:cardUseCompatPadding="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/advanced_settings_title"
+                    android:textStyle="bold"
+                    android:textSize="18sp" />
+
+
+                <!-- Shuffle Factor -->
+                <TextView
+                    android:id="@+id/shuffleFactorLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/shuffle_factor_format" />
+
+                <SeekBar
+                    android:id="@+id/shuffleFactorSeekBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp"
+                    android:max="200"
+                    android:progress="0" />
+
+                <Button
+                    android:id="@+id/resetSoundButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/reset_sound_label" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

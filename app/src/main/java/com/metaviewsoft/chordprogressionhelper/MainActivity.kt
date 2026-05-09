@@ -1372,6 +1372,9 @@ class MainActivity : AppCompatActivity() {
         }
         viewModel.showDeleteConfirmation.observe(this) { it?.let { showDeleteConfirmationDialog(it) } }
         viewModel.showNewProgressionConfirmation.observe(this) { if (it == true) showNewProgressionConfirmationDialog() }
+        viewModel.showTransposeConfirmation.observe(this) { newKey ->
+            newKey?.let { showTransposeConfirmationDialog(it) }
+        }
     }
 
     // Small animation: scale button and crossfade icon when play/pause toggles
@@ -1427,6 +1430,25 @@ class MainActivity : AppCompatActivity() {
                 viewModel.onNewProgressionConfirmationHandled()
             }
             .setOnDismissListener { viewModel.onNewProgressionConfirmationHandled() }
+            .create()
+            .apply {
+                setOnShowListener { styleDialogButtons(this) }
+                show()
+            }
+    }
+
+    private fun showTransposeConfirmationDialog(newKey: Key) {
+        val oldKey = viewModel.progression.key
+        MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.transpose_title))
+            .setMessage(getString(R.string.transpose_message, oldKey.displayName, newKey.displayName))
+            .setPositiveButton(getString(R.string.transpose_yes)) { _, _ ->
+                viewModel.confirmTranspose(newKey, transpose = true)
+            }
+            .setNegativeButton(getString(R.string.transpose_no)) { _, _ ->
+                viewModel.confirmTranspose(newKey, transpose = false)
+            }
+            .setOnDismissListener { viewModel.onTransposeConfirmationHandled() }
             .create()
             .apply {
                 setOnShowListener { styleDialogButtons(this) }

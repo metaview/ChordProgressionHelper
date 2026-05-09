@@ -7,7 +7,8 @@ package de.metaviewsoft.chordprogressionhelper.model
 data class ProgressionTemplate(
     val name: String,
     val degrees: List<ScaleDegree>, // Liste von Stufen (I, ii, iii, IV, V, vi, vii°)
-    val durations: List<Int> // Liste von Dauern in viertel Noten
+    val durations: List<Int>, // Liste von Dauern in viertel Noten
+    val shuffleFactor: Float = 0.0f // Shuffle-Rhythmus: 0.0 = straight, 1.0 = swing, 2.0 = extreme
 ) {
     fun getDescription(key: Key): String {
         // Generiere die Akkordnamen für die aktuelle Tonart
@@ -103,7 +104,8 @@ object ProgressionTemplates {
                     ScaleDegree.IV, ScaleDegree.IV, ScaleDegree.I, ScaleDegree.I,
                     ScaleDegree.V, ScaleDegree.IV, ScaleDegree.I, ScaleDegree.V
                 ),
-                durations = listOf(4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4)
+                durations = listOf(4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4),
+                shuffleFactor = 1.0f // Blues mit Swing-Rhythmus
             ),
 
             // 3. Jazz ii-V-I
@@ -209,6 +211,9 @@ object ProgressionTemplates {
         val progression = ChordProgression()
         progression.key = key
         progression.measures.clear()
+
+        // Verwende den Shuffle-Faktor aus dem Template
+        progression.shuffleFactor = template.shuffleFactor
 
         var measureIdx = 1
         var chordIdx = 0
