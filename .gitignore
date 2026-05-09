@@ -30,3 +30,4 @@ build_errors.txt
 build_log_temp.txt
 progression_for_test.json
 /scripts
+.bundle/
