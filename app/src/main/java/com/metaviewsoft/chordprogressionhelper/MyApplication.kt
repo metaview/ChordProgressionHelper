@@ -4,10 +4,16 @@ import android.app.Activity
 import android.app.Application
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionRepository
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 
-class MyApplication : Application() {
+class MyApplication : Application(), ViewModelStoreOwner {
+
+    private val appViewModelStore = ViewModelStore()
+
+    override val viewModelStore: ViewModelStore get() = appViewModelStore
 
     val progressionRepository: ProgressionRepository by lazy {
         ProgressionRepository(this)

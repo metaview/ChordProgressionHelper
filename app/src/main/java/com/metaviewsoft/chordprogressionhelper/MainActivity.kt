@@ -24,6 +24,7 @@ import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.PopupMenu
@@ -37,14 +38,17 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.documentfile.provider.DocumentFile
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import de.metaviewsoft.chordprogressionhelper.databinding.ActivityMainBinding
+import de.metaviewsoft.chordprogressionhelper.databinding.DialogSongBinding
 import de.metaviewsoft.chordprogressionhelper.databinding.DialogSaveProgressionBinding
 import de.metaviewsoft.chordprogressionhelper.model.Key
 import de.metaviewsoft.chordprogressionhelper.model.Note
@@ -58,6 +62,7 @@ import de.metaviewsoft.chordprogressionhelper.model.ProgressionTemplates
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.util.PreviewCoordinator
 import de.metaviewsoft.chordprogressionhelper.ui.ChordAdapter
+import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.MeasureAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.ProgressionViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.TemplateAdapter
@@ -79,6 +84,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var relatedChordAdapter: ChordAdapter
     private lateinit var borrowedMinorChordAdapter: ChordAdapter
     private lateinit var borrowedMajorChordAdapter: ChordAdapter
+    private lateinit var songSectionSpinnerAdapter: ArrayAdapter<String>
     private lateinit var measureAdapter: MeasureAdapter
     private lateinit var itemTouchHelper: ItemTouchHelper
     private lateinit var strumPatternLauncher: ActivityResultLauncher<Intent>
@@ -106,6 +112,9 @@ class MainActivity : AppCompatActivity() {
     private var areExtraChordsExpanded = false
     private var lastScrolledMeasure = -1
     private var isSyncingBorrowedScroll = false
+    // True only while the user is physically touching the Spinner — prevents programmatic
+    // setSelection() calls from triggering selectSongSection() via onItemSelected.
+    private var userTouchingSpinner = false
 
     private var playbackService: PlaybackService? = null
     private var isBound = false
@@ -431,6 +440,24 @@ class MainActivity : AppCompatActivity() {
         askForNotificationPermission()
     }
 
+    override fun onResume() {
+        super.onResume()
+        PlaybackService.stop(this)
+        SongActivity.selectedProgression?.let { prog ->
+            if (prog === viewModel.progression) return@let  // already current, nothing to do
+            val idx = viewModel.findSectionIndexForProgression(prog)
+            viewModel.selectSongSection(idx) // no-op if already current index
+            viewModel.forceRefreshCurrentProgression() // re-emits all LiveData for current section
+            binding.root.post {
+                // run after LiveData observers have updated the spinner adapter
+                val count = songSectionSpinnerAdapter.count
+                if (idx in 0 until count) {
+                    binding.songSectionSpinner.setSelection(idx)
+                }
+            }
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         val intent = Intent(this, PlaybackService::class.java)
@@ -455,30 +482,25 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupControls() {
-        val keyAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, Key.entries.map { it.displayName })
-        keyAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        binding.keySpinner.adapter = keyAdapter
-        binding.keySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+        songSectionSpinnerAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mutableListOf<String>())
+        songSectionSpinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.songSectionSpinner.adapter = songSectionSpinnerAdapter
+        binding.songSectionSpinner.setOnTouchListener { _, _ ->
+            userTouchingSpinner = true
+            false // pass event to spinner
+        }
+        binding.songSectionSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val selectedKey = Key.entries[position]
-                if (viewModel.key.value != selectedKey) { viewModel.setKey(selectedKey) }
+                if (userTouchingSpinner) {
+                    userTouchingSpinner = false
+                    viewModel.selectSongSection(position)
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        binding.bpmEditText.setText(viewModel.tempo.value?.toString())
-        binding.bpmEditText.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) { s?.toString()?.toIntOrNull()?.let { viewModel.setTempo(it) } }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
-
-        binding.bpmUpButton.setOnTouchListener(createTempoButtonTouchListener(true))
-        binding.bpmUpButton.setOnClickListener(createTempoButtonClickListener(true))
-        binding.bpmDownButton.setOnTouchListener(createTempoButtonTouchListener(false))
-        binding.bpmDownButton.setOnClickListener(createTempoButtonClickListener(false))
-
         binding.menuButton.setOnClickListener { showMenu(it) }
+        binding.songDialogButton.setOnClickListener { showSongDialog() }
         binding.playPauseButton.setOnClickListener {
              Log.d(TAG, "playPauseButton clicked: isBound=$isBound, playbackService=$playbackService, isPlaying=${playbackService?.isPlaying?.value}")
              // Optimistically animate immediately for snappy UX
@@ -561,6 +583,12 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    private fun showSongDialog() {
+        PlaybackService.stop(this)
+        SongActivity.selectedProgression = viewModel.progression
+        startActivity(Intent(this, SongActivity::class.java))
+    }
+
     private fun showLoadDialog() {
         val savedNames = viewModel.getSavedProgressionNames()
         if (savedNames.isEmpty()) {
@@ -600,6 +628,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(getString(R.string.ok)) { _, _ ->
                 if (selectedPosition >= 0) {
                     viewModel.loadProgression(items[selectedPosition].first)
+                    SongActivity.selectedProgression = viewModel.progression
                 }
             }
             .setNegativeButton(getString(R.string.cancel), null)
@@ -826,41 +855,6 @@ class MainActivity : AppCompatActivity() {
         }
      }
 
-    private fun createTempoButtonClickListener(increment: Boolean): View.OnClickListener {
-        return View.OnClickListener {
-            if (increment) {
-                viewModel.incrementTempo()
-            } else {
-                viewModel.decrementTempo()
-            }
-        }
-    }
-
-    private fun createTempoButtonTouchListener(increment: Boolean): View.OnTouchListener {
-        var job: Job? = null
-        return View.OnTouchListener { view, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    job?.cancel()
-                    view.performClick()
-                    job = lifecycleScope.launch {
-                        delay(500)
-                        while (job?.isActive == true) {
-                            if (increment) {
-                                viewModel.incrementTempo()
-                            } else {
-                                viewModel.decrementTempo()
-                            }
-                            delay(100)
-                        }
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { job?.cancel(); true }
-                else -> false
-            }
-        }
-    }
 
     private fun setupRecyclerViews() {
         chordAdapter = ChordAdapter({ chord ->
@@ -1004,6 +998,9 @@ class MainActivity : AppCompatActivity() {
                         intent.putExtra(DrumPatternActivity.EXTRA_ALL_PATTERNS_JSON, arrJson)
                     }
                 } catch (_: Exception) {}
+                 intent.putExtra("extra_key", viewModel.key.value?.name ?: viewModel.progression.key.name)
+                 intent.putExtra("extra_mode", viewModel.progression.mode.name)
+                 intent.putExtra("extra_tempo", viewModel.tempo.value ?: viewModel.progression.tempo)
                  drumPatternLauncher.launch(intent)
             },
             onPianoPatternClick = { index ->
@@ -1024,7 +1021,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     intent.putExtra(SoloPatternActivity.EXTRA_KEY, viewModel.progression.key)
                     intent.putExtra(SoloPatternActivity.EXTRA_MODE, viewModel.progression.mode)
-                    intent.putExtra(SoloPatternActivity.EXTRA_TEMPO, viewModel.progression.tempo)
+                    intent.putExtra(SoloPatternActivity.EXTRA_TEMPO, viewModel.tempo.value ?: viewModel.progression.tempo)
                 } catch (e: Exception) {
                     Log.w("MainActivity", "Failed to pass preview context to PianoPatternActivity: ${e.message}")
                 }
@@ -1287,9 +1284,18 @@ class MainActivity : AppCompatActivity() {
 
     @OptIn(InternalSerializationApi::class)
     private fun observeViewModel() {
-        viewModel.key.observe(this) { key ->
-            if (binding.keySpinner.selectedItem.toString() != key.displayName) {
-                binding.keySpinner.setSelection(Key.entries.indexOf(key))
+        viewModel.songSectionNames.observe(this) { names ->
+            songSectionSpinnerAdapter.clear()
+            songSectionSpinnerAdapter.addAll(names)
+            songSectionSpinnerAdapter.notifyDataSetChanged()
+            val currentIndex = viewModel.selectedSongSectionIndex.value ?: 0
+            if (currentIndex in 0 until songSectionSpinnerAdapter.count) {
+                binding.songSectionSpinner.setSelection(currentIndex)
+            }
+        }
+        viewModel.selectedSongSectionIndex.observe(this) { index ->
+            if (index in 0 until songSectionSpinnerAdapter.count && binding.songSectionSpinner.selectedItemPosition != index) {
+                binding.songSectionSpinner.setSelection(index)
             }
         }
         viewModel.scaleDegreeChords.observe(this) { chordAdapter.submitList(it) }
@@ -1324,8 +1330,13 @@ class MainActivity : AppCompatActivity() {
             binding.borrowedMajorLabel.text = relativeMinorRootNote.displayName + "m"
         }
         viewModel.measures.observe(this) { measures ->
+            val oldFirstId = (measureAdapter.currentList.firstOrNull() as? MeasureAdapter.DisplayableItem.MeasureItem)?.measure?.id
+            val newFirstId = measures.firstOrNull()?.id
+            val progressionChanged = oldFirstId != newFirstId
             val items = measures.map { MeasureAdapter.DisplayableItem.MeasureItem(it) } + MeasureAdapter.DisplayableItem.AddMeasureItem
-            measureAdapter.submitList(items)
+            measureAdapter.submitList(items) {
+                if (progressionChanged) binding.measureRecyclerView.scrollToPosition(0)
+            }
         }
         viewModel.selectedChord.observe(this) { chord ->
             chordAdapter.setSelectedChord(chord)
@@ -1364,10 +1375,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         viewModel.tempo.observe(this) { newTempo ->
-            if (binding.bpmEditText.text.toString() != newTempo.toString()) {
-                binding.bpmEditText.setText(newTempo.toString())
-            }
-            // Apply tempo to playback service immediately so users hear changes while adjusting BPM
             playbackService?.setTempo(newTempo)
         }
         viewModel.showDeleteConfirmation.observe(this) { it?.let { showDeleteConfirmationDialog(it) } }
@@ -1390,28 +1397,33 @@ class MainActivity : AppCompatActivity() {
 
     @OptIn(InternalSerializationApi::class)
     private fun observeServiceState() {
+        val service = playbackService ?: return
         lifecycleScope.launch {
-            playbackService?.isPlaying?.collectLatest { isPlaying ->
-                // Animate icon change
-                animatePlayPause(isPlaying)
-                 // Stop button is always visible; disable (greyed) when not playing
-                 binding.stopButton.isEnabled = isPlaying
-                 binding.stopButton.alpha = if (isPlaying) 1.0f else 0.4f
-                 // If playback stopped, clear any dialog preview flag so UI state stays consistent
-                 if (!isPlaying) {
-                     isDialogPreviewActive = false
-                 }
-              }
-          }
-        lifecycleScope.launch {
-            playbackService?.currentPlaybackPosition?.collectLatest { position ->
-                measureAdapter.setPlaybackPosition(position)
-                position?.let { (measureIndex, _) ->
-                    if (measureIndex >= 0 && measureIndex != lastScrolledMeasure && measureIndex < measureAdapter.itemCount) {
-                        binding.measureRecyclerView.smoothScrollToPosition(measureIndex)
-                        lastScrolledMeasure = measureIndex
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                launch {
+                    service.isPlaying.collectLatest { isPlaying ->
+                        // Animate icon change
+                        animatePlayPause(isPlaying)
+                        // Stop button is always visible; disable (greyed) when not playing
+                        binding.stopButton.isEnabled = isPlaying
+                        binding.stopButton.alpha = if (isPlaying) 1.0f else 0.4f
+                        // If playback stopped, clear any dialog preview flag so UI state stays consistent
+                        if (!isPlaying) {
+                            isDialogPreviewActive = false
+                        }
                     }
-                } ?: run { lastScrolledMeasure = -1 }
+                }
+                launch {
+                    service.currentPlaybackPosition.collectLatest { position ->
+                        measureAdapter.setPlaybackPosition(position)
+                        position?.let { (measureIndex, _) ->
+                            if (measureIndex >= 0 && measureIndex != lastScrolledMeasure && measureIndex < measureAdapter.itemCount) {
+                                binding.measureRecyclerView.smoothScrollToPosition(measureIndex)
+                                lastScrolledMeasure = measureIndex
+                            }
+                        } ?: run { lastScrolledMeasure = -1 }
+                    }
+                }
             }
         }
     }
@@ -1463,6 +1475,10 @@ class MainActivity : AppCompatActivity() {
         val bottomFade = dialogView.findViewById<View>(R.id.bottomFade)
         val cancelButton = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.cancelButton)
         val continueButton = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.continueButton)
+        val keySpinner = dialogView.findViewById<android.widget.Spinner>(R.id.newDialogKeySpinner)
+        val bpmEditText = dialogView.findViewById<android.widget.EditText>(R.id.newDialogBpmEditText)
+        val bpmUpButton = dialogView.findViewById<android.widget.ImageButton>(R.id.newDialogBpmUpButton)
+        val bpmDownButton = dialogView.findViewById<android.widget.ImageButton>(R.id.newDialogBpmDownButton)
 
         // Liste mit allen Templates + "Empty" am Anfang
         val templates = mutableListOf<ProgressionTemplate?>(null)
@@ -1473,26 +1489,59 @@ class MainActivity : AppCompatActivity() {
             .setView(dialogView)
             .create()
 
-        // Hole die aktuelle Tonart aus dem ViewModel
-        val currentKey = viewModel.key.value ?: Key.C
         val settingsRepository = (application as MyApplication).settingsRepository
         val isPreviewEnabled = settingsRepository.isTemplatePreviewEnabled
+
+        // Startwerte aus Settings-Panel
+        var selectedKey = Key.entries.find { it.name == settingsRepository.defaultKeyName } ?: Key.C
+        var selectedTempo = settingsRepository.defaultBpm
+
+        val keyAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, Key.entries.map { it.displayName })
+        keyAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        keySpinner.adapter = keyAdapter
+        keySpinner.setSelection(Key.entries.indexOf(selectedKey))
+
+        bpmEditText.setText(selectedTempo.toString())
+        bpmUpButton.setOnClickListener {
+            selectedTempo = (selectedTempo + 1).coerceIn(60, 240)
+            bpmEditText.setText(selectedTempo.toString())
+        }
+        bpmDownButton.setOnClickListener {
+            selectedTempo = (selectedTempo - 1).coerceIn(60, 240)
+            bpmEditText.setText(selectedTempo.toString())
+        }
 
         // Variable für das aktuell ausgewählte Template
         var selectedTemplate: ProgressionTemplate? = null
 
-        val adapter = TemplateAdapter(templates, currentKey) { template ->
-            selectedTemplate = template
-            continueButton.isEnabled = true
+        fun bindTemplateAdapter() {
+            val adapter = TemplateAdapter(templates, selectedKey) { template ->
+                selectedTemplate = template
+                continueButton.isEnabled = true
 
-            // Preview abspielen, wenn aktiviert
-            if (isPreviewEnabled) {
-                previewTemplate(template, currentKey)
+                if (isPreviewEnabled) {
+                    val bpm = bpmEditText.text?.toString()?.toIntOrNull()?.coerceIn(60, 240) ?: selectedTempo
+                    selectedTempo = bpm
+                    previewTemplate(template, selectedKey, selectedTempo)
+                }
             }
+            recyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+            recyclerView.adapter = adapter
         }
 
-        recyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
-        recyclerView.adapter = adapter
+        bindTemplateAdapter()
+
+        keySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                selectedKey = Key.entries[position]
+                bindTemplateAdapter()
+                if (isPreviewEnabled && selectedTemplate != null) {
+                    previewTemplate(selectedTemplate, selectedKey, selectedTempo)
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         // Continue-Button initial deaktivieren
         continueButton.isEnabled = false
@@ -1502,46 +1551,37 @@ class MainActivity : AppCompatActivity() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
 
-                // Prüfe, ob wir am Anfang sind
                 val canScrollUp = recyclerView.canScrollVertically(-1)
                 topFade.visibility = if (canScrollUp) View.VISIBLE else View.GONE
 
-                // Prüfe, ob wir am Ende sind
                 val canScrollDown = recyclerView.canScrollVertically(1)
                 bottomFade.visibility = if (canScrollDown) View.VISIBLE else View.GONE
             }
         })
 
-        // Initiale Sichtbarkeit setzen
         recyclerView.post {
             topFade.visibility = View.GONE
             bottomFade.visibility = if (recyclerView.canScrollVertically(1)) View.VISIBLE else View.GONE
         }
 
-        // Button-Listener
         cancelButton.setOnClickListener {
-            // Preview stoppen
             playbackService?.stopPreviewNow()
             dialog.dismiss()
         }
 
         continueButton.setOnClickListener {
-            // Preview stoppen
             playbackService?.stopPreviewNow()
 
-            if (selectedTemplate == null) {
-                // Leeres Template ausgewählt
-                viewModel.confirmNewProgression(null)
-            } else {
-                // Spezifisches Template ausgewählt
-                viewModel.confirmNewProgression(selectedTemplate)
-            }
+            val bpm = bpmEditText.text?.toString()?.toIntOrNull()?.coerceIn(60, 240) ?: selectedTempo
+            selectedTempo = bpm
+            settingsRepository.defaultKeyName = selectedKey.name
+            settingsRepository.defaultBpm = selectedTempo
 
+            viewModel.confirmNewProgression(selectedTemplate, selectedKey, selectedTempo)
             dialog.dismiss()
         }
 
         dialog.setOnDismissListener {
-            // Preview stoppen wenn Dialog geschlossen wird
             playbackService?.stopPreviewNow()
         }
 
@@ -1551,26 +1591,20 @@ class MainActivity : AppCompatActivity() {
     /**
      * Spielt ein Template-Preview ab (ein Strum pro Akkord)
      */
-    private fun previewTemplate(template: ProgressionTemplate?, key: Key) {
+    private fun previewTemplate(template: ProgressionTemplate?, key: Key, tempo: Int) {
         if (template == null) {
-            // Leeres Template - kein Preview
             playbackService?.stopPreviewNow()
             return
         }
 
         playbackService?.let { service ->
-            // Erstelle eine temporäre Mini-Progression für das Preview
             val previewProgression = ProgressionTemplates.createProgressionFromTemplate(template, key)
+            previewProgression.tempo = tempo.coerceIn(60, 240)
 
-            // Übernehme das aktuelle Tempo aus dem ViewModel
-            previewProgression.tempo = viewModel.tempo.value ?: 120
-
-            // Stoppe aktuelles Preview
             service.stopPreviewNow()
 
-            // Starte neues Preview mit einem Strum pro Akkord
             lifecycleScope.launch {
-                kotlinx.coroutines.delay(50) // Kurze Pause zwischen Previews
+                kotlinx.coroutines.delay(50)
                 service.playTemplatePreview(previewProgression)
             }
         }

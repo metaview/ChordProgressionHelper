@@ -18,6 +18,9 @@
 
     <color name="color_target">#777700</color>
     <color name="color_suggestion">#FFFF00</color>
+    <color name="section_item_bg">#FF2A2A2A</color>
+    <color name="section_item_beat_bg">#FF505050</color>
+    <color name="section_item_selected_bg">#7C4DFF</color>
 
     <!-- Launcher icon -->
     <color name="ic_launcher_background">#7C4DFF</color>

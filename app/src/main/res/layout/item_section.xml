@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/section_item_background"
+    android:gravity="center_vertical"
+    android:minHeight="52dp"
+    android:orientation="horizontal"
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="6dp"
+    android:layout_marginHorizontal="4dp"
+    android:layout_marginVertical="3dp">
+
+    <ImageButton
+        android:id="@+id/sectionDragHandle"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/song_section_actions_cd"
+        android:src="@drawable/ic_drag_handle" />
+
+    <TextView
+        android:id="@+id/sectionNumberText"
+        android:layout_width="36dp"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="1"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/sectionNameText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Section Name"
+        android:textSize="16sp" />
+
+</LinearLayout>

@@ -21,6 +21,116 @@
             android:textStyle="bold"
             android:layout_marginBottom="12dp" />
 
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="12dp"
+            app:cardUseCompatPadding="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:baselineAligned="false">
+
+                    <!-- Key column -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginEnd="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/key_label"
+                            android:layout_marginBottom="4dp" />
+
+                        <Spinner
+                            android:id="@+id/defaultKeySpinner"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="48dp" />
+
+                    </LinearLayout>
+
+                    <!-- BPM column -->
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/bpm_label"
+                            android:layout_marginBottom="4dp" />
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <EditText
+                                android:id="@+id/defaultBpmEditText"
+                                android:layout_width="72dp"
+                                android:layout_height="wrap_content"
+                                android:minHeight="48dp"
+                                android:gravity="center"
+                                android:hint="@string/bpm_hint"
+                                android:inputType="number"
+                                android:importantForAutofill="no" />
+
+                            <LinearLayout
+                                android:layout_width="32dp"
+                                android:layout_height="48dp"
+                                android:orientation="vertical"
+                                android:layout_marginStart="4dp">
+
+                                <ImageButton
+                                    android:id="@+id/defaultBpmUpButton"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="0dp"
+                                    android:layout_weight="1"
+                                    android:background="?attr/selectableItemBackgroundBorderless"
+                                    android:contentDescription="@string/increase_bpm"
+                                    android:paddingTop="12dp"
+                                    android:scaleType="centerInside"
+                                    android:src="@android:drawable/arrow_up_float" />
+
+                                <ImageButton
+                                    android:id="@+id/defaultBpmDownButton"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="0dp"
+                                    android:layout_weight="1"
+                                    android:background="?attr/selectableItemBackgroundBorderless"
+                                    android:contentDescription="@string/decrease_bpm"
+                                    android:paddingBottom="4dp"
+                                    android:scaleType="centerInside"
+                                    android:src="@android:drawable/arrow_down_float" />
+
+                            </LinearLayout>
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Preview group -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -102,9 +212,24 @@
                     android:textStyle="bold"
                     android:layout_marginBottom="8dp" />
 
-                <!-- Spinner (Auswahlbox) für Count-In: nutzt string-array @array/count_in_options -->
+                <!-- Spinner for Progression Count-In -->
                 <Spinner
                     android:id="@+id/countInSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/count_in_options" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/count_in_song_label"
+                    android:textStyle="bold"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Spinner for Song Count-In -->
+                <Spinner
+                    android:id="@+id/countInSongSpinner"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:entries="@array/count_in_options" />

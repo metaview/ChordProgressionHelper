@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="0dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+        <EditText
+            android:id="@+id/songDialogNameEditText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/song_name_hint"
+            android:importantForAutofill="no"
+            android:inputType="textCapSentences"
+            android:minHeight="48dp" />
+
+        <ImageButton
+            android:id="@+id/songDialogMenuButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/song_section_actions_cd"
+            android:src="@drawable/ic_menu_overflow" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/songDialogSectionsRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="0dp"
+        android:layout_weight="1" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:background="@drawable/bg_controls_card">
+
+        <ImageButton
+            android:id="@+id/songDialogPlayButton"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_primary_button_ripple"
+            android:contentDescription="@string/play_pause_cd"
+            android:src="@drawable/ic_play_arrow"
+            android:scaleType="centerInside"
+            android:elevation="4dp"
+            android:hapticFeedbackEnabled="false"
+            app:tint="?attr/colorOnPrimary" />
+
+        <ImageButton
+            android:id="@+id/songDialogStopButton"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_primary_button_ripple"
+            android:contentDescription="@string/stop_cd"
+            android:src="@drawable/ic_stop"
+            android:scaleType="centerInside"
+            android:alpha="0.4"
+            android:enabled="false"
+            android:elevation="4dp"
+            android:layout_marginStart="12dp"
+            android:hapticFeedbackEnabled="false"
+            app:tint="?attr/colorOnPrimary" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/songDialogRepeatButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_repeat_toggle_ripple"
+            android:contentDescription="@string/toggle_repeat"
+            android:src="@drawable/ic_repeat"
+            android:scaleType="centerInside"
+            android:elevation="4dp"
+            android:layout_marginEnd="8dp"
+            android:hapticFeedbackEnabled="false"
+            app:tint="?attr/colorOnPrimary" />
+    </LinearLayout>
+</LinearLayout>

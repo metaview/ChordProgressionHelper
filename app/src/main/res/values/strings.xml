@@ -48,6 +48,24 @@
 
     <string name="export_progression_title">Export Progression</string>
     <string name="share_progression_title">Share Progression</string>
+    <string name="song_name_default">New Song</string>
+    <string name="song_name_hint">Song name</string>
+    <string name="song_button">Song</string>
+    <string name="song_dialog_title">Song</string>
+    <string name="song_sections_title">Sections</string>
+    <string name="song_add_section">New section</string>
+    <string name="song_play">Play song</string>
+    <string name="song_close">Close</string>
+    <string name="new_song_title">New Song</string>
+    <string name="save_song_title">Save Song</string>
+    <string name="load_song_title">Load Song</string>
+    <string name="delete_song_title">Delete Song</string>
+    <string name="no_saved_songs_found">No saved songs found.</string>
+    <string name="no_saved_songs_delete">No saved songs to delete.</string>
+    <string name="overwrite_song_title">Overwrite Song?</string>
+    <string name="overwrite_song_message">A song named %1$s already exists. Overwrite it?</string>
+    <string name="song_deleted_message">%1$s deleted.</string>
+    <string name="delete">Delete</string>
 
     <string name="imported_failed">Import failed</string>
 
@@ -86,6 +104,18 @@
     <string name="expand_related_cd">Toggle related chords</string>
     <string name="secondary_dominants">Secondary dominants</string>
     <string name="parallel_chords">Parallel chords</string>
+    <string name="song_section_label">Song Section</string>
+    <string name="song_section_actions_cd">Section actions</string>
+    <string name="song_section_add">Add Section</string>
+    <string name="song_section_new_progression">New (empty) Progression</string>
+    <string name="song_section_unnamed">(unnamed)</string>
+    <string name="song_section_rename">Rename</string>
+    <string name="song_section_duplicate">Duplicate</string>
+    <string name="song_section_move_left">Move up</string>
+    <string name="song_section_move_right">Move down</string>
+    <string name="song_section_move_up">Move up</string>
+    <string name="song_section_move_down">Move down</string>
+    <string name="song_section_name_hint">Section name (e.g. Verse, Chorus)</string>
     <string name="progression_label">Progression</string>
     <string name="play_pause_cd">Play or pause</string>
     <string name="stop_cd">Stop playback</string>
@@ -107,7 +137,8 @@
     <string name="save">Save</string>
 
     <!-- Additional settings / labels referenced in layouts -->
-    <string name="count_in_label">Count-in</string>
+    <string name="count_in_label">Count-in (Progression)</string>
+    <string name="count_in_song_label">Count-in (Song)</string>
     <string name="sound_label">Sound Preset</string>
     <string name="up_stroke_offset_label">Up stroke offset (ms)</string>
     <string name="up_string_stagger_label">Up-string stagger (ms)</string>

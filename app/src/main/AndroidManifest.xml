@@ -30,6 +30,11 @@
             android:exported="false" />
 
         <activity
+            android:name=".SongActivity"
+            android:exported="false"
+            android:theme="@style/ThemeOverlay.ChordProgressionHelper.FullscreenDialog" />
+
+        <activity
             android:name=".StrummingTimingActivity"
             android:exported="false"
             android:parentActivityName=".SettingsActivity" />

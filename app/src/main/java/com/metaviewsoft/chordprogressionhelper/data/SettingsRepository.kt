@@ -14,6 +14,7 @@ class SettingsRepository(context: Context) {
     companion object {
         const val KEY_CHORD_PREVIEW = "key_chord_preview"
         const val KEY_COUNT_IN_BEATS = "key_count_in_beats"
+        const val KEY_COUNT_IN_BEATS_SONG = "key_count_in_beats_song"
         const val KEY_PLUCK_STRENGTH = "key_pluck_strength"
         const val KEY_IS_LOOPING = "key_is_looping"
         // Sound subgroup keys
@@ -46,6 +47,9 @@ class SettingsRepository(context: Context) {
         // Crunch/Overdrive gain levels (separate for strum and solo)
         const val KEY_STRUM_CRUNCH_LEVEL = "key_strum_crunch_level"
         const val KEY_SOLO_CRUNCH_LEVEL = "key_solo_crunch_level"
+        // Defaults used in New dialog
+        const val KEY_DEFAULT_KEY_NAME = "key_default_key_name"
+        const val KEY_DEFAULT_BPM = "key_default_bpm"
     }
 
     // Chord Preview setting
@@ -86,10 +90,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt(KEY_DOWN_STRING_STAGGER_MS, 4)
         set(value) = prefs.edit { putInt(KEY_DOWN_STRING_STAGGER_MS, value.coerceIn(0, 20)) }
 
-    // Count In setting (storing number of beats)
+    // Count In setting for single-progression playback (storing number of beats)
     var countInBeats: Int
         get() = prefs.getInt(KEY_COUNT_IN_BEATS, 4) // Default to 4 beats
         set(value) = prefs.edit { putInt(KEY_COUNT_IN_BEATS, value) }
+
+    // Count In setting for song playback (all sections concatenated)
+    var countInBeatsSong: Int
+        get() = prefs.getInt(KEY_COUNT_IN_BEATS_SONG, 4) // Default to 4 beats
+        set(value) = prefs.edit { putInt(KEY_COUNT_IN_BEATS_SONG, value) }
 
     // Pluck Strength setting -- fixed default to Soft (3); UI removed
     var pluckStrength: Int
@@ -164,6 +173,14 @@ class SettingsRepository(context: Context) {
     var soloCrunchLevel: Float
         get() = prefs.getFloat(KEY_SOLO_CRUNCH_LEVEL, 1.0f)
         set(value) = prefs.edit { putFloat(KEY_SOLO_CRUNCH_LEVEL, value.coerceIn(0.0f, 2.0f)) }
+
+    var defaultKeyName: String
+        get() = prefs.getString(KEY_DEFAULT_KEY_NAME, "C") ?: "C"
+        set(value) = prefs.edit { putString(KEY_DEFAULT_KEY_NAME, value) }
+
+    var defaultBpm: Int
+        get() = prefs.getInt(KEY_DEFAULT_BPM, 120).coerceIn(60, 240)
+        set(value) = prefs.edit { putInt(KEY_DEFAULT_BPM, value.coerceIn(60, 240)) }
 
     // Allow external registration for preference change notifications
     fun registerChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {

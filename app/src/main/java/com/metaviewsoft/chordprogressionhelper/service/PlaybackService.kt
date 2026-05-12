@@ -57,6 +57,8 @@ class PlaybackService : Service() {
     // If true the currently-loaded progression was launched as a temporary preview
     private var currentIsPreview: Boolean = false
     private var currentIsLoopingPreview: Boolean = false
+    // If true the playback is a full-song playback (SongActivity); uses separate count-in setting
+    private var currentIsSong: Boolean = false
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
 
@@ -87,6 +89,9 @@ class PlaybackService : Service() {
                 .setContentTitle("Playback service")
                 .setContentText("Ready")
                 .setSmallIcon(R.drawable.ic_music_note)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .build()
             try { startForeground(NOTIFICATION_ID, preparing) } catch (e: Exception) { Log.w(TAG, "early startForeground in onCreate failed: ${e.message}") }
@@ -110,10 +115,10 @@ class PlaybackService : Service() {
         audioPlayer.voicePreset = settingsRepository.strumPreset
         audioPlayer.soloPreset = settingsRepository.soloPreset
         // stroke offset (ms) for UP strokes
-        try { audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs } catch (_: Exception) {}
-        try { audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs } catch (_: Exception) {}
-        try { audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs } catch (_: Exception) {}
-        try { audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs } catch (_: Exception) {}
+        audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs
+        audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs
+        audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs
+        audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs
         // Initialize shuffle factor from settings
         audioPlayer.shuffleFactor = settingsRepository.shuffleFactor.toFloat()
         // Initialize crunch levels from settings
@@ -189,6 +194,9 @@ class PlaybackService : Service() {
                     .setContentTitle("Playback service")
                     .setContentText("Starting...")
                     .setSmallIcon(R.drawable.ic_music_note)
+                    .setOnlyAlertOnce(true)
+                    .setSilent(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
                     .setOngoing(true)
                     .build()
                 startForeground(NOTIFICATION_ID, preparing)
@@ -202,6 +210,9 @@ class PlaybackService : Service() {
         // If the intent is an update params action, apply parameters and return quickly
         if (intent?.action == ACTION_UPDATE_PARAMS) {
              try {
+                 if (intent.hasExtra(EXTRA_TEMPO)) {
+                     setTempo(intent.getIntExtra(EXTRA_TEMPO, settingsRepository.defaultBpm))
+                 }
                  val drum = intent.getFloatExtra(EXTRA_DRUM_LEVEL, settingsRepository.drumLevel)
                  val solo = intent.getFloatExtra(EXTRA_SOLO_LEVEL, settingsRepository.soloLevel)
                  val strum = intent.getFloatExtra(EXTRA_STRUM_LEVEL, settingsRepository.strumLevel)
@@ -263,6 +274,7 @@ class PlaybackService : Service() {
                 // capture preview flag and then parse/load progression in background
                 currentIsPreview = intent.getBooleanExtra(EXTRA_IS_PREVIEW, false)
                 currentIsLoopingPreview = intent.getBooleanExtra(EXTRA_IS_LOOPING_PREVIEW, false)
+                currentIsSong = intent.getBooleanExtra(EXTRA_IS_SONG, false)
                 Log.d(TAG, "onStartCommand: ACTION_PLAY isPreview=$currentIsPreview, isLoopingPreview=$currentIsLoopingPreview")
                 // Register service as preview owner so Coordinator can stop it when another owner starts
                 if (currentIsPreview) {
@@ -343,6 +355,9 @@ class PlaybackService : Service() {
                             .setContentTitle("Playback error")
                             .setContentText("Invalid progression provided")
                             .setSmallIcon(R.drawable.ic_music_note)
+                            .setOnlyAlertOnce(true)
+                            .setSilent(true)
+                            .setPriority(NotificationCompat.PRIORITY_LOW)
                             .setOngoing(false)
                             .build()
                         try { startForeground(NOTIFICATION_ID, fallbackNotif) } catch (e: Exception) { Log.w(TAG, "startForeground fallback failed: ${e.message}") }
@@ -419,7 +434,11 @@ class PlaybackService : Service() {
                 } },
                 pluckStrength = settingsRepository.pluckStrength,
                 // For previews (Test/Default pattern) we must not perform a count-in
-                countInBeats = if (currentIsPreview) 0 else settingsRepository.countInBeats,
+                countInBeats = when {
+                    currentIsPreview -> 0
+                    currentIsSong -> settingsRepository.countInBeatsSong
+                    else -> settingsRepository.countInBeats
+                },
                 onPositionChanged = { measureIndex, strumIndex ->
                     _currentPlaybackPosition.value = Pair(measureIndex, strumIndex)
                 },
@@ -593,6 +612,9 @@ class PlaybackService : Service() {
             .setContentText(progression.key.displayName)
             .setSmallIcon(R.drawable.ic_music_note)
             .setContentIntent(pendingIntent)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1))
             .setOngoing(isPlaying)
 
@@ -709,7 +731,12 @@ class PlaybackService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_DEFAULT)
+            val channel = NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW).apply {
+                enableVibration(false)
+                vibrationPattern = longArrayOf(0L)
+                setSound(null, null)
+                setShowBadge(false)
+            }
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -726,7 +753,7 @@ class PlaybackService : Service() {
 
     companion object {
         const val EXTRA_IS_LOOPING_PREVIEW = "com.metaview.chordprogressionhelper.extra.IS_LOOPING_PREVIEW"
-        const val CHANNEL_ID = "PlaybackServiceChannel"
+        const val CHANNEL_ID = "PlaybackServiceChannelV2"
         const val NOTIFICATION_ID = 1
 
         const val ACTION_PLAY = "com.metaview.chordprogressionhelper.action.PLAY"
@@ -748,11 +775,13 @@ class PlaybackService : Service() {
         const val EXTRA_DOWN_STRING_STAGGER_MS = "com.metaview.chordprogressionhelper.extra.DOWN_STRING_STAGGER_MS"
         const val EXTRA_STRUM_CRUNCH_LEVEL = "com.metaview.chordprogressionhelper.extra.STRUM_CRUNCH_LEVEL"
         const val EXTRA_SOLO_CRUNCH_LEVEL = "com.metaview.chordprogressionhelper.extra.SOLO_CRUNCH_LEVEL"
+        const val EXTRA_TEMPO = "com.metaview.chordprogressionhelper.extra.TEMPO"
 
         const val EXTRA_PROGRESSION = "com.metaview.chordprogressionhelper.extra.PROGRESSION"
         const val EXTRA_PROGRESSION_PATH = "com.metaview.chordprogressionhelper.extra.PROGRESSION_PATH"
         const val EXTRA_PROGRESSION_ID = "com.metaview.chordprogressionhelper.extra.PROGRESSION_ID"
         const val EXTRA_IS_PREVIEW = "com.metaview.chordprogressionhelper.extra.IS_PREVIEW"
+        const val EXTRA_IS_SONG = "com.metaview.chordprogressionhelper.extra.IS_SONG"
 
         // Request codes used for notification PendingIntents
         private const val RC_PLAY = 100
@@ -770,6 +799,20 @@ class PlaybackService : Service() {
             intent.putExtra(EXTRA_IS_LOOPING_PREVIEW, isLoopingPreview)
             Log.d("PlaybackService", "play() starting service with intent action=${intent.action}")
             try { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent) } catch (e: Exception) { Log.w("PlaybackService", "play start service failed: ${e.message}") }
+        }
+
+        // Song playback: same as play() but marks playback as song mode (uses song count-in setting)
+        fun playSong(context: android.content.Context, progression: ChordProgression) {
+            Log.d("PlaybackService", "playSong() called: progression=${progression.measures.size} measures")
+            val progressionString = Json.encodeToString(progression)
+            val id = try { ProgressionStore.saveProgression(context, null, progressionString) } catch (e: Exception) { Log.w("PlaybackService", "Failed to save progression to store: ${e.message}"); null }
+            val intent = Intent(context, PlaybackService::class.java).apply { action = ACTION_PLAY }
+            if (!id.isNullOrEmpty()) intent.putExtra(EXTRA_PROGRESSION_ID, id) else intent.putExtra(EXTRA_PROGRESSION, progressionString)
+            intent.putExtra(EXTRA_IS_PREVIEW, false)
+            intent.putExtra(EXTRA_IS_LOOPING_PREVIEW, false)
+            intent.putExtra(EXTRA_IS_SONG, true)
+            Log.d("PlaybackService", "playSong() starting service with intent action=${intent.action}")
+            try { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent) } catch (e: Exception) { Log.w("PlaybackService", "playSong start service failed: ${e.message}") }
         }
 
         fun pause(context: android.content.Context) {

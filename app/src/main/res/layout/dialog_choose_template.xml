@@ -13,7 +13,73 @@
         android:textSize="18sp"
         android:textStyle="bold"
         android:textColor="?android:textColorPrimary"
-        android:paddingBottom="16dp" />
+        android:paddingBottom="12dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/key_label" />
+
+        <Spinner
+            android:id="@+id/newDialogKeySpinner"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="12dp"
+            android:minHeight="48dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/bpm_label" />
+
+        <EditText
+            android:id="@+id/newDialogBpmEditText"
+            android:layout_width="64dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:gravity="center"
+            android:hint="@string/bpm_hint"
+            android:inputType="number"
+            android:importantForAutofill="no" />
+
+        <LinearLayout
+            android:layout_width="28dp"
+            android:layout_height="44dp"
+            android:orientation="vertical"
+            android:layout_marginStart="2dp">
+
+            <ImageButton
+                android:id="@+id/newDialogBpmUpButton"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/increase_bpm"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/arrow_up_float" />
+
+            <ImageButton
+                android:id="@+id/newDialogBpmDownButton"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/decrease_bpm"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/arrow_down_float" />
+
+        </LinearLayout>
+
+    </LinearLayout>
 
     <FrameLayout
         android:layout_width="match_parent"

@@ -13,6 +13,7 @@
         android:layout_height="wrap_content"
         android:text="@string/key_label"
         android:textSize="16sp"
+        android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -23,6 +24,7 @@
         android:layout_marginStart="8dp"
         android:layout_marginEnd="8dp"
         android:minHeight="48dp"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@id/keyLabel"
         app:layout_constraintEnd_toStartOf="@id/bpmControlsLayout"
         app:layout_constraintHorizontal_chainStyle="spread_inside"
@@ -35,6 +37,7 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@id/keyLabel"
         app:layout_constraintEnd_toStartOf="@id/menuButton"
         app:layout_constraintTop_toTopOf="@id/keyLabel">
@@ -90,6 +93,26 @@
 
     </LinearLayout>
 
+    <Button
+        android:id="@+id/songDialogButton"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:text="@string/song_button"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <Spinner
+        android:id="@+id/songSectionSpinner"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:minHeight="48dp"
+        app:layout_constraintBottom_toBottomOf="@id/songDialogButton"
+        app:layout_constraintEnd_toStartOf="@id/menuButton"
+        app:layout_constraintStart_toEndOf="@id/songDialogButton"
+        app:layout_constraintTop_toTopOf="@id/songDialogButton" />
+
     <ImageButton
         android:id="@+id/menuButton"
         android:layout_width="48dp"
@@ -98,19 +121,18 @@
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/menu_cd"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="@id/keyLabel"/>
+        app:layout_constraintTop_toTopOf="parent"/>
 
     <TextView
         android:id="@+id/chordsLabel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="16dp"
         android:text="@string/available_chords"
         android:textSize="16sp"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/keySpinner" />
+        app:layout_constraintTop_toBottomOf="@id/songSectionSpinner" />
         
     <ImageButton
         android:id="@+id/expandRelatedChordsButton"
@@ -393,6 +415,7 @@
             android:layout_marginTop="6dp"
             android:layout_marginBottom="0dp"
             android:background="@drawable/bg_primary_button_ripple"
+            android:hapticFeedbackEnabled="false"
             app:tint="?attr/colorOnPrimary"
             android:scaleType="centerInside"
             android:elevation="4dp"
@@ -414,6 +437,7 @@
             android:layout_marginTop="6dp"
             android:layout_marginBottom="2dp"
             android:background="@drawable/bg_primary_button_ripple"
+            android:hapticFeedbackEnabled="false"
             app:tint="?attr/colorOnPrimary"
             android:scaleType="centerInside"
             android:elevation="4dp"
@@ -430,6 +454,7 @@
             android:layout_marginTop="6dp"
             android:layout_marginBottom="2dp"
             android:background="@drawable/bg_repeat_toggle_ripple"
+            android:hapticFeedbackEnabled="false"
             android:src="@drawable/ic_repeat"
             app:tint="?attr/colorOnPrimary"
             android:contentDescription="@string/toggle_repeat"

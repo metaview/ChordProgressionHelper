@@ -1,18 +1,33 @@
 package de.metaviewsoft.chordprogressionhelper
 
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.SeekBar
 import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 import de.metaviewsoft.chordprogressionhelper.data.SoundPreset
 import de.metaviewsoft.chordprogressionhelper.databinding.ActivitySettingsBinding
+import de.metaviewsoft.chordprogressionhelper.model.Key
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var settingsRepository: SettingsRepository
+
+    private fun updatePlaybackTempo(newTempo: Int) {
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = PlaybackService.ACTION_UPDATE_PARAMS
+            putExtra(PlaybackService.EXTRA_TEMPO, newTempo.coerceIn(60, 240))
+        }
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+        } catch (_: Exception) {
+            // best-effort; service might not be running
+        }
+    }
 
     private fun updatePlaybackServiceParams() {
         // Send an intent to the PlaybackService to apply new live parameters immediately.
@@ -59,6 +74,35 @@ class SettingsActivity : AppCompatActivity() {
         binding.templatePreviewSwitch.isChecked = settingsRepository.isTemplatePreviewEnabled
         binding.loopByDefaultSwitch.isChecked = settingsRepository.isLoopingEnabled
 
+        // Default key and BPM for New dialog
+        val keyAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, Key.entries.map { it.displayName })
+        keyAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.defaultKeySpinner.adapter = keyAdapter
+        val defaultKey = Key.entries.find { it.name == settingsRepository.defaultKeyName } ?: Key.C
+        binding.defaultKeySpinner.setSelection(Key.entries.indexOf(defaultKey))
+
+        binding.defaultBpmEditText.setText(settingsRepository.defaultBpm.toString())
+        binding.defaultBpmUpButton.setOnClickListener {
+            val next = (binding.defaultBpmEditText.text?.toString()?.toIntOrNull() ?: settingsRepository.defaultBpm) + 1
+            val clamped = next.coerceIn(60, 240)
+            binding.defaultBpmEditText.setText(clamped.toString())
+        }
+        binding.defaultBpmDownButton.setOnClickListener {
+            val next = (binding.defaultBpmEditText.text?.toString()?.toIntOrNull() ?: settingsRepository.defaultBpm) - 1
+            val clamped = next.coerceIn(60, 240)
+            binding.defaultBpmEditText.setText(clamped.toString())
+        }
+        binding.defaultBpmEditText.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                val parsed = s?.toString()?.toIntOrNull() ?: return
+                settingsRepository.defaultBpm = parsed
+                updatePlaybackTempo(parsed)
+            }
+
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+
         // Initialize Count-In spinner (options: No / 2 / 4 / 8)
         val adapter = android.widget.ArrayAdapter.createFromResource(this, R.array.count_in_options, android.R.layout.simple_spinner_item)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -85,6 +129,31 @@ class SettingsActivity : AppCompatActivity() {
                 settingsRepository.countInBeats = beats
             }
 
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) { /* no-op */ }
+        }
+
+        // Initialize Count-In Song spinner (same options)
+        val adapterSong = android.widget.ArrayAdapter.createFromResource(this, R.array.count_in_options, android.R.layout.simple_spinner_item)
+        adapterSong.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.countInSongSpinner.adapter = adapterSong
+        val spinnerSongIndex = when (settingsRepository.countInBeatsSong) {
+            0 -> 0
+            2 -> 1
+            4 -> 2
+            8 -> 3
+            else -> 2
+        }
+        binding.countInSongSpinner.setSelection(spinnerSongIndex)
+        binding.countInSongSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                settingsRepository.countInBeatsSong = when (position) {
+                    0 -> 0
+                    1 -> 2
+                    2 -> 4
+                    3 -> 8
+                    else -> 4
+                }
+            }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) { /* no-op */ }
         }
 
@@ -294,6 +363,14 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        binding.defaultKeySpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                settingsRepository.defaultKeyName = Key.entries[position].name
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+
         // Save simple toggles when changed
         binding.chordPreviewSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isChordPreviewEnabled = isChecked

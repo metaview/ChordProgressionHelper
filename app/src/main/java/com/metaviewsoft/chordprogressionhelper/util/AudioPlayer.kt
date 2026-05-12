@@ -633,8 +633,8 @@ class AudioPlayer {
                             // shuffleFactor 0.0 = straight (1:1 ratio)
                             // shuffleFactor 1.0 = swing (2:1 ratio, like triplet feel)
                             // shuffleFactor 2.0 = extreme (3:1 ratio)
-                            // Use shuffleFactor from the progression
-                            val effectiveShuffleFactor = progression.shuffleFactor.toDouble()
+                            // Use the live shuffle setting from AudioPlayer (updated via Settings)
+                            val effectiveShuffleFactor = shuffleFactor.toDouble()
                             val shuffleRatio = 1.0 + effectiveShuffleFactor // 1.0 to 3.0
                             val adjustedEighthNoteDuration = if (strumIndex % 2 == 0) {
                                 // First eighth (on-beat): longer

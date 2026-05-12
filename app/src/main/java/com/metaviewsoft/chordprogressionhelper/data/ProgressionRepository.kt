@@ -3,6 +3,8 @@ package de.metaviewsoft.chordprogressionhelper.data
 import android.content.Context
 import android.util.Log
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
+import de.metaviewsoft.chordprogressionhelper.model.Song
+import de.metaviewsoft.chordprogressionhelper.model.SongSection
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -12,7 +14,9 @@ class ProgressionRepository(context: Context) {
     private val TAG = "ProgressionRepository"
     private val dir = File(context.filesDir, "progressions")
     private val indexFile = File(dir, "index.json")
+    private val songIndexFile = File(dir, "songs_index.json")
     private val lastSessionFile = File(dir, "last_session.json")
+    private val lastSongSessionFile = File(dir, "last_song_session.json")
 
     init {
         try { if (!dir.exists()) dir.mkdirs() } catch (e: Exception) { Log.w(TAG, "Failed to create progressions dir: ${e.message}") }
@@ -85,6 +89,31 @@ class ProgressionRepository(context: Context) {
         }
     }
 
+    private fun readSongIndex(): MutableMap<String, String> {
+        return try {
+            if (!songIndexFile.exists()) return mutableMapOf()
+            val text = songIndexFile.readText()
+            if (text.isBlank()) return mutableMapOf()
+            try {
+                Json.decodeFromString<Map<String, String>>(text).toMutableMap()
+            } catch (e: Exception) {
+                Log.w(TAG, "readSongIndex: failed to decode songs_index.json: ${e.message}")
+                mutableMapOf()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "readSongIndex failed: ${e.message}")
+            mutableMapOf()
+        }
+    }
+
+    private fun writeSongIndex(index: Map<String, String>) {
+        try {
+            songIndexFile.writeText(Json.encodeToString(index))
+        } catch (e: Exception) {
+            Log.w(TAG, "writeSongIndex failed: ${e.message}")
+        }
+    }
+
     private fun makeSafeFilename(name: String): String {
         // Create a mostly human-friendly filename but include hashCode for uniqueness
         val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
@@ -147,6 +176,102 @@ class ProgressionRepository(context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "loadLastSession failed: ${e.message}")
             return ChordProgression()
+        }
+    }
+
+    fun saveLastSongSession(song: Song) {
+        try {
+            if (!dir.exists()) dir.mkdirs()
+            val jsonString = Json.encodeToString(song)
+            lastSongSessionFile.writeText(jsonString)
+        } catch (e: Exception) {
+            Log.w(TAG, "saveLastSongSession failed: ${e.message}")
+        }
+    }
+
+    fun saveNamedSong(name: String, song: Song) {
+        try {
+            if (!dir.exists()) dir.mkdirs()
+            val index = readSongIndex()
+            val filename = index[name] ?: "song_${makeSafeFilename(name)}".also { index[name] = it }
+            val target = File(dir, filename)
+            val normalizedSong = song.copy(name = name)
+            val jsonString = Json.encodeToString(normalizedSong)
+            target.writeText(jsonString)
+            writeSongIndex(index)
+        } catch (e: Exception) {
+            Log.w(TAG, "saveNamedSong failed: ${e.message}")
+        }
+    }
+
+    fun loadSong(name: String): Song? {
+        return try {
+            val index = readSongIndex()
+            val filename = index[name] ?: return null
+            val file = File(dir, filename)
+            if (!file.exists()) return null
+            val jsonString = file.readText()
+            try {
+                Json.decodeFromString<Song>(jsonString).also { it.ensureValid() }
+            } catch (e: Exception) {
+                Log.w(TAG, "loadSong decode failed for $name: ${e.message}")
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "loadSong failed: ${e.message}")
+            null
+        }
+    }
+
+    fun getSavedSongNames(): List<String> {
+        return try {
+            val index = readSongIndex()
+            index.keys.toList().sorted()
+        } catch (e: Exception) {
+            Log.w(TAG, "getSavedSongNames failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    fun deleteSong(name: String) {
+        try {
+            val index = readSongIndex()
+            val filename = index.remove(name)
+            if (filename != null) {
+                val file = File(dir, filename)
+                try { if (file.exists()) file.delete() } catch (_: Exception) {}
+                writeSongIndex(index)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "deleteSong failed: ${e.message}")
+        }
+    }
+
+    fun loadLastSongSession(): Song {
+        try {
+            if (lastSongSessionFile.exists()) {
+                val jsonString = lastSongSessionFile.readText()
+                try {
+                    val parsed = Json.decodeFromString<Song>(jsonString)
+                    parsed.ensureValid()
+                    return parsed
+                } catch (e: Exception) {
+                    Log.w(TAG, "loadLastSongSession decode failed: ${e.message}")
+                }
+            }
+
+            val legacy = loadLastSession()
+            return Song(
+                sections = mutableListOf(
+                    SongSection(
+                        name = legacy.name.ifBlank { "Section 1" },
+                        progression = legacy
+                    )
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "loadLastSongSession failed: ${e.message}")
+            return Song()
         }
     }
 
