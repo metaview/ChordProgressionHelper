@@ -430,6 +430,7 @@ class PlaybackService : Service() {
                 shouldLoop = { when {
                     currentIsLoopingPreview -> true
                     currentIsPreview -> false
+                    currentIsSong -> settingsRepository.isLoopingSongEnabled
                     else -> settingsRepository.isLoopingEnabled
                 } },
                 pluckStrength = settingsRepository.pluckStrength,
@@ -517,6 +518,7 @@ class PlaybackService : Service() {
             // clear preview-specific state
             currentIsPreview = false
             currentIsLoopingPreview = false
+            currentIsSong = false
             previewProgression = null
 
             // update media session and notification
@@ -752,36 +754,36 @@ class PlaybackService : Service() {
     }
 
     companion object {
-        const val EXTRA_IS_LOOPING_PREVIEW = "com.metaview.chordprogressionhelper.extra.IS_LOOPING_PREVIEW"
+        const val EXTRA_IS_LOOPING_PREVIEW = "de.metaviewsoft.chordprogressionhelper.extra.IS_LOOPING_PREVIEW"
         const val CHANNEL_ID = "PlaybackServiceChannelV2"
         const val NOTIFICATION_ID = 1
 
-        const val ACTION_PLAY = "com.metaview.chordprogressionhelper.action.PLAY"
-        const val ACTION_PAUSE = "com.metaview.chordprogressionhelper.action.PAUSE"
-        const val ACTION_STOP = "com.metaview.chordprogressionhelper.action.STOP"
-        const val ACTION_STOP_PREVIEW = "com.metaview.chordprogressionhelper.action.STOP_PREVIEW"
+        const val ACTION_PLAY = "de.metaviewsoft.chordprogressionhelper.action.PLAY"
+        const val ACTION_PAUSE = "de.metaviewsoft.chordprogressionhelper.action.PAUSE"
+        const val ACTION_STOP = "de.metaviewsoft.chordprogressionhelper.action.STOP"
+        const val ACTION_STOP_PREVIEW = "de.metaviewsoft.chordprogressionhelper.action.STOP_PREVIEW"
         // Action to update live playback parameters while service may be running
-        const val ACTION_UPDATE_PARAMS = "com.metaview.chordprogressionhelper.action.UPDATE_PARAMS"
-        const val ACTION_UPDATE_PROGRESSION = "com.metaview.chordprogressionhelper.action.UPDATE_PROGRESSION"
+        const val ACTION_UPDATE_PARAMS = "de.metaviewsoft.chordprogressionhelper.action.UPDATE_PARAMS"
+        const val ACTION_UPDATE_PROGRESSION = "de.metaviewsoft.chordprogressionhelper.action.UPDATE_PROGRESSION"
 
-        const val EXTRA_DRUM_LEVEL = "com.metaview.chordprogressionhelper.extra.DRUM_LEVEL"
-        const val EXTRA_SOLO_LEVEL = "com.metaview.chordprogressionhelper.extra.SOLO_LEVEL"
-        const val EXTRA_STRUM_LEVEL = "com.metaview.chordprogressionhelper.extra.STRUM_LEVEL"
-        const val EXTRA_ENVELOPE_SCALE = "com.metaview.chordprogressionhelper.extra.ENVELOPE_SCALE"
-        const val EXTRA_HIHAT_HIGHPASS = "com.metaview.chordprogressionhelper.extra.HIHAT_HIGHPASS"
-        const val EXTRA_UP_STROKE_OFFSET_MS = "com.metaview.chordprogressionhelper.extra.UP_STROKE_OFFSET_MS"
-        const val EXTRA_UP_STRING_STAGGER_MS = "com.metaview.chordprogressionhelper.extra.UP_STRING_STAGGER_MS"
-        const val EXTRA_DOWN_STROKE_OFFSET_MS = "com.metaview.chordprogressionhelper.extra.DOWN_STROKE_OFFSET_MS"
-        const val EXTRA_DOWN_STRING_STAGGER_MS = "com.metaview.chordprogressionhelper.extra.DOWN_STRING_STAGGER_MS"
-        const val EXTRA_STRUM_CRUNCH_LEVEL = "com.metaview.chordprogressionhelper.extra.STRUM_CRUNCH_LEVEL"
-        const val EXTRA_SOLO_CRUNCH_LEVEL = "com.metaview.chordprogressionhelper.extra.SOLO_CRUNCH_LEVEL"
-        const val EXTRA_TEMPO = "com.metaview.chordprogressionhelper.extra.TEMPO"
+        const val EXTRA_DRUM_LEVEL = "de.metaviewsoft.chordprogressionhelper.extra.DRUM_LEVEL"
+        const val EXTRA_SOLO_LEVEL = "de.metaviewsoft.chordprogressionhelper.extra.SOLO_LEVEL"
+        const val EXTRA_STRUM_LEVEL = "de.metaviewsoft.chordprogressionhelper.extra.STRUM_LEVEL"
+        const val EXTRA_ENVELOPE_SCALE = "de.metaviewsoft.chordprogressionhelper.extra.ENVELOPE_SCALE"
+        const val EXTRA_HIHAT_HIGHPASS = "de.metaviewsoft.chordprogressionhelper.extra.HIHAT_HIGHPASS"
+        const val EXTRA_UP_STROKE_OFFSET_MS = "de.metaviewsoft.chordprogressionhelper.extra.UP_STROKE_OFFSET_MS"
+        const val EXTRA_UP_STRING_STAGGER_MS = "de.metaviewsoft.chordprogressionhelper.extra.UP_STRING_STAGGER_MS"
+        const val EXTRA_DOWN_STROKE_OFFSET_MS = "de.metaviewsoft.chordprogressionhelper.extra.DOWN_STROKE_OFFSET_MS"
+        const val EXTRA_DOWN_STRING_STAGGER_MS = "de.metaviewsoft.chordprogressionhelper.extra.DOWN_STRING_STAGGER_MS"
+        const val EXTRA_STRUM_CRUNCH_LEVEL = "de.metaviewsoft.chordprogressionhelper.extra.STRUM_CRUNCH_LEVEL"
+        const val EXTRA_SOLO_CRUNCH_LEVEL = "de.metaviewsoft.chordprogressionhelper.extra.SOLO_CRUNCH_LEVEL"
+        const val EXTRA_TEMPO = "de.metaviewsoft.chordprogressionhelper.extra.TEMPO"
 
-        const val EXTRA_PROGRESSION = "com.metaview.chordprogressionhelper.extra.PROGRESSION"
-        const val EXTRA_PROGRESSION_PATH = "com.metaview.chordprogressionhelper.extra.PROGRESSION_PATH"
-        const val EXTRA_PROGRESSION_ID = "com.metaview.chordprogressionhelper.extra.PROGRESSION_ID"
-        const val EXTRA_IS_PREVIEW = "com.metaview.chordprogressionhelper.extra.IS_PREVIEW"
-        const val EXTRA_IS_SONG = "com.metaview.chordprogressionhelper.extra.IS_SONG"
+        const val EXTRA_PROGRESSION = "de.metaviewsoft.chordprogressionhelper.extra.PROGRESSION"
+        const val EXTRA_PROGRESSION_PATH = "de.metaviewsoft.chordprogressionhelper.extra.PROGRESSION_PATH"
+        const val EXTRA_PROGRESSION_ID = "de.metaviewsoft.chordprogressionhelper.extra.PROGRESSION_ID"
+        const val EXTRA_IS_PREVIEW = "de.metaviewsoft.chordprogressionhelper.extra.IS_PREVIEW"
+        const val EXTRA_IS_SONG = "de.metaviewsoft.chordprogressionhelper.extra.IS_SONG"
 
         // Request codes used for notification PendingIntents
         private const val RC_PLAY = 100
@@ -866,7 +868,7 @@ class PlaybackService : Service() {
     private fun normalizeLooseJson(input: String): String {
         var out = input.trim()
         // Strip common BOM / garbage characters before the first JSON token
-        out = out.replaceFirst(Regex("""^[^{\[]+"""), "")
+        out = out.replaceFirst(regex = Regex("""^[^{\\[]+"""), replacement = "")
         try {
             // 1) Quote simple unquoted keys appearing after '{', '[' or ','
             // character class: literal '[' is escaped, '{' and ',' are included as literals

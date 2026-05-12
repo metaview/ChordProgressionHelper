@@ -2205,7 +2205,7 @@ class AudioPlayer {
         return try {
             // Get app context from MyApplication singleton
             val context = try {
-                (Class.forName("com.metaview.chordprogressionhelper.MyApplication")
+                (Class.forName("de.metaviewsoft.chordprogressionhelper.MyApplication")
                     .getDeclaredField("Companion")
                     .apply { isAccessible = true }
                     .get(null))?.let { companion ->
@@ -2251,7 +2251,7 @@ class AudioPlayer {
     private fun saveDrumSamplesToCache() {
         try {
             val context = try {
-                (Class.forName("com.metaview.chordprogressionhelper.MyApplication")
+                (Class.forName("de.metaviewsoft.chordprogressionhelper.MyApplication")
                     .getDeclaredField("Companion")
                     .apply { isAccessible = true }
                     .get(null))?.let { companion ->

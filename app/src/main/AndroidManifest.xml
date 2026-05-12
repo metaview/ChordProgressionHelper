@@ -67,7 +67,11 @@
             android:name=".service.PlaybackService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback"/>
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </service>
 
         <!-- FileProvider for sharing exported progression JSONs -->
         <provider
@@ -79,8 +83,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-
-        <!-- MediaButtonReceiver removed from manifest; MediaSessionCompat handles media button events programmatically -->
 
     </application>
 

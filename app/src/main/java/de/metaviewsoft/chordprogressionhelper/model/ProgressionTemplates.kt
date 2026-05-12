@@ -55,10 +55,10 @@ enum class ScaleDegree(val interval: Int, val defaultQuality: ChordType) {
      * Berechnet den konkreten Akkord (Note + ChordType) für eine gegebene Tonart.
      */
     fun getChordInKey(key: Key): Pair<Note, ChordType> {
-        val keyRootMidi = key.rootNote.midiOffset
+        val keyRootMidi = key.rootNote.noteOffset
         val targetMidi = (keyRootMidi + interval) % 12
 
-        val note = Note.entries.first { it.midiOffset == targetMidi }
+        val note = Note.entries.first { it.noteOffset == targetMidi }
         return Pair(note, defaultQuality)
     }
 

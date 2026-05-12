@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 if (intent == null) return
                 val action = intent.action ?: return
-                if (action == "com.metaview.chordprogressionhelper.ACTION_DRUM_PATTERN_UPDATED") {
+                if (action == "de.metaviewsoft.chordprogressionhelper.ACTION_DRUM_PATTERN_UPDATED") {
                     val mIndex = intent.getIntExtra(DrumPatternActivity.EXTRA_MEASURE_INDEX, -1)
                     val json = intent.getStringExtra(DrumPatternActivity.EXTRA_DRUM_PATTERN_JSON)
                     if (mIndex >= 0 && !json.isNullOrEmpty()) {
@@ -1325,8 +1325,8 @@ class MainActivity : AppCompatActivity() {
             updateRecyclerFade(binding.borrowedMajorChordRecyclerView, binding.borrowedMajorFadeLeft, binding.borrowedMajorFadeRight)
 
             // Set label text to relative minor key (e.g., "Am" for key C - 3 semitones down)
-            val relativeMinorMidiOffset = (viewModel.progression.key.rootNote.midiOffset - 3 + 12) % 12
-            val relativeMinorRootNote = Note.entries.first { it.midiOffset == relativeMinorMidiOffset }
+            val relativeMinorMidiOffset = (viewModel.progression.key.rootNote.noteOffset - 3 + 12) % 12
+            val relativeMinorRootNote = Note.entries.first { it.noteOffset == relativeMinorMidiOffset }
             binding.borrowedMajorLabel.text = relativeMinorRootNote.displayName + "m"
         }
         viewModel.measures.observe(this) { measures ->

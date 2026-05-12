@@ -41,8 +41,8 @@ data class ChordProgression(
     fun getParallelMajorChords(): List<Chord> {
         if (mode != Mode.MAJOR) return emptyList()
         // Get the relative minor root note (e.g., C major -> A minor, which is 3 semitones down)
-        val relativeMinorMidiOffset = (key.rootNote.midiOffset - 3 + 12) % 12
-        val relativeMinorRootNote = Note.entries.first { it.midiOffset == relativeMinorMidiOffset }
+        val relativeMinorMidiOffset = (key.rootNote.noteOffset - 3 + 12) % 12
+        val relativeMinorRootNote = Note.entries.first { it.noteOffset == relativeMinorMidiOffset }
 
         // Find the Key enum that has this root note (we need a Key for getScale)
         val relativeMinorKey = Key.entries.first { it.rootNote == relativeMinorRootNote }

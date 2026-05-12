@@ -9,10 +9,10 @@ enum class Mode(val displayName: String, private val scaleIntervals: List<Int>) 
 
     fun getScale(key: Key): List<Note> {
         val scale = mutableListOf(key.rootNote)
-        var currentOffset = key.rootNote.midiOffset
+        var currentOffset = key.rootNote.noteOffset
         for (interval in scaleIntervals.dropLast(1)) {
             currentOffset = (currentOffset + interval) % 12
-            scale.add(Note.entries.first { it.midiOffset == currentOffset })
+            scale.add(Note.entries.first { it.noteOffset == currentOffset })
         }
         return scale
     }

@@ -451,8 +451,8 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun transposeProgression(oldKey: Key, newKey: Key) {
         // Calculate semitone difference
-        val oldRootMidi = oldKey.rootNote.midiOffset
-        val newRootMidi = newKey.rootNote.midiOffset
+        val oldRootMidi = oldKey.rootNote.noteOffset
+        val newRootMidi = newKey.rootNote.noteOffset
         val semitoneShift = (newRootMidi - oldRootMidi + 12) % 12
 
         if (semitoneShift == 0) return // No transposition needed
@@ -489,9 +489,9 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun transposeChord(chord: Chord, semitoneShift: Int): Chord {
         // Calculate new root note
-        val oldRootMidi = chord.root.midiOffset
+        val oldRootMidi = chord.root.noteOffset
         val newRootMidi = (oldRootMidi + semitoneShift) % 12
-        val newRoot = Note.entries.first { it.midiOffset == newRootMidi }
+        val newRoot = Note.entries.first { it.noteOffset == newRootMidi }
 
         // Keep the same chord quality and scale degree name
         return Chord(newRoot, chord.quality, chord.scaleDegreeName)
@@ -539,8 +539,8 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
                     _suggestedChord.value = scaleChords[borrowedIndex + 1]
                 }
             } else if (chord in relatedChords) {
-                val targetRootMidi = (chord.root.midiOffset + 5) % 12
-                _targetChord.value = scaleChords.find { it.root.midiOffset == targetRootMidi }
+                val targetRootMidi = (chord.root.noteOffset + 5) % 12
+                _targetChord.value = scaleChords.find { it.root.noteOffset == targetRootMidi }
             }
         }
 
@@ -615,8 +615,8 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     private fun updateRelatedChords(allChords: List<Chord>) {
         _relatedChords.value = allChords.mapNotNull { targetChord ->
             if (targetChord.quality == ChordType.DIMINISHED) return@mapNotNull null
-            val dominantRootMidi = (targetChord.root.midiOffset + 7) % 12
-            val dominantRootNote = Note.entries.first { it.midiOffset == dominantRootMidi }
+            val dominantRootMidi = (targetChord.root.noteOffset + 7) % 12
+            val dominantRootNote = Note.entries.first { it.noteOffset == dominantRootMidi }
             Chord(dominantRootNote, ChordType.DOMINANT_SEVENTH, "V7/${targetChord.scaleDegreeName}")
         }
     }

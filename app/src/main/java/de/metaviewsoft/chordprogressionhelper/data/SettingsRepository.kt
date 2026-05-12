@@ -17,6 +17,7 @@ class SettingsRepository(context: Context) {
         const val KEY_COUNT_IN_BEATS_SONG = "key_count_in_beats_song"
         const val KEY_PLUCK_STRENGTH = "key_pluck_strength"
         const val KEY_IS_LOOPING = "key_is_looping"
+        const val KEY_IS_LOOPING_SONG = "key_is_looping_song"
         // Sound subgroup keys
         const val KEY_DRUM_LEVEL = "key_drum_level"
         const val KEY_SOLO_LEVEL = "key_solo_level"  // Solo Pattern Lautstärke
@@ -105,10 +106,15 @@ class SettingsRepository(context: Context) {
         get() = prefs.getInt(KEY_PLUCK_STRENGTH, 3) // Default to Soft
         set(value) = prefs.edit { putInt(KEY_PLUCK_STRENGTH, value) }
 
-    // Looping setting
+    // Looping setting for single progression/section
     var isLoopingEnabled: Boolean
         get() = prefs.getBoolean(KEY_IS_LOOPING, false)
         set(value) = prefs.edit { putBoolean(KEY_IS_LOOPING, value) }
+
+    // Looping setting for full song
+    var isLoopingSongEnabled: Boolean
+        get() = prefs.getBoolean(KEY_IS_LOOPING_SONG, false)
+        set(value) = prefs.edit { putBoolean(KEY_IS_LOOPING_SONG, value) }
 
     // Sound subgroup: drum level (multiplier), solo level, envelope scale, hi-hat highpass multiplier
     @Suppress("unused")
@@ -162,7 +168,7 @@ class SettingsRepository(context: Context) {
     // Shuffle rhythm factor setting
     var shuffleFactor: Float
         get() = prefs.getFloat(KEY_SHUFFLE_FACTOR, 0.0f) // Default to 0.0 (no shuffle)
-        set(value) = prefs.edit { putFloat(KEY_SHUFFLE_FACTOR, value.coerceIn(0.0f, 2.0f)) }
+        set(value) = prefs.edit { putFloat(KEY_SHUFFLE_FACTOR, value) }
 
     // Crunch/Overdrive gain levels (separate for strum and solo)
     // Range 0.0 (no crunch) to 2.0 (heavy crunch), default 1.0 (medium)
