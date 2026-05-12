@@ -152,6 +152,13 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         return song.sections.lastIndex.coerceAtLeast(0)
     }
 
+    /** Returns the tempo (BPM) of the section that contains the given global measure index. */
+    fun getTempoForMeasure(measureIndex: Int): Int {
+        val sectionIndex = getSectionIndexForMeasure(measureIndex)
+        val section = song.sections.getOrNull(sectionIndex)
+        return (section?.progression?.tempo ?: progression.tempo).coerceIn(60, 240)
+    }
+
     /** Returns distinct progressions used in the song (by identity, preserving order). */
     fun getUniqueSongProgressions(): List<ChordProgression> =
         song.sections.map { it.progression }.distinctBy { System.identityHashCode(it) }

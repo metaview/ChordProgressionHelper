@@ -61,6 +61,7 @@ import de.metaviewsoft.chordprogressionhelper.model.ProgressionTemplate
 import de.metaviewsoft.chordprogressionhelper.model.ProgressionTemplates
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.util.PreviewCoordinator
+import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
 import de.metaviewsoft.chordprogressionhelper.ui.ChordAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.MeasureAdapter
@@ -115,6 +116,7 @@ class MainActivity : AppCompatActivity() {
     // True only while the user is physically touching the Spinner — prevents programmatic
     // setSelection() calls from triggering selectSongSection() via onItemSelected.
     private var userTouchingSpinner = false
+    private var isUpdatingTempoField = false
 
     private var playbackService: PlaybackService? = null
     private var isBound = false
@@ -551,6 +553,22 @@ class MainActivity : AppCompatActivity() {
         }
         binding.repeatButton.setOnClickListener { viewModel.onRepeatToggle(!(viewModel.isLooping.value ?: false)) }
         binding.expandRelatedChordsButton.setOnClickListener { toggleExtraChordsVisibility() }
+
+        binding.defaultBpmEditText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                if (isUpdatingTempoField) return
+                val typedTempo = s?.toString()?.toIntOrNull() ?: return
+                viewModel.setTempo(typedTempo)
+            }
+        })
+        binding.defaultBpmUpButton.setOnClickListener { viewModel.incrementTempo() }
+        binding.defaultBpmDownButton.setOnClickListener { viewModel.decrementTempo() }
+
+        // Initialwert aus aktuell selektierter Progression/Section anzeigen.
+        val currentTempo = viewModel.tempo.value ?: viewModel.progression.tempo
+        binding.defaultBpmEditText.setText(currentTempo.toString())
     }
 
     private fun showMenu(anchor: View) {
@@ -1153,13 +1171,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resolveSurfaceColor(): Int {
-        val typed = TypedValue()
-        return if (theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, typed, true)) {
-            typed.data
-        } else {
-            // fallback to white/black based on UI
-            Color.WHITE
-        }
+        return ThemeColorResolver.surface(this)
     }
 
     private fun applyFadeToView(view: View, baseColor: Int, isLeft: Boolean) {
@@ -1185,8 +1197,7 @@ class MainActivity : AppCompatActivity() {
             val positive = alert.getButton(AlertDialog.BUTTON_POSITIVE)
             val negative = alert.getButton(AlertDialog.BUTTON_NEGATIVE)
             val neutral = alert.getButton(AlertDialog.BUTTON_NEUTRAL)
-            val tv = TypedValue()
-            val primaryColor = if (theme.resolveAttribute(android.R.attr.colorPrimary, tv, true)) tv.data else resolveSurfaceColor()
+            val primaryColor = ThemeColorResolver.primary(this)
             // Calculate on-primary color based on luminance of primary color
             val onPrimary = if (Color.luminance(primaryColor) > 0.5f) Color.BLACK else Color.WHITE
             // Create a rounded GradientDrawable to force the button background color across OEMs
@@ -1375,6 +1386,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         viewModel.tempo.observe(this) { newTempo ->
+            val tempoText = newTempo.toString()
+            if (binding.defaultBpmEditText.text?.toString() != tempoText) {
+                isUpdatingTempoField = true
+                binding.defaultBpmEditText.setText(tempoText)
+                binding.defaultBpmEditText.setSelection(binding.defaultBpmEditText.text?.length ?: 0)
+                isUpdatingTempoField = false
+            }
             playbackService?.setTempo(newTempo)
         }
         viewModel.showDeleteConfirmation.observe(this) { it?.let { showDeleteConfirmationDialog(it) } }

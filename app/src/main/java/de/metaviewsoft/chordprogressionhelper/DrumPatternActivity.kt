@@ -19,7 +19,6 @@ import de.metaviewsoft.chordprogressionhelper.model.Mode
 import kotlinx.serialization.json.Json
 import android.widget.Toast
 import android.content.res.ColorStateList
-import android.util.TypedValue
 import androidx.activity.OnBackPressedCallback
 import kotlinx.serialization.InternalSerializationApi
 import androidx.lifecycle.lifecycleScope
@@ -27,6 +26,7 @@ import kotlinx.coroutines.launch
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 import de.metaviewsoft.chordprogressionhelper.databinding.DialogDrumPatternBinding
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
+import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import de.metaviewsoft.chordprogressionhelper.model.StrummingPattern
@@ -113,9 +113,7 @@ class DrumPatternActivity : AppCompatActivity() {
                 binding.btnTest.isFocusable = true
                 binding.btnTest.alpha = 1.0f
             try {
-                val tv = TypedValue()
-                val resolved = theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)
-                val color = if (resolved) tv.data else 0xFF000000.toInt()
+                val color = ThemeColorResolver.onSurface(this@DrumPatternActivity)
                 binding.btnTest.iconTint = ColorStateList.valueOf(color)
             } catch (_: Exception) {}
             } catch (_: Exception) {}
@@ -464,7 +462,7 @@ class DrumPatternActivity : AppCompatActivity() {
                         val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.snare) 1.0f else 0.25f }
                         val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.25f }
                         // apply theme color
-                        try { val tv = TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) { val color = tv.data; (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } } catch (_: Exception) {}
+                        try { val color = ThemeColorResolver.onSurface(this@DrumPatternActivity); (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } catch (_: Exception) {}
                         col.addView(kick); col.addView(snare); col.addView(hihat)
                         preview.addView(col)
                     }
@@ -510,7 +508,7 @@ class DrumPatternActivity : AppCompatActivity() {
                         val kick = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.kick) 1.0f else 0.25f }
                         val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.snare) 1.0f else 0.25f }
                         val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.25f }
-                        try { val tv = TypedValue(); if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) { val color = tv.data; (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } } catch (_: Exception) {}
+                        try { val color = ThemeColorResolver.onSurface(this@DrumPatternActivity); (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } catch (_: Exception) {}
                         col.addView(kick); col.addView(snare); col.addView(hihat)
                         preview.addView(col)
                     }

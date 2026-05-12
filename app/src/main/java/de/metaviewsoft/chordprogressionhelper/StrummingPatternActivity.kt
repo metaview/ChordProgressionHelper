@@ -18,6 +18,7 @@ import androidx.core.content.res.ResourcesCompat
 import de.metaviewsoft.chordprogressionhelper.databinding.DialogStrummingPatternBinding
 import de.metaviewsoft.chordprogressionhelper.model.*
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
+import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.ListSerializer
@@ -416,8 +417,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
                     setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 4)
                     try {
-                        val tv = android.util.TypedValue()
-                        if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data)
+                        setTextColor(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to resolve colorOnSurface for pattern header: ${e.message}", e)
                     }
@@ -445,9 +445,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                 val divider = View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (1 * resources.displayMetrics.density).toInt())
                     try {
-                        val tv = android.util.TypedValue()
-                        val color = if (theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)) tv.data else android.graphics.Color.WHITE
-                        setBackgroundColor(color)
+                        setBackgroundColor(ThemeColorResolver.surface(this@StrummingPatternActivity))
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to set divider background color: ${e.message}", e)
                     }
@@ -465,8 +463,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(itemPadding, itemPadding / 2, itemPadding, itemPadding / 4)
                 try {
-                    val tv = android.util.TypedValue()
-                    if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data)
+                    setTextColor(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to resolve colorOnSurface for pattern header: ${e.message}", e)
                 }
@@ -511,8 +508,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     setImageResource(drawableId)
                     layoutParams = LinearLayout.LayoutParams((20 * resources.displayMetrics.density).toInt(), (20 * resources.displayMetrics.density).toInt())
                     try {
-                        val tv = android.util.TypedValue()
-                        if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data)
+                        setColorFilter(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to resolve colorOnSurface for legend icon: ${e.message}", e)
                     }
@@ -522,8 +518,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins((8 * resources.displayMetrics.density).toInt(), 0, 0, 0) }
                     try {
-                        val t = android.util.TypedValue()
-                        if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, t, true)) setTextColor(t.data)
+                        setTextColor(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to resolve colorOnSurface for legend label: ${e.message}", e)
                     }
@@ -796,10 +791,8 @@ class StrummingPatternActivity : AppCompatActivity() {
 
         // Subtle background/stroke using theme colors (semi-transparent stroke, light bg tint)
         try {
-            val tvSurface = android.util.TypedValue()
-            val surfaceColor = if (theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceBright, tvSurface, true)) tvSurface.data else android.graphics.Color.WHITE
-            val tvOn = android.util.TypedValue()
-            val onColor = if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tvOn, true)) tvOn.data else android.graphics.Color.DKGRAY
+            val surfaceColor = ThemeColorResolver.surfaceBright(this)
+            val onColor = ThemeColorResolver.onSurface(this)
             val strokeAlpha = 0x40 // ~25% alpha
             val bgAlpha = 0x40
             val strokeColor = (onColor and 0x00FFFFFF) or (strokeAlpha shl 24)
@@ -823,8 +816,7 @@ class StrummingPatternActivity : AppCompatActivity() {
                 setImageResource(strumToDrawable(s))
                 layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply { setMargins(0, 0, 0, 0) }
                 try {
-                    val tv = android.util.TypedValue()
-                    if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setColorFilter(tv.data)
+                    setColorFilter(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to resolve colorOnSurface for strum icon: ${e.message}", e)
                 }
@@ -845,8 +837,7 @@ class StrummingPatternActivity : AppCompatActivity() {
             includeFontPadding = false
             letterSpacing = 0f
             try {
-                val tv = android.util.TypedValue()
-                if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, tv, true)) setTextColor(tv.data)
+                setTextColor(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to resolve colorOnSurface for pattern name: ${e.message}", e)
             }

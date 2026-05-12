@@ -445,6 +445,73 @@
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toBottomOf="parent" />
 
+        <!-- BPM column -->
+        <LinearLayout
+            android:id="@+id/controlsBpmContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="2dp"
+            android:orientation="vertical"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintHorizontal_bias="0.5">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginLeft="48dp">
+
+                <EditText
+                    android:id="@+id/defaultBpmEditText"
+                    android:layout_width="72dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:gravity="center"
+                    android:hint="@string/bpm_hint"
+                    android:inputType="number"
+                    android:importantForAutofill="no" />
+
+                <LinearLayout
+                    android:layout_width="32dp"
+                    android:layout_height="48dp"
+                    android:orientation="vertical"
+                    android:layout_marginStart="4dp">
+
+                    <ImageButton
+                        android:id="@+id/defaultBpmUpButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/increase_bpm"
+                        android:paddingTop="12dp"
+                        android:scaleType="centerInside"
+                        android:src="@android:drawable/arrow_up_float" />
+
+                    <ImageButton
+                        android:id="@+id/defaultBpmDownButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/decrease_bpm"
+                        android:paddingBottom="4dp"
+                        android:scaleType="centerInside"
+                        android:src="@android:drawable/arrow_down_float" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
         <!-- Repeat anchored to the end to create a reliable large gap -->
         <ImageButton
             android:id="@+id/repeatButton"

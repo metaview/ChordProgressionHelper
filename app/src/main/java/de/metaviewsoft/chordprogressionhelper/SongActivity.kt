@@ -33,6 +33,7 @@ import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.ui.ProgressionViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
+import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
 import kotlinx.coroutines.launch
 
 class SongActivity : AppCompatActivity() {
@@ -244,12 +245,13 @@ class SongActivity : AppCompatActivity() {
                 } else {
                     val (measureIndex, _) = position
                     val sectionIdx = viewModel.getSectionIndexForMeasure(measureIndex)
+                    val sectionTempo = viewModel.getTempoForMeasure(measureIndex)
+                    playbackService?.setTempo(sectionTempo)
                     if (sectionIdx != currentPlayingSectionIdx) {
                         currentPlayingSectionIdx = sectionIdx
                         sectionAdapter.setPlayingIndex(sectionIdx)
                         // Derive 8th-note duration from tempo of current section
-                        val tempo = viewModel.progression.tempo.coerceIn(20, 300)
-                        val eighthNoteMs = (60_000L / tempo) / 2
+                        val eighthNoteMs = (60_000L / sectionTempo) / 2
                         startBeatTimer(eighthNoteMs)
                     }
                 }
@@ -269,30 +271,17 @@ class SongActivity : AppCompatActivity() {
     }
 
     private fun updateRepeatButton(isLooping: Boolean) {
-        val tv = TypedValue()
         if (isLooping) {
-            theme.resolveAttribute(android.R.attr.colorPrimary, tv, true)
-            val primaryColor = tv.data
+            val primaryColor = ThemeColorResolver.primary(this)
             val onPrimary = if (Color.luminance(primaryColor) > 0.5f) Color.BLACK else Color.WHITE
             binding.songRepeatButton.backgroundTintList =
                 android.content.res.ColorStateList.valueOf(primaryColor)
             binding.songRepeatButton.setColorFilter(onPrimary)
             binding.songRepeatButton.alpha = 1.0f
         } else {
-            theme.resolveAttribute(android.R.attr.colorBackground, tv, true)
             binding.songRepeatButton.backgroundTintList =
-                android.content.res.ColorStateList.valueOf(tv.data)
-            val offIconColorTv = TypedValue()
-            val offIconColor = if (theme.resolveAttribute(com.google.android.material.R.attr.colorOnBackground, offIconColorTv, true)) {
-                offIconColorTv.data
-            } else {
-                theme.resolveAttribute(android.R.attr.textColorPrimary, offIconColorTv, true)
-                if (offIconColorTv.resourceId != 0) {
-                    ContextCompat.getColor(this, offIconColorTv.resourceId)
-                } else {
-                    offIconColorTv.data
-                }
-            }
+                android.content.res.ColorStateList.valueOf(ThemeColorResolver.surface(this))
+            val offIconColor = ThemeColorResolver.onBackground(this)
             binding.songRepeatButton.setColorFilter(offIconColor)
             binding.songRepeatButton.alpha = 0.9f
         }
@@ -545,8 +534,7 @@ class SongActivity : AppCompatActivity() {
             val positive = alert.getButton(AlertDialog.BUTTON_POSITIVE)
             val negative = alert.getButton(AlertDialog.BUTTON_NEGATIVE)
             val neutral = alert.getButton(AlertDialog.BUTTON_NEUTRAL)
-            val tv = TypedValue()
-            val primaryColor = if (theme.resolveAttribute(android.R.attr.colorPrimary, tv, true)) tv.data else Color.GRAY
+            val primaryColor = ThemeColorResolver.primary(this)
             val onPrimary = if (Color.luminance(primaryColor) > 0.5f) Color.BLACK else Color.WHITE
             val radiusPx = (8f * resources.displayMetrics.density)
             fun applyButtonStyle(button: android.widget.Button?) {
