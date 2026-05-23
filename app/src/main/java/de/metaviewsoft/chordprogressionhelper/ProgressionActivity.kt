@@ -77,10 +77,10 @@ import kotlinx.serialization.json.Json
 
 @OptIn(InternalSerializationApi::class)
 @SuppressLint("UnspecifiedRegisterReceiverFlag")
-class MainActivity : AppCompatActivity() {
+class ProgressionActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var viewModel: ProgressionViewModel
-    private val TAG = "MainActivity"
+    private val TAG = "ProgressionActivity"
     private lateinit var chordAdapter: ChordAdapter
     private lateinit var relatedChordAdapter: ChordAdapter
     private lateinit var borrowedMinorChordAdapter: ChordAdapter
@@ -314,7 +314,10 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        viewModel = ViewModelProvider(this)[ProgressionViewModel::class.java]
+        viewModel = ViewModelProvider(
+            application as MyApplication,
+            ViewModelProvider.AndroidViewModelFactory(application)
+        )[ProgressionViewModel::class.java]
 
         // Listen to preview ownership changes so we can reflect MAIN-owned previews in the UI
         previewOwnerListener = { owner: String?, _: Boolean -> isDialogPreviewActive = (owner == "MAIN") }
@@ -468,6 +471,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        if (isBound && playbackService != null) {
+            try { playbackService?.stopPlayback() } catch (e: Exception) { Log.w(TAG, "onStop: stopPlayback failed: ${e.message}") }
+        } else {
+            try { PlaybackService.stop(this) } catch (e: Exception) { Log.w(TAG, "onStop: PlaybackService.stop failed: ${e.message}") }
+        }
         if (isBound) {
             unbindService(connection)
             isBound = false
@@ -496,6 +504,7 @@ class MainActivity : AppCompatActivity() {
                 if (userTouchingSpinner) {
                     userTouchingSpinner = false
                     viewModel.selectSongSection(position)
+                    SongActivity.selectedProgression = viewModel.progression
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -551,7 +560,7 @@ class MainActivity : AppCompatActivity() {
 
             isDialogPreviewActive = false
         }
-        binding.repeatButton.setOnClickListener { viewModel.onRepeatToggle(!(viewModel.isLooping.value ?: false)) }
+        binding.repeatButton.setOnClickListener { viewModel.onRepeatToggle(!(viewModel.isProgressionLooping.value ?: false)) }
         binding.expandRelatedChordsButton.setOnClickListener { toggleExtraChordsVisibility() }
 
         binding.defaultBpmEditText.addTextChangedListener(object : TextWatcher {
@@ -602,9 +611,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSongDialog() {
-        PlaybackService.stop(this)
-        SongActivity.selectedProgression = viewModel.progression
-        startActivity(Intent(this, SongActivity::class.java))
+        finish()
     }
 
     private fun showLoadDialog() {
@@ -1068,7 +1075,7 @@ class MainActivity : AppCompatActivity() {
             onStartDrag = { viewHolder -> itemTouchHelper.startDrag(viewHolder) }
         )
         binding.measureRecyclerView.apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
+            layoutManager = LinearLayoutManager(this@ProgressionActivity)
             adapter = measureAdapter
         }
 
@@ -1367,7 +1374,7 @@ class MainActivity : AppCompatActivity() {
             borrowedMinorChordAdapter.setSuggestedChord(chord)
             borrowedMajorChordAdapter.setSuggestedChord(chord)
         }
-        viewModel.isLooping.observe(this) { isToggled ->
+        viewModel.isProgressionLooping.observe(this) { isToggled ->
             val typedValue = TypedValue()
             if (isToggled) {
                 theme.resolveAttribute(android.R.attr.colorPrimary, typedValue, true)

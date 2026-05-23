@@ -160,12 +160,17 @@ class SectionAdapter(
     }
 
     /**
-     * ItemTouchHelper.Callback for drag-drop reordering
+     * ItemTouchHelper.Callback for drag-drop reordering.
+     * Visual feedback during drag via notifyItemMoved; ViewModel is only updated once on drop.
      */
     class SectionTouchHelperCallback(
         private val adapter: SectionAdapter,
-        private val onMove: (from: Int, to: Int) -> Unit
+        private val onDrop: (from: Int, to: Int) -> Unit
     ) : ItemTouchHelper.Callback() {
+
+        private var dragFrom = -1
+        private var dragCurrent = -1
+        private var originalBackground: android.graphics.drawable.Drawable? = null
 
         override fun getMovementFlags(
             recyclerView: RecyclerView,
@@ -174,8 +179,7 @@ class SectionAdapter(
             if (!adapter.isSectionPosition(viewHolder.bindingAdapterPosition)) {
                 return 0
             }
-            val dragFlags = ItemTouchHelper.UP or ItemTouchHelper.DOWN
-            return makeMovementFlags(dragFlags, 0)
+            return makeMovementFlags(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0)
         }
 
         override fun onMove(
@@ -183,24 +187,43 @@ class SectionAdapter(
             source: RecyclerView.ViewHolder,
             target: RecyclerView.ViewHolder
         ): Boolean {
-            val fromPosition = source.bindingAdapterPosition
-            val toPosition = target.bindingAdapterPosition
-
-            if (!adapter.isSectionPosition(fromPosition) || !adapter.isSectionPosition(toPosition)) {
-                return false
-            }
-
-            if (fromPosition < toPosition) {
-                onMove(fromPosition, toPosition)
-            } else if (fromPosition > toPosition) {
-                onMove(fromPosition, toPosition)
-            }
+            val from = source.bindingAdapterPosition
+            val to = target.bindingAdapterPosition
+            if (!adapter.isSectionPosition(from) || !adapter.isSectionPosition(to)) return false
+            if (dragFrom < 0) dragFrom = from
+            dragCurrent = to
+            adapter.notifyItemMoved(from, to)
             return true
         }
 
-        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-            // Swiping not supported; use menu for delete
+        override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(viewHolder, actionState)
+            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                viewHolder?.itemView?.let { v ->
+                    originalBackground = v.background
+                    v.alpha = 0.95f
+                    v.elevation = 24f
+                    v.setBackgroundColor(android.graphics.Color.parseColor("#F0F0F0"))
+                }
+            }
         }
+
+        override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+            super.clearView(recyclerView, viewHolder)
+            viewHolder.itemView.alpha = 1.0f
+            viewHolder.itemView.elevation = 0f
+            viewHolder.itemView.background = originalBackground
+            originalBackground = null
+            val from = dragFrom
+            val to = dragCurrent
+            dragFrom = -1
+            dragCurrent = -1
+            if (from >= 0 && to >= 0 && from != to) {
+                onDrop(from, to)
+            }
+        }
+
+        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
 
         override fun isLongPressDragEnabled(): Boolean = false
 

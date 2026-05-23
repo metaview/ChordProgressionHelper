@@ -60,7 +60,7 @@ The audio playback system uses Android's AudioTrack API with:
 
 ### MVVM Pattern
 - **Model**: Data classes (Key, Mode, Chord, Measure, etc.)
-- **View**: MainActivity with RecyclerViews
+- **View**: ProgressionActivity with RecyclerViews
 - **ViewModel**: ProgressionViewModel manages state and business logic
 
 ### Key Components

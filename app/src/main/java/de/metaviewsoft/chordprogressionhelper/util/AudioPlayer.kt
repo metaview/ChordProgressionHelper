@@ -88,6 +88,7 @@ class AudioPlayer {
                                 .build()
                             try {
                                 previewAudioTrack?.play()
+                                previewAudioTrack?.setVolume(masterVolume.toFloat())
                             } catch (e: Exception) {
                                 android.util.Log.w(
                                     "AudioPlayer",
@@ -237,6 +238,18 @@ class AudioPlayer {
      */
     @Volatile
     var strumLevel: Double = 1.0
+
+    /**
+     * masterVolume: In-App Master-Lautstärkeregler (0.0 = stumm, 1.0 = volle Lautstärke).
+     * Wirkt als Gain-Multiplikator direkt auf den AudioTrack und beeinflusst nur diese App.
+     */
+    @Volatile
+    var masterVolume: Double = 1.0
+        set(value) {
+            field = value
+            audioTrack?.setVolume(value.toFloat())
+            previewAudioTrack?.setVolume(value.toFloat())
+        }
 
     /**
      * envelopeScale: skaliert Hüllkurven/Amplituden von Percussion und einigen Effekten.
@@ -403,6 +416,7 @@ class AudioPlayer {
                     .build()
                 val trackPlayTime = System.currentTimeMillis()
                 audioTrack?.play()
+                audioTrack?.setVolume(masterVolume.toFloat())
                 val trackPlayDoneTime = System.currentTimeMillis()
                 android.util.Log.d(
                     "AudioPlayer",

@@ -37,6 +37,7 @@
 
     <string name="start_new_title">Start New Progression?</string>
     <string name="start_new_message">This will clear the current progression. Are you sure?</string>
+    <string name="new_song_message">This will discard the current song and all its sections. Are you sure?</string>
     <string name="new_button">New</string>
     <string name="continue_button">Continue</string>
 
@@ -106,7 +107,7 @@
     <string name="parallel_chords">Parallel chords</string>
     <string name="song_section_label">Song Section</string>
     <string name="song_section_actions_cd">Section actions</string>
-    <string name="song_section_add">Add Section</string>
+    <string name="song_section_add">+ Add Section</string>
     <string name="song_section_new_progression">New (empty) Progression</string>
     <string name="song_section_unnamed">(unnamed)</string>
     <string name="song_section_rename">Rename</string>

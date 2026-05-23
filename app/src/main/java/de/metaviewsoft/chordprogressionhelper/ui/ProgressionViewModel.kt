@@ -86,7 +86,8 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     private val _key = MutableLiveData<Key>()
     val key: LiveData<Key> = _key
 
-    val isLooping: MutableLiveData<Boolean> = MutableLiveData(false)
+    val isProgressionLooping: MutableLiveData<Boolean> = MutableLiveData(false)
+    val isSongLooping: MutableLiveData<Boolean> = MutableLiveData(false)
 
     private val TAG = "ProgressionViewModel"
 
@@ -95,7 +96,8 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         progression = song.sections.first().progression
         tempo = MutableLiveData(progression.tempo)
         _key.value = progression.key
-        isLooping.value = settingsRepository.isLoopingEnabled
+        isProgressionLooping.value = settingsRepository.isLoopingProgressionEnabled
+        isSongLooping.value = settingsRepository.isLoopingSongEnabled
         updateAllChords()
         updateMeasures()
         updateSongSectionsState()
@@ -109,6 +111,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
                 SettingsRepository.KEY_HIHAT_HIGHPASS -> previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
                 SettingsRepository.KEY_STRUM_PRESET -> previewAudioPlayer.voicePreset = settingsRepository.strumPreset
                 SettingsRepository.KEY_DEFAULT_BPM -> setTempo(settingsRepository.defaultBpm)
+                SettingsRepository.KEY_MASTER_VOLUME -> previewAudioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
             }
         }
         settingsRepository.registerChangeListener(prefsListener)
@@ -780,6 +783,26 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         _showNewProgressionConfirmation.value = true
     }
 
+    fun newSong() {
+        val defaultKey = settingsRepository.defaultKeyName.let { name ->
+            Key.entries.firstOrNull { it.name == name } ?: Key.C
+        }
+        val defaultTempo = settingsRepository.defaultBpm.coerceIn(60, 240)
+        val newProgression = ChordProgression(key = defaultKey, tempo = defaultTempo).apply {
+            shuffleFactor = settingsRepository.shuffleFactor
+        }
+        val section = SongSection(name = "Section 1", progression = newProgression)
+        song = Song(name = "New Song", sections = mutableListOf(section))
+        currentSectionIndex = 0
+        progression = song.sections[0].progression
+        tempo.value = progression.tempo
+        _key.value = progression.key
+        updateAllChords()
+        updateMeasures()
+        updateSongSectionsState()
+        saveCurrentSession()
+    }
+
     fun confirmNewProgression(template: ProgressionTemplate?, newKey: Key? = null, newTempo: Int? = null) {
         val selectedKey = newKey ?: (_key.value ?: Key.C)
         val selectedTempo = (newTempo ?: progression.tempo).coerceIn(60, 240)
@@ -825,8 +848,13 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     }
     
     fun onRepeatToggle(isToggled: Boolean) {
-        isLooping.value = isToggled
-        settingsRepository.isLoopingEnabled = isToggled
+        isProgressionLooping.value = isToggled
+        settingsRepository.isLoopingProgressionEnabled = isToggled
+    }
+
+    fun onSongRepeatToggle(isToggled: Boolean) {
+        isSongLooping.value = isToggled
+        settingsRepository.isLoopingSongEnabled = isToggled
     }
 
     @OptIn(InternalSerializationApi::class)

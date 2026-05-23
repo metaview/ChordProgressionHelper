@@ -9,8 +9,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.text.Editable
-import android.text.TextWatcher
 import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
@@ -18,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.PopupMenu
+import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -43,12 +42,14 @@ class SongActivity : AppCompatActivity() {
         var selectedProgression: ChordProgression? = null
     }
 
+    private val TAG = "SongActivity"
+
     private lateinit var binding: ActivitySongBinding
+    private lateinit var settingsRepository: de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
     private lateinit var viewModel: ProgressionViewModel
     private lateinit var sectionAdapter: SectionAdapter
     private lateinit var sectionTouchHelper: ItemTouchHelper
     private var lastSelectedIndex = -1
-    private var isUpdatingSongName = false
 
     private var playbackService: PlaybackService? = null
     private var isServiceBound = false
@@ -106,8 +107,23 @@ class SongActivity : AppCompatActivity() {
 
         PlaybackService.stop(this)
         setupRecyclerView()
+        setupVolumeControl()
         setupListeners()
         observeViewModel()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Sync the highlighted section with whatever is currently active in the ViewModel.
+        // This covers the case where the user changed sections via the spinner in ProgressionActivity
+        // and then navigated back here.
+        val idx = viewModel.selectedSongSectionIndex.value ?: 0
+        sectionAdapter.setSelectedIndex(idx)
+        // Sync volume SeekBar with current in-app master volume
+        if (::settingsRepository.isInitialized) {
+            binding.volumeSeekBar.progress =
+                (settingsRepository.masterVolume * 100).toInt()
+        }
     }
 
     override fun onStart() {
@@ -119,6 +135,11 @@ class SongActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         stopBeatTimer()
+        if (isServiceBound && playbackService != null) {
+            try { playbackService?.stopPlayback() } catch (e: Exception) { Log.w(TAG, "onStop: stopPlayback failed: ${e.message}") }
+        } else {
+            try { PlaybackService.stop(this) } catch (e: Exception) { Log.w(TAG, "onStop: PlaybackService.stop failed: ${e.message}") }
+        }
         if (isServiceBound) {
             unbindService(serviceConnection)
             isServiceBound = false
@@ -128,15 +149,9 @@ class SongActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         sectionAdapter = SectionAdapter(
             onSectionClick = { position ->
-                val currentIndex = viewModel.selectedSongSectionIndex.value ?: 0
-                if (position == currentIndex && lastSelectedIndex == currentIndex) {
-                    finish()
-                } else {
-                    lastSelectedIndex = position
-                    viewModel.selectSongSection(position)
-                    selectedProgression = viewModel.progression
-                    refreshSections()
-                }
+                viewModel.selectSongSection(position)
+                selectedProgression = viewModel.progression
+                startActivity(Intent(this, ProgressionActivity::class.java))
             },
             onMenuClick = { position, anchor ->
                 showSectionMenu(position, anchor)
@@ -154,25 +169,30 @@ class SongActivity : AppCompatActivity() {
         binding.songSectionsRecyclerView.adapter = sectionAdapter
 
         sectionTouchHelper = ItemTouchHelper(
-            SectionAdapter.SectionTouchHelperCallback(sectionAdapter) { fromPosition, toPosition ->
-                viewModel.moveSongSection(fromPosition, toPosition)
+            SectionAdapter.SectionTouchHelperCallback(sectionAdapter) { from, to ->
+                viewModel.moveSongSection(from, to)
                 refreshSections()
             }
         )
         sectionTouchHelper.attachToRecyclerView(binding.songSectionsRecyclerView)
     }
 
-    private fun setupListeners() {
-        binding.songNameEditText.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                if (!isUpdatingSongName) {
-                    viewModel.setSongName(s?.toString().orEmpty())
+    private fun setupVolumeControl() {
+        settingsRepository = de.metaviewsoft.chordprogressionhelper.data.SettingsRepository(this)
+        binding.volumeSeekBar.max = 100
+        binding.volumeSeekBar.progress = (settingsRepository.masterVolume * 100).toInt()
+        binding.volumeSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    settingsRepository.masterVolume = progress / 100f
                 }
             }
+            override fun onStartTrackingTouch(seekBar: SeekBar) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar) {}
         })
+    }
 
+    private fun setupListeners() {
         binding.songMenuButton.setOnClickListener { showMenu(it) }
 
         binding.songPlayButton.setOnClickListener {
@@ -192,18 +212,13 @@ class SongActivity : AppCompatActivity() {
         }
 
         binding.songRepeatButton.setOnClickListener {
-            viewModel.onRepeatToggle(!(viewModel.isLooping.value ?: false))
+            viewModel.onSongRepeatToggle(!(viewModel.isSongLooping.value ?: false))
         }
     }
 
     private fun observeViewModel() {
         viewModel.songName.observe(this) { name ->
-            isUpdatingSongName = true
-            if (binding.songNameEditText.text?.toString() != name) {
-                binding.songNameEditText.setText(name ?: getString(R.string.song_name_default))
-                binding.songNameEditText.setSelection(binding.songNameEditText.text?.length ?: 0)
-            }
-            isUpdatingSongName = false
+            binding.songNameEditText.text = name ?: getString(R.string.song_name_default)
         }
 
         viewModel.songSectionNames.observe(this) {
@@ -215,7 +230,7 @@ class SongActivity : AppCompatActivity() {
             sectionAdapter.setSelectedIndex(index)
         }
 
-        viewModel.isLooping.observe(this) { isLooping ->
+        viewModel.isSongLooping.observe(this) { isLooping ->
             updateRepeatButton(isLooping)
         }
     }
@@ -332,7 +347,7 @@ class SongActivity : AppCompatActivity() {
         popup.menu.add(0, 4, 4, getString(R.string.settings_title))
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                0 -> { viewModel.requestNewProgression(); finish(); true }
+                0 -> { showNewSongDialog(); true }
                 1 -> { showLoadSongDialog(); true }
                 2 -> { showSaveSongDialog(); true }
                 3 -> { showDeleteSongDialog(); true }
@@ -384,12 +399,30 @@ class SongActivity : AppCompatActivity() {
             setText(initialValue)
             setSelection(text.length)
             hint = getString(R.string.song_section_name_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 1
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(title)
             .setView(editText)
             .setPositiveButton(getString(R.string.ok)) { _, _ ->
                 onConfirm(editText.text?.toString().orEmpty())
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .create()
+        dialog.setOnShowListener { styleDialogButtons(dialog) }
+        dialog.show()
+    }
+
+    private fun showNewSongDialog() {
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.new_song_title))
+            .setMessage(getString(R.string.new_song_message))
+            .setPositiveButton(getString(R.string.continue_button)) { _, _ ->
+                PlaybackService.stop(this)
+                viewModel.newSong()
+                selectedProgression = null
             }
             .setNegativeButton(getString(R.string.cancel), null)
             .create()
@@ -446,6 +479,9 @@ class SongActivity : AppCompatActivity() {
             setText(currentName)
             setSelection(text.length)
             hint = getString(R.string.song_name_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 1
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
 
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)

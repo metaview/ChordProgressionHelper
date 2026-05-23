@@ -16,7 +16,7 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.util.Log
-import de.metaviewsoft.chordprogressionhelper.MainActivity
+import de.metaviewsoft.chordprogressionhelper.SongActivity
 import de.metaviewsoft.chordprogressionhelper.R
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionStore
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
@@ -124,6 +124,7 @@ class PlaybackService : Service() {
         // Initialize crunch levels from settings
         audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
         audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
+        audioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
 
         prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
@@ -141,6 +142,7 @@ class PlaybackService : Service() {
                 SettingsRepository.KEY_SHUFFLE_FACTOR -> audioPlayer.shuffleFactor = settingsRepository.shuffleFactor.toFloat()
                 SettingsRepository.KEY_STRUM_CRUNCH_LEVEL -> audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
                 SettingsRepository.KEY_SOLO_CRUNCH_LEVEL -> audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
+                SettingsRepository.KEY_MASTER_VOLUME -> audioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
             }
         }
         settingsRepository.registerChangeListener(prefsListener)
@@ -431,7 +433,7 @@ class PlaybackService : Service() {
                     currentIsLoopingPreview -> true
                     currentIsPreview -> false
                     currentIsSong -> settingsRepository.isLoopingSongEnabled
-                    else -> settingsRepository.isLoopingEnabled
+                    else -> settingsRepository.isLoopingProgressionEnabled
                 } },
                 pluckStrength = settingsRepository.pluckStrength,
                 // For previews (Test/Default pattern) we must not perform a count-in
@@ -597,7 +599,7 @@ class PlaybackService : Service() {
 
     private fun createNotification(progression: ChordProgression, isPlaying: Boolean): Notification {
         Log.i(TAG, "createNotification: isPlaying=$isPlaying, progression=${progression.name}")
-        val notificationIntent = Intent(this, MainActivity::class.java)
+        val notificationIntent = Intent(this, SongActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE)
 
         // Create PendingIntents for the remoteview buttons

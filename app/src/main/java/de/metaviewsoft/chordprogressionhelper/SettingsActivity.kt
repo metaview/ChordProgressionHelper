@@ -72,7 +72,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.drumPreviewSwitch.isChecked = settingsRepository.isDrumPreviewEnabled
         // New: template preview switch (preview when selecting templates)
         binding.templatePreviewSwitch.isChecked = settingsRepository.isTemplatePreviewEnabled
-        binding.loopByDefaultSwitch.isChecked = settingsRepository.isLoopingEnabled
+        binding.loopByDefaultSwitch.isChecked = settingsRepository.isLoopingProgressionEnabled
 
         // Default key and BPM for New dialog
         val keyAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, Key.entries.map { it.displayName })
@@ -385,7 +385,7 @@ class SettingsActivity : AppCompatActivity() {
             settingsRepository.isTemplatePreviewEnabled = isChecked
         }
         binding.loopByDefaultSwitch.setOnCheckedChangeListener { _, isChecked ->
-            settingsRepository.isLoopingEnabled = isChecked
+            settingsRepository.isLoopingProgressionEnabled = isChecked
         }
     }
 }

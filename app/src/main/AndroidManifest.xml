@@ -17,7 +17,7 @@
         android:theme="@style/Theme.ChordProgressionHelper"
         tools:targetApi="31">
         <activity
-            android:name=".MainActivity"
+            android:name=".SongActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -30,9 +30,9 @@
             android:exported="false" />
 
         <activity
-            android:name=".SongActivity"
+            android:name=".ProgressionActivity"
             android:exported="false"
-            android:theme="@style/ThemeOverlay.ChordProgressionHelper.FullscreenDialog" />
+            android:parentActivityName=".SongActivity" />
 
         <activity
             android:name=".StrummingTimingActivity"
