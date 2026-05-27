@@ -593,6 +593,7 @@ class DrumPatternActivity : AppCompatActivity() {
      */
     override fun onResume() {
         super.onResume()
+        PlaybackService.stop(this)
         try {
             binding.btnTest.isEnabled = true
             binding.btnTest.isClickable = true

@@ -29,7 +29,9 @@ import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import com.google.android.material.card.MaterialCardView
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import kotlinx.coroutines.Job
@@ -47,21 +49,16 @@ class SoloPatternActivity : AppCompatActivity() {
         const val EXTRA_KEY = "extra_key"
         const val EXTRA_MODE = "extra_mode"
         const val EXTRA_TEMPO = "extra_tempo"
+        const val EXTRA_ALL_MEASURES_CHORDS = "extra_all_measures_chords"
+        const val EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON = "extra_all_measures_solo_patterns_json"
         private const val TAG = "SoloPatternActivity"
     }
 
     // UI Views
-    private lateinit var titleText: TextView
     private lateinit var btnOk: MaterialButton
     private lateinit var btnPreview: MaterialButton
-    private lateinit var slot0: Button
-    private lateinit var slot1: Button
-    private lateinit var slot2: Button
-    private lateinit var slot3: Button
-    private lateinit var slot4: Button
-    private lateinit var slot5: Button
-    private lateinit var slot6: Button
-    private lateinit var slot7: Button
+    private lateinit var measureListContainer: android.widget.LinearLayout
+    private lateinit var measureScrollView: android.widget.ScrollView
     private lateinit var iconRest: MaterialButton
     private lateinit var iconLetRing: MaterialButton
     private lateinit var octaveUp: ImageButton
@@ -90,8 +87,16 @@ class SoloPatternActivity : AppCompatActivity() {
         data class NoteSlot(val midi: Int) : Slot()
     }
 
-    // 8 slots for one measure (8 eighth notes)
-    private val slots = Array<Slot>(8) { Slot.Rest }
+    // Multi-measure state
+    private val allSlotsData = mutableListOf<Array<Slot>>()          // one 8-slot array per measure
+    private val rowSlotViews = mutableListOf<List<android.widget.Button>>() // slot button views per row
+    private val rowCards = mutableListOf<MaterialCardView>()          // card per row for highlighting
+    private var activeMeasureIndex = 0
+    private var measureChordNames: List<String> = emptyList()
+
+    // Computed property: always points to the active measure's slot array
+    private val slots: Array<Slot>
+        get() = if (allSlotsData.isNotEmpty()) allSlotsData[activeMeasureIndex] else Array(8) { Slot.Rest as Slot }
     // Local preview player for single-note previews (separate from PlaybackService used for full-pattern previews)
     private val previewAudioPlayer = AudioPlayer()
     private var selectedSlot: Int = -1
@@ -145,17 +150,10 @@ class SoloPatternActivity : AppCompatActivity() {
         setContentView(R.layout.dialog_solo_pattern)
 
         // Initialize all views
-        titleText = findViewById(R.id.titleText)
         btnOk = findViewById(R.id.btnOk)
         btnPreview = findViewById(R.id.btnPreview)
-        slot0 = findViewById(R.id.slot0)
-        slot1 = findViewById(R.id.slot1)
-        slot2 = findViewById(R.id.slot2)
-        slot3 = findViewById(R.id.slot3)
-        slot4 = findViewById(R.id.slot4)
-        slot5 = findViewById(R.id.slot5)
-        slot6 = findViewById(R.id.slot6)
-        slot7 = findViewById(R.id.slot7)
+        measureListContainer = findViewById(R.id.measureListContainer)
+        measureScrollView = findViewById(R.id.measureScrollView)
         iconRest = findViewById(R.id.iconRest)
         iconLetRing = findViewById(R.id.iconLetRing)
         octaveUp = findViewById(R.id.octaveUp)
@@ -184,8 +182,6 @@ class SoloPatternActivity : AppCompatActivity() {
 
         val measureIndex = intent?.getIntExtra(EXTRA_MEASURE_INDEX, -1) ?: -1
 
-        titleText.text = getString(R.string.solo_pattern_editor_title, if (measureIndex >= 0) (measureIndex + 1).toString() else "-")
-
         // Load context for preview
         intent?.getStringExtra(EXTRA_TONIC_CHORD_JSON)?.let { json ->
             try {
@@ -206,25 +202,35 @@ class SoloPatternActivity : AppCompatActivity() {
             Log.w(TAG, "Failed to bind PlaybackService: ${e.message}")
         }
 
-        // Initialize slots from incoming SoloPattern JSON if present
-        intent?.getStringExtra(EXTRA_SOLO_PATTERN_JSON)?.let { json ->
+        // Build multi-measure slot data
+        val allPatternsJson = intent?.getStringExtra(EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON)
+        if (allPatternsJson != null) {
+            // New multi-measure mode: load all measures' patterns
+            val chordsStr = intent?.getStringExtra(EXTRA_ALL_MEASURES_CHORDS) ?: ""
+            measureChordNames = if (chordsStr.isEmpty()) emptyList() else chordsStr.split("|")
             try {
-                val pattern = Json.decodeFromString(SoloPattern.serializer(), json)
-                expandPatternToSlots(pattern)
-            } catch (_: Exception) { /* ignore parse errors and keep defaults */ }
+                val patterns = Json.decodeFromString(ListSerializer(SoloPattern.serializer()), allPatternsJson)
+                for (pattern in patterns) {
+                    val arr = Array<Slot>(8) { Slot.Rest }
+                    expandPatternToSlots(pattern, arr)
+                    allSlotsData.add(arr)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse all solo patterns: ${e.message}")
+            }
         }
-
-        // Render initial slot labels
-        renderAllSlots()
-        // Ensure slot backgrounds set and octave text initialized
-        // Force the dark background on all slots to avoid theme tint overwriting it
-        val slotViews = listOf(slot0, slot1, slot2, slot3, slot4, slot5, slot6, slot7)
-        for (v in slotViews) {
-            try {
-                v.setBackgroundResource(R.drawable.purple_button_bg)
-                v.backgroundTintList = null
-            } catch (_: Exception) {}
+        // Fallback / single-measure mode
+        if (allSlotsData.isEmpty()) {
+            val arr = Array<Slot>(8) { Slot.Rest }
+            intent?.getStringExtra(EXTRA_SOLO_PATTERN_JSON)?.let { json ->
+                try {
+                    val pattern = Json.decodeFromString(SoloPattern.serializer(), json)
+                    expandPatternToSlots(pattern, arr)
+                } catch (_: Exception) {}
+            }
+            allSlotsData.add(arr)
         }
+        activeMeasureIndex = (measureIndex.coerceAtLeast(0)).coerceAtMost(allSlotsData.size - 1)
 
         // Ensure keyboard keys use their own drawables and are not tinted by the app theme
         val whiteKeyViews = listOf(keyBLow, keyC, keyD, keyE, keyF, keyG, keyA, keyB, keyCHigh, keyDHigh)
@@ -232,7 +238,6 @@ class SoloPatternActivity : AppCompatActivity() {
         for (k in whiteKeyViews) {
             try {
                 k.background = whiteDrawable
-                // clear any AppCompat/Material tint
                 ViewCompat.setBackgroundTintList(k, null)
                 k.invalidate()
             } catch (_: Exception) {}
@@ -247,21 +252,22 @@ class SoloPatternActivity : AppCompatActivity() {
             } catch (_: Exception) {}
         }
 
+        // Build all measure rows and select first slot of the active row
+        buildMeasureRows()
+        selectedSlot = 0
         highlightSelectedSlot()
+        // Scroll to the initially opened measure after layout is complete
+        measureScrollView.post {
+            try {
+                rowCards.getOrNull(activeMeasureIndex)?.let { card ->
+                    measureScrollView.smoothScrollTo(0, card.top)
+                }
+            } catch (_: Exception) {}
+        }
         octaveText.text = getString(R.string.octave_current, currentOctave)
 
         btnOk.setOnClickListener { performOk() }
         btnPreview.setOnClickListener { performPreview() }
-
-        // Slot selection: clicking a slot selects it for subsequent key presses.
-        slot0.setOnClickListener { selectSlot(0) }
-        slot1.setOnClickListener { selectSlot(1) }
-        slot2.setOnClickListener { selectSlot(2) }
-        slot3.setOnClickListener { selectSlot(3) }
-        slot4.setOnClickListener { selectSlot(4) }
-        slot5.setOnClickListener { selectSlot(5) }
-        slot6.setOnClickListener { selectSlot(6) }
-        slot7.setOnClickListener { selectSlot(7) }
 
         // Rest / LetRing buttons
         // Buttons below keyboard
@@ -293,26 +299,37 @@ class SoloPatternActivity : AppCompatActivity() {
         }
 
         // Keyboard key handlers (pitch classes 0..11 where C=0)
-        // Low octave: A(-3) and B(-1) from the octave below
-        keyBLow.setOnClickListener { onKeyPressed(11, octaveOffset = -1) }
+        // Fire on ACTION_DOWN for minimum latency (not on click/up)
+        fun android.view.View.setKeyDownListener(pitchClass: Int, octaveOffset: Int = 0) {
+            setOnTouchListener { v, event ->
+                if (event.action == android.view.MotionEvent.ACTION_DOWN) {
+                    onKeyPressed(pitchClass, octaveOffset)
+                    v.performClick()
+                }
+                false
+            }
+        }
+
+        // Low octave: B from the octave below
+        keyBLow.setKeyDownListener(11, octaveOffset = -1)
 
         // Current octave
-        keyC.setOnClickListener { onKeyPressed(0) }
-        keyCs.setOnClickListener { onKeyPressed(1) }
-        keyD.setOnClickListener { onKeyPressed(2) }
-        keyDs.setOnClickListener { onKeyPressed(3) }
-        keyE.setOnClickListener { onKeyPressed(4) }
-        keyF.setOnClickListener { onKeyPressed(5) }
-        keyFs.setOnClickListener { onKeyPressed(6) }
-        keyG.setOnClickListener { onKeyPressed(7) }
-        keyGs.setOnClickListener { onKeyPressed(8) }
-        keyA.setOnClickListener { onKeyPressed(9) }
-        keyAs.setOnClickListener { onKeyPressed(10) }
-        keyB.setOnClickListener { onKeyPressed(11) }
+        keyC.setKeyDownListener(0)
+        keyCs.setKeyDownListener(1)
+        keyD.setKeyDownListener(2)
+        keyDs.setKeyDownListener(3)
+        keyE.setKeyDownListener(4)
+        keyF.setKeyDownListener(5)
+        keyFs.setKeyDownListener(6)
+        keyG.setKeyDownListener(7)
+        keyGs.setKeyDownListener(8)
+        keyA.setKeyDownListener(9)
+        keyAs.setKeyDownListener(10)
+        keyB.setKeyDownListener(11)
 
-        keyCHigh.setOnClickListener { onKeyPressed(0, octaveOffset = 1) }
-        keyCsHigh.setOnClickListener { onKeyPressed(1, octaveOffset = 1) }
-        keyDHigh.setOnClickListener { onKeyPressed(2, octaveOffset = 1) }
+        keyCHigh.setKeyDownListener(0, octaveOffset = 1)
+        keyCsHigh.setKeyDownListener(1, octaveOffset = 1)
+        keyDHigh.setKeyDownListener(2, octaveOffset = 1)
 
         // Handle back press via OnBackPressedDispatcher
         try {
@@ -330,39 +347,20 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun performOk() {
-        // Convert slots into SoloPattern elements: create SoloElement entries for notes/rest/letring
-        val elements = mutableListOf<de.metaviewsoft.chordprogressionhelper.model.SoloElement>()
-        var i = 0
-        while (i < 8) {
-            when (val s = slots[i]) {
-                is Slot.NoteSlot -> {
-                    // count consecutive let ring following this note
-                    var len = 1
-                    var j = i + 1
-                    while (j < 8 && slots[j] is Slot.LetRing) { len++; j++ }
-                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note(s.midi, len))
-                    i = j
-                }
-                is Slot.Rest -> {
-                    // count consecutive rests
-                    var len = 1
-                    var j = i + 1
-                    while (j < 8 && slots[j] is Slot.Rest) { len++; j++ }
-                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest(len))
-                    i = j
-                }
-                is Slot.LetRing -> {
-                    // Standalone LetRing (not following a note) - treat as rest
-                    i++
-                }
-            }
+        // Convert all measures' slots into SoloPatterns and return them all
+        val allPatterns = allSlotsData.map { slotsToPattern(it) }
+        val allPatternsJson = try {
+            Json.encodeToString(ListSerializer(SoloPattern.serializer()), allPatterns)
+        } catch (e: Exception) { null }
+        val activePattern = allPatterns.getOrNull(activeMeasureIndex)
+        val activeJson = activePattern?.let {
+            try { Json.encodeToString(SoloPattern.serializer(), it) } catch (e: Exception) { null }
         }
 
-        val pattern = SoloPattern(name = "Custom", elements = elements)
-        val json = Json.encodeToString(SoloPattern.serializer(), pattern)
         setResult(RESULT_OK, Intent().apply {
             putExtra(EXTRA_MEASURE_INDEX, intent?.getIntExtra(EXTRA_MEASURE_INDEX, -1) ?: -1)
-            putExtra(EXTRA_SOLO_PATTERN_JSON, json)
+            if (activeJson != null) putExtra(EXTRA_SOLO_PATTERN_JSON, activeJson)
+            if (allPatternsJson != null) putExtra(EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON, allPatternsJson)
         })
 
         // Stop any active preview
@@ -551,10 +549,10 @@ class SoloPatternActivity : AppCompatActivity() {
         }
     }
 
-    // Expand a SoloPattern into the 8-slot representation
-    private fun expandPatternToSlots(pattern: SoloPattern) {
+    // Expand a SoloPattern into an 8-slot representation
+    private fun expandPatternToSlots(pattern: SoloPattern, target: Array<Slot>) {
         // initialize all to Rest
-        for (k in 0 until 8) slots[k] = Slot.Rest
+        for (k in 0 until 8) target[k] = Slot.Rest
 
         var pos = 0
 
@@ -567,12 +565,12 @@ class SoloPatternActivity : AppCompatActivity() {
 
             when (element) {
                 is de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note -> {
-                    slots[pos] = Slot.NoteSlot(element.midi)
+                    target[pos] = Slot.NoteSlot(element.midi)
                     // mark let ring for following positions
                     for (r in 1 until len) {
                         val idx = pos + r
                         if (idx >= 8) break
-                        slots[idx] = Slot.LetRing
+                        target[idx] = Slot.LetRing
                     }
                 }
                 is de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest -> {
@@ -580,7 +578,7 @@ class SoloPatternActivity : AppCompatActivity() {
                     for (r in 0 until len) {
                         val idx = pos + r
                         if (idx >= 8) break
-                        slots[idx] = Slot.Rest
+                        target[idx] = Slot.Rest
                     }
                 }
                 is de.metaviewsoft.chordprogressionhelper.model.SoloElement.LetRing -> {
@@ -588,7 +586,7 @@ class SoloPatternActivity : AppCompatActivity() {
                     for (r in 0 until len) {
                         val idx = pos + r
                         if (idx >= 8) break
-                        slots[idx] = Slot.LetRing
+                        target[idx] = Slot.LetRing
                     }
                 }
             }
@@ -597,35 +595,19 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun renderAllSlots() {
-        fun setLabel(idx: Int, text: String) {
-            when (idx) {
-                /*
-                0 -> binding.slot0.text = text
-                1 -> binding.slot1.text = text
-                2 -> binding.slot2.text = text
-                3 -> binding.slot3.text = text
-                4 -> binding.slot4.text = text
-                5 -> binding.slot5.text = text
-                6 -> binding.slot6.text = text
-                7 -> binding.slot7.text = text
-                 */
-                0 -> slot0.text = text
-                1 -> slot1.text = text
-                2 -> slot2.text = text
-                3 -> slot3.text = text
-                4 -> slot4.text = text
-                5 -> slot5.text = text
-                6 -> slot6.text = text
-                7 -> slot7.text = text
-            }
-        }
+        renderRowSlots(activeMeasureIndex)
+    }
+
+    private fun renderRowSlots(rowIdx: Int) {
+        val btns = rowSlotViews.getOrNull(rowIdx) ?: return
+        val rowSlots = allSlotsData.getOrNull(rowIdx) ?: return
         for (i in 0 until 8) {
-            val label = when (val s = slots[i]) {
+            val label = when (val s = rowSlots[i]) {
                 is Slot.Rest -> "-"
-                is Slot.LetRing -> " "  // Leerzeichen für LetRing
+                is Slot.LetRing -> " "
                 is Slot.NoteSlot -> midiToName(s.midi)
             }
-            setLabel(i, label)
+            btns.getOrNull(i)?.text = label
         }
     }
 
@@ -638,45 +620,164 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun highlightSelectedSlot() {
-        // simple visual feedback: elevation on selected slot
-        val slotsViews = listOf(slot0, slot1, slot2, slot3, slot4, slot5, slot6, slot7)
-        for ((i, v) in slotsViews.withIndex()) {
-            if (i == selectedSlot) {
-                v.background = androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg_light, theme)
-                v.backgroundTintList = null
-                v.elevation = 10f
-                v.scaleX = 1.03f; v.scaleY = 1.03f
+        highlightRowSlots(activeMeasureIndex, selectedSlot)
+    }
+
+    private fun highlightRowSlots(rowIdx: Int, selSlot: Int) {
+        val btns = rowSlotViews.getOrNull(rowIdx) ?: return
+        for ((i, btn) in btns.withIndex()) {
+            if (i == selSlot) {
+                btn.background = androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg_light, theme)
+                btn.backgroundTintList = null
+                btn.elevation = 10f
+                btn.scaleX = 1.03f; btn.scaleY = 1.03f
             } else {
-                v.background = androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg, theme)
-                v.backgroundTintList = null
-                v.elevation = 0f
-                v.scaleX = 1.0f; v.scaleY = 1.0f
+                btn.background = androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg, theme)
+                btn.backgroundTintList = null
+                btn.elevation = 0f
+                btn.scaleX = 1.0f; btn.scaleY = 1.0f
             }
         }
     }
 
-    private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0) {
-        val midi = (currentOctave + octaveOffset + 1) * 12 + pitchClass
-        // Play preview sound using AudioPlayer.previewSoloNote
-        // Stop any running preview immediately and cancel previous coroutine
-        try {
-            previewJob?.cancel()
-            previewAudioPlayer.stop()
-        } catch (_: Exception) {}
-        // Start new preview job and keep reference to cancel if needed
-        previewJob = lifecycleScope.launch {
-            try {
-                // Kürzere Dauer (0.3s) für schnellere Response bei schnellen Tastenanschlägen
-                previewAudioPlayer.previewSoloNote(midi, 0.3)
-            } catch (e: CancellationException) {
-                // job cancelled -> ensure preview AudioTrack stopped
-                previewAudioPlayer.stop()
-                throw e
-            } catch (t: Throwable) {
-                // fallback to local sine preview if the AudioPlayer preview fails
-                try { playNotePreview(midi, 0.3) } catch (_: Exception) {}
+    /** Switch to a different measure row and select a slot within it. */
+    private fun activateAndSelectSlot(rowIdx: Int, slotIdx: Int) {
+        if (rowIdx != activeMeasureIndex) {
+            val oldRow = activeMeasureIndex
+            activeMeasureIndex = rowIdx
+            selectedSlot = slotIdx
+            // deselect old row, select new row
+            highlightRowSlots(oldRow, -1)
+            highlightRowSlots(rowIdx, selectedSlot)
+            updateRowHighlights()
+        } else {
+            selectSlot(slotIdx)
+        }
+    }
+
+    /** Highlight active card with a coloured stroke, clear others. */
+    private fun updateRowHighlights() {
+        val dp = resources.displayMetrics.density
+        val activeColor = ContextCompat.getColor(this, R.color.purple_700)
+        for (i in rowCards.indices) {
+            if (i == activeMeasureIndex) {
+                rowCards[i].strokeWidth = (2 * dp).toInt()
+                rowCards[i].strokeColor = activeColor
+            } else {
+                rowCards[i].strokeWidth = 0
             }
         }
+    }
+
+    /** Build one card row per measure in measureListContainer. */
+    private fun buildMeasureRows() {
+        val dp = resources.displayMetrics.density
+        measureListContainer.removeAllViews()
+        rowSlotViews.clear()
+        rowCards.clear()
+
+        for (rowIdx in allSlotsData.indices) {
+            val chord = measureChordNames.getOrElse(rowIdx) { "" }
+            val label = if (chord.isNotEmpty()) "${rowIdx + 1}  $chord" else "${rowIdx + 1}"
+
+            // Card container
+            val card = MaterialCardView(this).apply {
+                val lp = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.setMargins(0, (4 * dp).toInt(), 0, (4 * dp).toInt()) }
+                layoutParams = lp
+                radius = (8 * dp)
+                cardElevation = 2 * dp
+                setContentPadding((8 * dp).toInt(), (6 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            }
+            rowCards.add(card)
+
+            val inner = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+            // Chord / measure label
+            val labelTv = TextView(this).apply {
+                text = label
+                textSize = 12f
+                setTextColor(android.graphics.Color.WHITE)
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+            // Slots row
+            val slotsRow = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.topMargin = (4 * dp).toInt() }
+                weightSum = 8f
+            }
+
+            val slotBtns = (0 until 8).map { slotIdx ->
+                android.widget.Button(this).apply {
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, (48 * dp).toInt(), 1f)
+                    text = "-"
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 11f
+                    background = ContextCompat.getDrawable(this@SoloPatternActivity, R.drawable.purple_button_bg)
+                    backgroundTintList = null
+                    val r = rowIdx; val s = slotIdx
+                    setOnClickListener { activateAndSelectSlot(r, s) }
+                }
+            }
+            slotBtns.forEach { slotsRow.addView(it) }
+            rowSlotViews.add(slotBtns)
+
+            inner.addView(labelTv)
+            inner.addView(slotsRow)
+            card.addView(inner)
+            measureListContainer.addView(card)
+        }
+
+        // Render labels and apply initial highlights
+        for (rowIdx in allSlotsData.indices) renderRowSlots(rowIdx)
+        updateRowHighlights()
+    }
+
+    /** Convert an 8-slot array to a SoloPattern. */
+    private fun slotsToPattern(slotArray: Array<Slot>): SoloPattern {
+        val elements = mutableListOf<de.metaviewsoft.chordprogressionhelper.model.SoloElement>()
+        var i = 0
+        while (i < 8) {
+            when (val s = slotArray[i]) {
+                is Slot.NoteSlot -> {
+                    var len = 1
+                    var j = i + 1
+                    while (j < 8 && slotArray[j] is Slot.LetRing) { len++; j++ }
+                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note(s.midi, len))
+                    i = j
+                }
+                is Slot.Rest -> {
+                    var len = 1
+                    var j = i + 1
+                    while (j < 8 && slotArray[j] is Slot.Rest) { len++; j++ }
+                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest(len))
+                    i = j
+                }
+                is Slot.LetRing -> { i++ }
+            }
+        }
+        return SoloPattern(name = "Custom", elements = elements)
+    }
+
+    private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0) {
+        val midi = (currentOctave + octaveOffset + 1) * 12 + pitchClass
+        // Trigger note directly on the audio thread — no coroutine/IO-dispatcher overhead
+        previewAudioPlayer.triggerSoloNotePreview(midi, 0.3)
 
         // visual key press effect: elevation change
         try {
@@ -741,6 +842,11 @@ class SoloPatternActivity : AppCompatActivity() {
         var midi = (octave + 1) * 12 + ((pitchClass + acc) % 12 + 12) % 12
         if (midi < 0 || midi > 127) return null
         return midi
+    }
+
+    override fun onResume() {
+        super.onResume()
+        PlaybackService.stop(this)
     }
 
     override fun onDestroy() {

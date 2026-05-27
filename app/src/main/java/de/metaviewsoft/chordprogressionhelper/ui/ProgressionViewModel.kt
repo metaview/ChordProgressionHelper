@@ -23,11 +23,9 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     private val progressionRepository: ProgressionRepository = (application as MyApplication).progressionRepository
     private val settingsRepository: SettingsRepository = (application as MyApplication).settingsRepository
-    private var song: Song
-    private var currentSectionIndex: Int = 0
 
     var progression: ChordProgression
-        private set
+        internal set  // Allow package-private writes for SongViewModel coordination
 
     private val previewAudioPlayer = AudioPlayer()
     private var previewJob: Job? = null
@@ -73,34 +71,29 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     private val _showTransposeConfirmation = MutableLiveData<Key?>()
     val showTransposeConfirmation: LiveData<Key?> = _showTransposeConfirmation
 
-    private val _songSectionNames = MutableLiveData<List<String>>()
-    val songSectionNames: LiveData<List<String>> = _songSectionNames
-
-    private val _selectedSongSectionIndex = MutableLiveData<Int>()
-    val selectedSongSectionIndex: LiveData<Int> = _selectedSongSectionIndex
-
-    private val _songName = MutableLiveData<String>()
-    val songName: LiveData<String> = _songName
-
     val tempo: MutableLiveData<Int>
     private val _key = MutableLiveData<Key>()
     val key: LiveData<Key> = _key
 
     val isProgressionLooping: MutableLiveData<Boolean> = MutableLiveData(false)
-    val isSongLooping: MutableLiveData<Boolean> = MutableLiveData(false)
 
     private val TAG = "ProgressionViewModel"
 
     init {
-        song = progressionRepository.loadLastSongSession().also { it.ensureValid() }
-        progression = song.sections.first().progression
+        progression = progressionRepository.loadLastSession() ?: run {
+            val defaultKey = settingsRepository.defaultKeyName.let { name ->
+                Key.entries.firstOrNull { it.name == name } ?: Key.C
+            }
+            val defaultTempo = settingsRepository.defaultBpm.coerceIn(60, 240)
+            ChordProgression(key = defaultKey, tempo = defaultTempo).apply {
+                shuffleFactor = settingsRepository.shuffleFactor
+            }
+        }
         tempo = MutableLiveData(progression.tempo)
         _key.value = progression.key
         isProgressionLooping.value = settingsRepository.isLoopingProgressionEnabled
-        isSongLooping.value = settingsRepository.isLoopingSongEnabled
         updateAllChords()
         updateMeasures()
-        updateSongSectionsState()
 
         // Listen to settings changes and apply them to previewAudioPlayer in real-time
         prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -127,251 +120,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun saveCurrentSession() {
-        progressionRepository.saveLastSongSession(song)
         progressionRepository.saveLastSession(progression)
-    }
-
-    private fun updateSongSectionsState() {
-        song.ensureValid()
-        if (currentSectionIndex !in song.sections.indices) {
-            currentSectionIndex = 0
-        }
-        _songName.value = song.name.ifBlank { "New Song" }
-        _songSectionNames.value = song.sections.mapIndexed { index, section ->
-            val label = section.name.ifBlank { "Section ${index + 1}" }
-            "${index + 1}. $label"
-        }
-        _selectedSongSectionIndex.value = currentSectionIndex
-    }
-
-    /** Maps a global measure index (as used in createSongPlaybackProgression) back to the section index. */
-    fun getSectionIndexForMeasure(measureIndex: Int): Int {
-        var offset = 0
-        for ((i, section) in song.sections.withIndex()) {
-            val count = section.progression.measures.size.coerceAtLeast(1)
-            if (measureIndex < offset + count) return i
-            offset += count
-        }
-        return song.sections.lastIndex.coerceAtLeast(0)
-    }
-
-    /** Returns the tempo (BPM) of the section that contains the given global measure index. */
-    fun getTempoForMeasure(measureIndex: Int): Int {
-        val sectionIndex = getSectionIndexForMeasure(measureIndex)
-        val section = song.sections.getOrNull(sectionIndex)
-        return (section?.progression?.tempo ?: progression.tempo).coerceIn(60, 240)
-    }
-
-    /** Returns distinct progressions used in the song (by identity, preserving order). */
-    fun getUniqueSongProgressions(): List<ChordProgression> =
-        song.sections.map { it.progression }.distinctBy { System.identityHashCode(it) }
-
-    fun addSongSection(name: String?) {
-        val sectionName = name?.trim().orEmpty().ifBlank { "Section ${song.sections.size + 1}" }
-        val baseKey = _key.value ?: progression.key
-        val newProgression = ChordProgression(
-            name = sectionName,
-            key = baseKey,
-            mode = progression.mode,
-            tempo = progression.tempo,
-            shuffleFactor = settingsRepository.shuffleFactor
-        )
-        song.sections.add(SongSection(name = sectionName, progression = newProgression))
-        currentSectionIndex = song.sections.lastIndex
-        progression = song.sections[currentSectionIndex].progression
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    /** Adds a new section linked to an existing [progression] instance (shared reference). */
-    fun addSongSectionWithProgression(name: String?, existingProgression: ChordProgression) {
-        val sectionName = name?.trim().orEmpty().ifBlank { "Section ${song.sections.size + 1}" }
-        song.sections.add(SongSection(name = sectionName, progression = existingProgression))
-        currentSectionIndex = song.sections.lastIndex
-        progression = existingProgression
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun duplicateCurrentSongSection() {
-        if (currentSectionIndex !in song.sections.indices) return
-        val source = song.sections[currentSectionIndex]
-        val copied = try {
-            Json.decodeFromString(ChordProgression.serializer(), Json.encodeToString(ChordProgression.serializer(), source.progression))
-        } catch (_: Exception) {
-            source.progression.copy(measures = source.progression.measures.toMutableList())
-        }
-        val newName = "${source.name.ifBlank { "Section" }} Copy"
-        copied.name = newName
-        val insertIndex = currentSectionIndex + 1
-        song.sections.add(insertIndex, SongSection(name = newName, progression = copied))
-        currentSectionIndex = insertIndex
-        progression = copied
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun renameCurrentSongSection(newName: String) {
-        if (currentSectionIndex !in song.sections.indices) return
-        val normalized = newName.trim().ifBlank { "Section ${currentSectionIndex + 1}" }
-        val section = song.sections[currentSectionIndex]
-        section.name = normalized
-        section.progression.name = normalized
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun selectSongSection(index: Int) {
-        if (index !in song.sections.indices || index == currentSectionIndex) return
-        currentSectionIndex = index
-        progression = song.sections[currentSectionIndex].progression
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun moveCurrentSongSectionBy(offset: Int) {
-        if (currentSectionIndex !in song.sections.indices) return
-        val targetIndex = (currentSectionIndex + offset).coerceIn(0, song.sections.lastIndex)
-        if (targetIndex == currentSectionIndex) return
-        val moving = song.sections.removeAt(currentSectionIndex)
-        song.sections.add(targetIndex, moving)
-        currentSectionIndex = targetIndex
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    /** Returns the index of the first section whose progression matches [progression] (by identity, then by name). */
-    fun findSectionIndexForProgression(progression: ChordProgression): Int {
-        val byRef = song.sections.indexOfFirst { it.progression === progression }
-        if (byRef >= 0) return byRef
-        val byName = song.sections.indexOfFirst { it.progression.name == progression.name }
-        return if (byName >= 0) byName else currentSectionIndex
-    }
-
-    fun moveSongSection(fromIndex: Int, toIndex: Int) {
-        if (fromIndex !in song.sections.indices || toIndex !in song.sections.indices || fromIndex == toIndex) return
-        val moving = song.sections.removeAt(fromIndex)
-        song.sections.add(toIndex, moving)
-        currentSectionIndex = toIndex
-        progression = song.sections[currentSectionIndex].progression
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun renameSongSection(index: Int, newName: String) {
-        if (index !in song.sections.indices) return
-        currentSectionIndex = index
-        renameCurrentSongSection(newName)
-    }
-
-    fun deleteSongSection(index: Int) {
-        if (index !in song.sections.indices) return
-        if (song.sections.size == 1) {
-            val section = song.sections.first()
-            section.name = song.name.ifBlank { "Section 1" }
-            section.progression = ChordProgression(name = section.name, key = progression.key, mode = progression.mode, tempo = progression.tempo, shuffleFactor = settingsRepository.shuffleFactor)
-            currentSectionIndex = 0
-        } else {
-            song.sections.removeAt(index)
-            currentSectionIndex = index.coerceAtMost(song.sections.lastIndex)
-        }
-        progression = song.sections[currentSectionIndex].progression
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun createSongPlaybackProgression(): ChordProgression {
-        val sections = song.sections.ifEmpty { mutableListOf(SongSection(progression = progression)) }
-        val firstProgression = sections.first().progression
-        val combinedMeasures = sections.flatMap { section ->
-            val measures = section.progression.measures
-            if (measures.isEmpty()) listOf(Measure(1)) else measures.map { it.copy() }
-        }.toMutableList()
-        if (combinedMeasures.isEmpty()) {
-            combinedMeasures.add(Measure(1))
-        }
-        combinedMeasures.forEachIndexed { index, measure ->
-            measure.number = index + 1
-        }
-        return ChordProgression(
-            name = song.name.ifBlank { "New Song" },
-            key = firstProgression.key,
-            mode = firstProgression.mode,
-            tempo = firstProgression.tempo,
-            shuffleFactor = firstProgression.shuffleFactor,
-            measures = combinedMeasures
-        )
-    }
-
-    fun setSongName(name: String) {
-        song.name = name.trim().ifBlank { "New Song" }
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun getSavedSongNames(): List<String> {
-        return progressionRepository.getSavedSongNames()
-    }
-
-    fun saveNamedSong(name: String) {
-        val normalized = name.trim().ifBlank { "New Song" }
-        song.name = normalized
-        progressionRepository.saveNamedSong(normalized, song)
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
-    fun loadSong(name: String) {
-        progressionRepository.loadSong(name)?.let { loaded ->
-            song = loaded
-            song.ensureValid()
-            currentSectionIndex = 0
-            progression = song.sections.first().progression
-            tempo.value = progression.tempo
-            _key.value = progression.key
-            updateAllChords()
-            updateMeasures()
-            updateSongSectionsState()
-            saveCurrentSession()
-        }
-    }
-
-    fun deleteSong(name: String) {
-        progressionRepository.deleteSong(name)
-    }
-
-    /** Forces all LiveData to re-emit the current section's state. Used when returning from SongActivity. */
-    fun forceRefreshCurrentProgression() {
-        progression = song.sections[currentSectionIndex].progression
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
     }
 
     private fun updateAllChords() {
@@ -388,33 +137,32 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     fun saveNamedProgression(name: String) {
         progression.name = name
-        if (currentSectionIndex in song.sections.indices) {
-            song.sections[currentSectionIndex].name = name
-        }
-        updateSongSectionsState()
         saveCurrentSession()
         progressionRepository.saveNamedProgression(name, progression)
     }
 
     fun loadProgression(name: String) {
         progressionRepository.loadProgression(name)?.let {
-            if (currentSectionIndex !in song.sections.indices) {
-                currentSectionIndex = 0
-                song.ensureValid()
-            }
-            song.sections[currentSectionIndex] = SongSection(name = name, progression = it)
             progression = it
             tempo.value = it.tempo
             _key.value = it.key
             updateAllChords()
             updateMeasures()
-            updateSongSectionsState()
             saveCurrentSession()
         }
     }
 
     fun deleteProgression(name: String) {
         progressionRepository.deleteProgression(name)
+    }
+
+    /** Refresh all UI LiveData after externally changing the progression property. 
+     * Call this after setting progression from SongViewModel or other external sources. */
+    fun refreshUIAfterProgressionChange() {
+        tempo.value = progression.tempo
+        _key.value = progression.key
+        updateAllChords()
+        updateMeasures()
     }
 
     fun setKey(key: Key) {
@@ -783,26 +531,6 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         _showNewProgressionConfirmation.value = true
     }
 
-    fun newSong() {
-        val defaultKey = settingsRepository.defaultKeyName.let { name ->
-            Key.entries.firstOrNull { it.name == name } ?: Key.C
-        }
-        val defaultTempo = settingsRepository.defaultBpm.coerceIn(60, 240)
-        val newProgression = ChordProgression(key = defaultKey, tempo = defaultTempo).apply {
-            shuffleFactor = settingsRepository.shuffleFactor
-        }
-        val section = SongSection(name = "Section 1", progression = newProgression)
-        song = Song(name = "New Song", sections = mutableListOf(section))
-        currentSectionIndex = 0
-        progression = song.sections[0].progression
-        tempo.value = progression.tempo
-        _key.value = progression.key
-        updateAllChords()
-        updateMeasures()
-        updateSongSectionsState()
-        saveCurrentSession()
-    }
-
     fun confirmNewProgression(template: ProgressionTemplate?, newKey: Key? = null, newTempo: Int? = null) {
         val selectedKey = newKey ?: (_key.value ?: Key.C)
         val selectedTempo = (newTempo ?: progression.tempo).coerceIn(60, 240)
@@ -819,16 +547,10 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
                 shuffleFactor = settingsRepository.shuffleFactor
             }
         }
-        val sectionName = song.sections.getOrNull(currentSectionIndex)?.name ?: "Section ${currentSectionIndex + 1}"
-        progression.name = sectionName
-        if (currentSectionIndex in song.sections.indices) {
-            song.sections[currentSectionIndex] = SongSection(name = sectionName, progression = progression)
-        }
         tempo.value = progression.tempo
         _key.value = progression.key
         updateAllChords()
         updateMeasures()
-        updateSongSectionsState()
         saveCurrentSession()
     }
 
@@ -850,11 +572,6 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     fun onRepeatToggle(isToggled: Boolean) {
         isProgressionLooping.value = isToggled
         settingsRepository.isLoopingProgressionEnabled = isToggled
-    }
-
-    fun onSongRepeatToggle(isToggled: Boolean) {
-        isSongLooping.value = isToggled
-        settingsRepository.isLoopingSongEnabled = isToggled
     }
 
     @OptIn(InternalSerializationApi::class)

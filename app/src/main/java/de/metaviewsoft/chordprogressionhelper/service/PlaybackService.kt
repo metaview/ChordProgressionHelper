@@ -825,17 +825,13 @@ class PlaybackService : Service() {
         }
 
         fun stop(context: android.content.Context) {
-            val intent = Intent(context, PlaybackService::class.java)
+            // Send ACTION_STOP intent so the service can stop itself properly.
+            // context.stopService() does NOT work reliably for foreground services!
+            val intent = Intent(context, PlaybackService::class.java).apply { action = ACTION_STOP }
             try {
-                context.stopService(intent)
+                context.startService(intent)
             } catch (e: Exception) {
-                Log.w("PlaybackService", "stop(context) failed to call stopService: ${e.message}")
-                try {
-                    val stopIntent = Intent(context, PlaybackService::class.java).apply { action = ACTION_STOP }
-                    context.startService(stopIntent)
-                } catch (e2: Exception) {
-                    Log.w("PlaybackService", "stop(context) fallback failed: ${e2.message}")
-                }
+                Log.w("PlaybackService", "stop(context) failed to send ACTION_STOP: ${e.message}")
             }
         }
 

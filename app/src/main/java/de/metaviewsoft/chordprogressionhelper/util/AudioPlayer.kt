@@ -70,12 +70,14 @@ class AudioPlayer {
                                 AudioFormat.CHANNEL_OUT_MONO,
                                 AudioFormat.ENCODING_PCM_16BIT
                             )
-                            // Ensure buffer size is valid: at least minBuf, and use minBuf * 2 for safety (doubles the minimum)
-                            val bufferSize = if (minBuf > 0) minBuf * 2 else sampleRate / 2
-                            previewAudioTrack = AudioTrack.Builder()
+                            // Use minBuf directly (not *2) to minimise buffering latency
+                            val bufferSize = if (minBuf > 0) minBuf else sampleRate / 10
+                            val builder = AudioTrack.Builder()
                                 .setAudioAttributes(
-                                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
+                                    AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_GAME)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                        .build()
                                 )
                                 .setAudioFormat(
                                     AudioFormat.Builder()
@@ -85,7 +87,10 @@ class AudioPlayer {
                                 )
                                 .setTransferMode(AudioTrack.MODE_STREAM)
                                 .setBufferSizeInBytes(bufferSize)
-                                .build()
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                            }
+                            previewAudioTrack = builder.build()
                             try {
                                 previewAudioTrack?.play()
                                 previewAudioTrack?.setVolume(masterVolume.toFloat())
@@ -262,7 +267,7 @@ class AudioPlayer {
     /**
      * hiHatHighpass: Einflussfaktor im HiHat-Generator
      * - wirkt wie ein einfacher Hochpass/Detail-Filter auf das generierte Rauschen der HiHat
-     * - Werte >1 betonen die hohen Frequenzen; Werte <1 dämpfen die Höhen
+     * - Werte >1 betonen die hohen Frequenzen; Werte <1 daempfen die Hoehen
      */
     @Volatile
     var hiHatHighpass: Double = 1.0
@@ -2630,4 +2635,84 @@ class AudioPlayer {
                 "previewPianoNote FINISHED: midiNote=$midiNote (totalTime=${System.currentTimeMillis() - startTime}ms, previewId=$myPreviewId)"
             )
         }
+
+    /**
+     * Fire-and-forget solo note trigger with minimal latency.
+     * Posts directly to the audio handler thread — no coroutine or IO-dispatcher hop.
+     * Uses pause/flush/play to clear any buffered audio immediately, and 10ms chunks
+     * so a superseded note exits its write loop within at most 10ms.
+     */
+    fun triggerSoloNotePreview(midiNote: Int, durationSec: Double = 0.3) {
+        ensureAudioThreadStarted()
+        val myPreviewId = ++currentPreviewId
+        shouldStopPreview = false
+        audioHandler?.removeCallbacksAndMessages(null)
+        audioHandler?.post {
+            if (myPreviewId != currentPreviewId) return@post
+            val at = previewAudioTrack ?: return@post
+
+            // Clear any buffered audio for an immediate clean start
+            try { at.pause() } catch (_: Exception) {}
+            try { at.flush() } catch (_: Exception) {}
+            try { at.play()  } catch (_: Exception) {}
+            try { at.setVolume(masterVolume.toFloat()) } catch (_: Exception) {}
+
+            val freq = midiNoteToFrequency(midiNote)
+            val totalSamples = (sampleRate * durationSec).toInt()
+            // 10ms chunks: limits delay when a new key supersedes this note
+            val chunkSize = sampleRate / 100
+
+            val karplusString =
+                if (soloPreset != de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO) {
+                    KarplusStrongString(freq, sampleRate, 3, 0.998).apply { pluck() }
+                } else null
+
+            val harmonics = listOf(1.0 to 1.0, 2.0 to 0.6, 3.0 to 0.3)
+            val attackSamples = (0.002 * sampleRate).toInt()
+            val decaySamples  = (0.15  * sampleRate).toInt()
+            val sustainLevel  = 0.3
+            val attackDecaySamples = attackSamples + decaySamples
+            val pianoGain = when (soloPreset) {
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN     -> 1.0
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.9
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO     -> 1.5
+            } * soloLevel
+
+            var samplesWritten = 0
+            while (samplesWritten < totalSamples && myPreviewId == currentPreviewId) {
+                val n = minOf(chunkSize, totalSamples - samplesWritten)
+                val chunkBuf = DoubleArray(n)
+                if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO) {
+                    for (i in 0 until n) {
+                        val s = samplesWritten + i
+                        val t = s.toDouble() / sampleRate
+                        var sample = 0.0
+                        for ((harmonic, amplitude) in harmonics) {
+                            sample += amplitude * sin(2.0 * PI * freq * harmonic * t)
+                        }
+                        val env = when {
+                            s < attackSamples -> s.toDouble() / attackSamples
+                            s < attackDecaySamples -> {
+                                val dp = (s - attackSamples).toDouble() / decaySamples
+                                1.0 - (1.0 - sustainLevel) * dp
+                            }
+                            else -> {
+                                val rp = (s - attackDecaySamples).toDouble() / (totalSamples - attackDecaySamples)
+                                sustainLevel * (1.0 - rp)
+                            }
+                        }.coerceIn(0.0, 1.0)
+                        chunkBuf[i] = sample * env
+                    }
+                } else {
+                    for (i in 0 until n) chunkBuf[i] = karplusString!!.tick()
+                }
+                val shorts = ShortArray(n) { i ->
+                    (chunkBuf[i] * pianoGain * 32767.0 * 0.8).toInt().coerceIn(-32768, 32767).toShort()
+                }
+                at.write(shorts, 0, shorts.size)
+                samplesWritten += n
+            }
+        }
     }
+    }
+

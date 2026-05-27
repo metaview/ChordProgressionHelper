@@ -20,7 +20,6 @@ import android.util.TypedValue
 import android.content.res.ColorStateList
 import android.content.BroadcastReceiver
 import android.view.LayoutInflater
-import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -66,6 +65,7 @@ import de.metaviewsoft.chordprogressionhelper.ui.ChordAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.MeasureAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.ProgressionViewModel
+import de.metaviewsoft.chordprogressionhelper.ui.SongViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.TemplateAdapter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -80,6 +80,7 @@ import kotlinx.serialization.json.Json
 class ProgressionActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var viewModel: ProgressionViewModel
+    private lateinit var songViewModel: SongViewModel
     private val TAG = "ProgressionActivity"
     private lateinit var chordAdapter: ChordAdapter
     private lateinit var relatedChordAdapter: ChordAdapter
@@ -113,9 +114,8 @@ class ProgressionActivity : AppCompatActivity() {
     private var areExtraChordsExpanded = false
     private var lastScrolledMeasure = -1
     private var isSyncingBorrowedScroll = false
-    // True only while the user is physically touching the Spinner — prevents programmatic
-    // setSelection() calls from triggering selectSongSection() via onItemSelected.
-    private var userTouchingSpinner = false
+    // Tracks the last programmatically set spinner position to avoid triggering selection on Observer updates
+    private var lastProgrammaticSpinnerPosition = -1
     private var isUpdatingTempoField = false
 
     private var playbackService: PlaybackService? = null
@@ -319,6 +319,11 @@ class ProgressionActivity : AppCompatActivity() {
             ViewModelProvider.AndroidViewModelFactory(application)
         )[ProgressionViewModel::class.java]
 
+        songViewModel = ViewModelProvider(
+            application as MyApplication,
+            ViewModelProvider.AndroidViewModelFactory(application)
+        )[SongViewModel::class.java]
+
         // Listen to preview ownership changes so we can reflect MAIN-owned previews in the UI
         previewOwnerListener = { owner: String?, _: Boolean -> isDialogPreviewActive = (owner == "MAIN") }
         previewOwnerListener?.let { PreviewCoordinator.addListener(it) }
@@ -428,12 +433,24 @@ class ProgressionActivity : AppCompatActivity() {
                 }
 
                 // Check for SoloPattern result
-                val soloJson = data?.getStringExtra(SoloPatternActivity.EXTRA_SOLO_PATTERN_JSON)
-                if (mIndex >= 0 && !soloJson.isNullOrEmpty()) {
+                val allSoloPatternsJson = data?.getStringExtra(SoloPatternActivity.EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON)
+                if (!allSoloPatternsJson.isNullOrEmpty()) {
                     try {
-                        val pattern = Json.decodeFromString(SoloPattern.serializer(), soloJson)
-                        viewModel.setSoloPattern(mIndex, pattern)
-                    } catch (e: Exception) { Log.w(TAG, "Failed to decode PianoPattern from activity result: ${e.message}") }
+                        val patterns = Json.decodeFromString(ListSerializer(SoloPattern.serializer()), allSoloPatternsJson)
+                        patterns.forEachIndexed { idx, pattern ->
+                            if (idx < viewModel.progression.measures.size) {
+                                viewModel.setSoloPattern(idx, pattern)
+                            }
+                        }
+                    } catch (e: Exception) { Log.w(TAG, "Failed to decode all solo patterns: ${e.message}") }
+                } else {
+                    val soloJson = data?.getStringExtra(SoloPatternActivity.EXTRA_SOLO_PATTERN_JSON)
+                    if (mIndex >= 0 && !soloJson.isNullOrEmpty()) {
+                        try {
+                            val pattern = Json.decodeFromString(SoloPattern.serializer(), soloJson)
+                            viewModel.setSoloPattern(mIndex, pattern)
+                        } catch (e: Exception) { Log.w(TAG, "Failed to decode PianoPattern from activity result: ${e.message}") }
+                    }
                 }
             }
         }
@@ -450,16 +467,12 @@ class ProgressionActivity : AppCompatActivity() {
         PlaybackService.stop(this)
         SongActivity.selectedProgression?.let { prog ->
             if (prog === viewModel.progression) return@let  // already current, nothing to do
-            val idx = viewModel.findSectionIndexForProgression(prog)
-            viewModel.selectSongSection(idx) // no-op if already current index
-            viewModel.forceRefreshCurrentProgression() // re-emits all LiveData for current section
-            binding.root.post {
-                // run after LiveData observers have updated the spinner adapter
-                val count = songSectionSpinnerAdapter.count
-                if (idx in 0 until count) {
-                    binding.songSectionSpinner.setSelection(idx)
-                }
+            val idx = songViewModel.findSectionIndexForProgression(prog)
+            songViewModel.selectSongSection(idx)?.let { progression ->
+                viewModel.progression = progression
+                viewModel.refreshUIAfterProgressionChange()
             }
+            songViewModel.forceRefresh() // re-emits all LiveData for current section (triggers observer which sets spinner selection)
         }
     }
 
@@ -471,10 +484,17 @@ class ProgressionActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (isBound && playbackService != null) {
-            try { playbackService?.stopPlayback() } catch (e: Exception) { Log.w(TAG, "onStop: stopPlayback failed: ${e.message}") }
+        // Only stop playback when the activity is finishing (switching to another activity),
+        // not when the app is just going to background
+        if (isFinishing || isChangingConfigurations) {
+            Log.i(TAG, "onStop: Activity finishing/changing config - stopping playback")
+            if (isBound && playbackService != null) {
+                try { playbackService?.stopPlayback() } catch (e: Exception) { Log.w(TAG, "onStop: stopPlayback failed: ${e.message}") }
+            } else {
+                try { PlaybackService.stop(this) } catch (e: Exception) { Log.w(TAG, "onStop: PlaybackService.stop failed: ${e.message}") }
+            }
         } else {
-            try { PlaybackService.stop(this) } catch (e: Exception) { Log.w(TAG, "onStop: PlaybackService.stop failed: ${e.message}") }
+            Log.i(TAG, "onStop: Activity going to background - keeping playback running")
         }
         if (isBound) {
             unbindService(connection)
@@ -495,16 +515,16 @@ class ProgressionActivity : AppCompatActivity() {
         songSectionSpinnerAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mutableListOf<String>())
         songSectionSpinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         binding.songSectionSpinner.adapter = songSectionSpinnerAdapter
-        binding.songSectionSpinner.setOnTouchListener { _, _ ->
-            userTouchingSpinner = true
-            false // pass event to spinner
-        }
         binding.songSectionSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                if (userTouchingSpinner) {
-                    userTouchingSpinner = false
-                    viewModel.selectSongSection(position)
-                    SongActivity.selectedProgression = viewModel.progression
+                // Only react if this is NOT a programmatic selection (i.e., user changed it)
+                if (position != lastProgrammaticSpinnerPosition) {
+                    lastProgrammaticSpinnerPosition = position
+                    songViewModel.selectSongSection(position)?.let { progression ->
+                        viewModel.progression = progression
+                        viewModel.refreshUIAfterProgressionChange()
+                        SongActivity.selectedProgression = progression
+                    }
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -582,32 +602,28 @@ class ProgressionActivity : AppCompatActivity() {
 
     private fun showMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
-        popup.menuInflater.inflate(R.menu.main_menu, popup.menu)
-        popup.setOnMenuItemClickListener { item: MenuItem ->
-             when (item.itemId) {
-                R.id.action_new -> { viewModel.requestNewProgression(); true }
-                R.id.action_load -> { showLoadDialog(); true }
-                R.id.action_save -> { showSaveDialog(); true }
-                R.id.action_delete -> { showDeleteDialog(); true }
-                R.id.action_export -> { promptChooseAndExport(); true }
-                R.id.action_import -> { importOpenLauncher.launch(arrayOf("application/json")); true }
-                R.id.action_share -> { promptChooseAndShare(); true }
-                R.id.action_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
-                R.id.action_about -> { showAboutDialog(); true }
+        popup.menu.add(0, 0, 0, getString(R.string.new_progression_title))
+        popup.menu.add(0, 1, 1, getString(R.string.load_progression_title))
+        popup.menu.add(0, 2, 2, getString(R.string.save_progression_title))
+        popup.menu.add(0, 3, 3, getString(R.string.delete_progression_title))
+        popup.menu.add(0, 4, 4, getString(R.string.export_progression_title))
+        popup.menu.add(0, 5, 5, getString(R.string.import_progression_title))
+        popup.menu.add(0, 6, 6, getString(R.string.share_progression_title))
+        popup.menu.add(0, 7, 7, getString(R.string.settings_title))
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                0 -> { viewModel.requestNewProgression(); true }
+                1 -> { showLoadDialog(); true }
+                2 -> { showSaveDialog(); true }
+                3 -> { showDeleteDialog(); true }
+                4 -> { promptChooseAndExport(); true }
+                5 -> { importOpenLauncher.launch(arrayOf("application/json")); true }
+                6 -> { promptChooseAndShare(); true }
+                7 -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
                 else -> false
-             }
-         }
-         popup.show()
-    }
-
-    private fun showAboutDialog() {
-        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
-            .setTitle(getString(R.string.about_title))
-            .setMessage(getString(R.string.about_message))
-            .setPositiveButton(getString(R.string.ok), null)
-             .create()
-        dialog.setOnShowListener { styleDialogButtons(dialog) }
-        dialog.show()
+            }
+        }
+        popup.show()
     }
 
     private fun showSongDialog() {
@@ -890,26 +906,26 @@ class ProgressionActivity : AppCompatActivity() {
              // Convert chord to power chord and select it
              try {
                  val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
-                Log.d(TAG, "MainActivity: requesting viewModel.stopPreviewNow() (power chord)")
+                Log.d(TAG, "ProgressionActivity: requesting viewModel.stopPreviewNow() (power chord)")
                 try {
                     viewModel.stopPreviewNow()
-                    Log.d(TAG, "MainActivity: viewModel.stopPreviewNow() returned (power chord)")
+                    Log.d(TAG, "ProgressionActivity: viewModel.stopPreviewNow() returned (power chord)")
                 } catch (e: Exception) {
                     Log.w(TAG, "viewModel.stopPreviewNow() failed", e)
                 }
-                Log.d(TAG, "MainActivity: attempting to stop service preview for power chord (bound=$isBound)")
+                Log.d(TAG, "ProgressionActivity: attempting to stop service preview for power chord (bound=$isBound)")
                 try {
                     if (isBound && playbackService != null) {
-                        try { playbackService?.stopPreviewNow(); Log.d(TAG, "MainActivity: playbackService.stopPreviewNow() returned (power chord)") } catch (e: Exception) { Log.w(TAG, "playbackService.stopPreviewNow() failed", e) }
+                        try { playbackService?.stopPreviewNow(); Log.d(TAG, "ProgressionActivity: playbackService.stopPreviewNow() returned (power chord)") } catch (e: Exception) { Log.w(TAG, "playbackService.stopPreviewNow() failed", e) }
                     } else {
-                        try { PlaybackService.stopPreview(this); Log.d(TAG, "MainActivity: PlaybackService.stopPreview(companion) returned (power chord)") } catch (e: Exception) { Log.w(TAG, "PlaybackService.stopPreview(companion) failed", e) }
+                        try { PlaybackService.stopPreview(this); Log.d(TAG, "ProgressionActivity: PlaybackService.stopPreview(companion) returned (power chord)") } catch (e: Exception) { Log.w(TAG, "PlaybackService.stopPreview(companion) failed", e) }
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "stop service preview block failed", e)
                 }
-                Log.d(TAG, "MainActivity: calling PreviewCoordinator.forceStopAll() (power chord)")
+                Log.d(TAG, "ProgressionActivity: calling PreviewCoordinator.forceStopAll() (power chord)")
                 try {
-                    PreviewCoordinator.forceStopAll(); Log.d(TAG, "MainActivity: PreviewCoordinator.forceStopAll() returned (power chord)")
+                    PreviewCoordinator.forceStopAll(); Log.d(TAG, "ProgressionActivity: PreviewCoordinator.forceStopAll() returned (power chord)")
                 } catch (e: Exception) {
                     Log.w(TAG, "PreviewCoordinator.forceStopAll() failed", e)
                 }
@@ -1031,7 +1047,7 @@ class ProgressionActivity : AppCompatActivity() {
             onPianoPatternClick = { index ->
                 val intent = Intent(this, SoloPatternActivity::class.java)
                 intent.putExtra(SoloPatternActivity.EXTRA_MEASURE_INDEX, index)
-                // Pass current piano pattern to editor
+                // Pass current piano pattern to editor (backward compat)
                 try {
                     val pp = viewModel.progression.measures.getOrNull(index)?.soloPattern
                     if (pp != null) {
@@ -1050,21 +1066,18 @@ class ProgressionActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     Log.w("MainActivity", "Failed to pass preview context to PianoPatternActivity: ${e.message}")
                 }
-                // Also collect all unique piano patterns used in the progression and pass them to the editor
+                // Pass all measures' chord display names (pipe-separated)
                 try {
-                    val seen = mutableSetOf<String>()
-                    val patterns = mutableListOf<SoloPattern>()
-                    viewModel.progression.measures.forEach { m ->
-                        try {
-                            val p = m.soloPattern
-                            val key = p.elements.joinToString(",") { it.toString() }
-                            if (!seen.contains(key)) { seen.add(key); patterns.add(p) }
-                        } catch (_: Exception) {}
+                    val chords = viewModel.progression.measures.map { m ->
+                        m.chordEvents.firstOrNull()?.chord?.getDisplayName() ?: ""
                     }
-                    if (patterns.isNotEmpty()) {
-                        val arrJson = Json.encodeToString(ListSerializer(SoloPattern.serializer()), patterns)
-                        intent.putExtra(SoloPatternActivity.EXTRA_ALL_PATTERNS_JSON, arrJson)
-                    }
+                    intent.putExtra(SoloPatternActivity.EXTRA_ALL_MEASURES_CHORDS, chords.joinToString("|"))
+                } catch (_: Exception) {}
+                // Pass all measures' solo patterns (one per measure)
+                try {
+                    val allMeasuresPatterns = viewModel.progression.measures.map { it.soloPattern }
+                    val allMeasuresJson = Json.encodeToString(ListSerializer(SoloPattern.serializer()), allMeasuresPatterns)
+                    intent.putExtra(SoloPatternActivity.EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON, allMeasuresJson)
                 } catch (_: Exception) {}
                 drumPatternLauncher.launch(intent)
             },
@@ -1302,17 +1315,19 @@ class ProgressionActivity : AppCompatActivity() {
 
     @OptIn(InternalSerializationApi::class)
     private fun observeViewModel() {
-        viewModel.songSectionNames.observe(this) { names ->
+        songViewModel.songSectionNames.observe(this) { names ->
             songSectionSpinnerAdapter.clear()
             songSectionSpinnerAdapter.addAll(names)
             songSectionSpinnerAdapter.notifyDataSetChanged()
-            val currentIndex = viewModel.selectedSongSectionIndex.value ?: 0
+            val currentIndex = songViewModel.selectedSongSectionIndex.value ?: 0
             if (currentIndex in 0 until songSectionSpinnerAdapter.count) {
+                lastProgrammaticSpinnerPosition = currentIndex
                 binding.songSectionSpinner.setSelection(currentIndex)
             }
         }
-        viewModel.selectedSongSectionIndex.observe(this) { index ->
+        songViewModel.selectedSongSectionIndex.observe(this) { index ->
             if (index in 0 until songSectionSpinnerAdapter.count && binding.songSectionSpinner.selectedItemPosition != index) {
+                lastProgrammaticSpinnerPosition = index
                 binding.songSectionSpinner.setSelection(index)
             }
         }

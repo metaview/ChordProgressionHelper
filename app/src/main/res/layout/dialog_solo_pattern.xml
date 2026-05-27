@@ -5,34 +5,41 @@
     android:layout_height="match_parent"
     android:fitsSystemWindows="true">
 
-    <!-- Content area fills the space above the button bar -->
-    <LinearLayout
-        android:id="@+id/contentArea"
+    <!-- Scrollable list of all measure rows -->
+    <ScrollView
+        android:id="@+id/measureScrollView"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:orientation="vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="16dp"
+        android:fillViewport="false"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/buttonBar"
+        app:layout_constraintBottom_toTopOf="@id/keyboardArea"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-    <TextView
-        android:id="@+id/titleText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/solo_pattern_editor_title"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        <LinearLayout
+            android:id="@+id/measureListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp" />
 
-    <!-- Octave controls + keyboard -->
+    </ScrollView>
+
+    <!-- Fixed keyboard area, sits above the button bar -->
     <LinearLayout
-        android:layout_width="match_parent"
+        android:id="@+id/keyboardArea"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginTop="12dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        app:layout_constraintBottom_toTopOf="@id/buttonBar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
         <!-- Keyboard container: white keys with overlayed black keys -->
         <FrameLayout
@@ -398,100 +405,6 @@
 
     </LinearLayout>
 
-    <!-- Row with 8 slots for the monophonic melody (one measure = 8 eighth notes) -->
-    <LinearLayout
-        android:id="@+id/slotsRow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="12dp"
-        android:weightSum="8">
-
-        <!-- Slot views: use Button styled similarly to Strumming slots (purple) -->
-        <Button
-            android:id="@+id/slot0"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot1"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot2"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot3"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot4"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot5"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot6"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot7"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-    </LinearLayout>
-
-    </LinearLayout>
-
     <!-- Fixed button bar at the bottom, always visible -->
     <LinearLayout
         android:id="@+id/buttonBar"
@@ -514,7 +427,7 @@
             android:layout_height="wrap_content"
             android:contentDescription="@string/test"
             app:icon="@drawable/ic_play_arrow"
-            app:iconTint="?attr/colorOnSurface"
+            app:iconTint="@color/colorOnPrimary"
             app:iconPadding="0dp"
             app:iconGravity="textStart"
             android:padding="8dp" />

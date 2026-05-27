@@ -244,6 +244,11 @@ class StrummingPatternActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        PlaybackService.stop(this)
+    }
+
     override fun onStart() {
         /**
          * onStart()
