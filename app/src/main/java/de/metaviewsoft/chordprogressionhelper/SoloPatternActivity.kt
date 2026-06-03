@@ -54,6 +54,9 @@ class SoloPatternActivity : AppCompatActivity() {
         const val EXTRA_ALL_MEASURES_CHORDS = "extra_all_measures_chords"
         const val EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON = "extra_all_measures_solo_patterns_json"
         private const val TAG = "SoloPatternActivity"
+        
+        // Clipboard for copy/paste of solo patterns across sections
+        private var clipboard: List<Array<Slot>>? = null
     }
 
     // Editing modes
@@ -67,6 +70,8 @@ class SoloPatternActivity : AppCompatActivity() {
     private lateinit var btnOk: MaterialButton
     private lateinit var btnPreview: MaterialButton
     private lateinit var btnEditMode: MaterialButton
+    private lateinit var btnCopy: MaterialButton
+    private lateinit var btnPaste: MaterialButton
     private lateinit var measureListContainer: android.widget.LinearLayout
     private lateinit var measureScrollView: android.widget.ScrollView
     private lateinit var iconRest: MaterialButton
@@ -173,6 +178,8 @@ class SoloPatternActivity : AppCompatActivity() {
         // Initialize all views
         btnOk = findViewById(R.id.btnOk)
         btnPreview = findViewById(R.id.btnPreview)
+        btnCopy = findViewById(R.id.btnCopy)
+        btnPaste = findViewById(R.id.btnPaste)
         measureListContainer = findViewById(R.id.measureListContainer)
         measureScrollView = findViewById(R.id.measureScrollView)
         iconRest = findViewById(R.id.iconRest)
@@ -305,6 +312,8 @@ class SoloPatternActivity : AppCompatActivity() {
 
         btnOk.setOnClickListener { performOk() }
         btnEditMode.setOnClickListener { toggleEditMode() }
+        btnCopy.setOnClickListener { performCopy() }
+        btnPaste.setOnClickListener { performPaste() }
         
         // Initialize edit mode button appearance
         updateEditModeButton()
@@ -444,6 +453,57 @@ class SoloPatternActivity : AppCompatActivity() {
         }
 
         finish()
+    }
+
+    private fun performCopy() {
+        // Copy all slot arrays to clipboard (deep copy to avoid shared references)
+        clipboard = allSlotsData.map { originalSlots ->
+            Array(originalSlots.size) { i -> 
+                when (val slot = originalSlots[i]) {
+                    is Slot.Rest -> Slot.Rest
+                    is Slot.LetRing -> Slot.LetRing
+                    is Slot.NoteSlot -> Slot.NoteSlot(slot.midi)
+                }
+            }
+        }
+        
+        Toast.makeText(this, R.string.copied_solo_pattern, Toast.LENGTH_SHORT).show()
+        Log.i(TAG, "Copied ${clipboard?.size} measures to clipboard")
+    }
+
+    private fun performPaste() {
+        val source = clipboard
+        if (source == null) {
+            Toast.makeText(this, R.string.no_solo_pattern_to_paste, Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Paste from clipboard, truncate if source has more measures than target
+        val targetMeasureCount = allSlotsData.size
+        val sourceMeasureCount = source.size
+        
+        for (i in 0 until minOf(targetMeasureCount, sourceMeasureCount)) {
+            // Deep copy each slot array
+            allSlotsData[i] = Array(source[i].size) { slotIndex ->
+                when (val slot = source[i][slotIndex]) {
+                    is Slot.Rest -> Slot.Rest
+                    is Slot.LetRing -> Slot.LetRing
+                    is Slot.NoteSlot -> Slot.NoteSlot(slot.midi)
+                }
+            }
+        }
+        
+        // Re-render all measures (iterate through all rows)
+        for (rowIdx in allSlotsData.indices) {
+            renderRowSlots(rowIdx)
+        }
+        
+        // Update preview if active
+        updatePreviewIfActive()
+        
+        val pastedCount = minOf(targetMeasureCount, sourceMeasureCount)
+        Toast.makeText(this, getString(R.string.pasted_solo_pattern), Toast.LENGTH_SHORT).show()
+        Log.i(TAG, "Pasted $pastedCount measures from clipboard (source had $sourceMeasureCount, target has $targetMeasureCount)")
     }
 
     private fun performPreview() {
@@ -1307,14 +1367,6 @@ class SoloPatternActivity : AppCompatActivity() {
             EditingMode.LIVE -> EditingMode.PREVIEW
         }
         updateEditModeButton()
-        
-        // Show toast to inform user of current mode
-        val modeText = when (currentMode) {
-            EditingMode.PREVIEW -> getString(R.string.preview_mode)
-            EditingMode.EDIT -> getString(R.string.edit_mode)
-            EditingMode.LIVE -> getString(R.string.live_mode)
-        }
-        Toast.makeText(this, modeText, Toast.LENGTH_SHORT).show()
     }
     
     private fun updateEditModeButton() {

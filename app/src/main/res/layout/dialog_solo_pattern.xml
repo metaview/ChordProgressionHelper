@@ -425,6 +425,11 @@
             style="@style/Widget.ChordProgressionHelper.MaterialButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
             android:contentDescription="@string/test"
             app:icon="@drawable/ic_play_arrow"
             app:iconTint="@color/colorOnPrimary"
@@ -433,7 +438,7 @@
             android:padding="8dp" />
 
         <Space
-            android:layout_width="8dp"
+            android:layout_width="4dp"
             android:layout_height="0dp" />
 
         <com.google.android.material.button.MaterialButton
@@ -441,10 +446,57 @@
             style="@style/Widget.ChordProgressionHelper.MaterialButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/edit_mode"
+            android:minWidth="100dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/edit_mode"
             app:icon="@drawable/ic_edit"
             app:iconTint="@color/colorOnPrimary"
-            app:iconPadding="4dp"
+            app:iconPadding="0dp"
+            app:iconGravity="textStart"
+            android:padding="8dp" />
+
+        <Space
+            android:layout_width="4dp"
+            android:layout_height="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCopy"
+            style="@style/Widget.ChordProgressionHelper.MaterialButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/copy"
+            app:icon="@drawable/ic_content_copy"
+            app:iconTint="@color/colorOnPrimary"
+            app:iconPadding="0dp"
+            app:iconGravity="textStart"
+            android:padding="8dp" />
+
+        <Space
+            android:layout_width="4dp"
+            android:layout_height="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPaste"
+            style="@style/Widget.ChordProgressionHelper.MaterialButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/paste"
+            app:icon="@drawable/ic_content_paste"
+            app:iconTint="@color/colorOnPrimary"
+            app:iconPadding="0dp"
             app:iconGravity="textStart"
             android:padding="8dp" />
 
@@ -459,7 +511,13 @@
             style="@style/Widget.ChordProgressionHelper.MaterialButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/save" />
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:text="@string/save"
+            android:padding="8dp" />
 
 
     </LinearLayout>

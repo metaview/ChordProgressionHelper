@@ -197,4 +197,11 @@
     <string name="edit_mode">Edit</string>
     <string name="preview_mode">Preview</string>
     <string name="live_mode">Live</string>
+    
+    <!-- Copy/Paste -->
+    <string name="copy">Copy Solo Pattern</string>
+    <string name="paste">Paste Solo Pattern</string>
+    <string name="copied_solo_pattern">Solo pattern copied</string>
+    <string name="pasted_solo_pattern">Solo pattern pasted</string>
+    <string name="no_solo_pattern_to_paste">No solo pattern to paste</string>
 </resources>
