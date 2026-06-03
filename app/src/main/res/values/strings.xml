@@ -192,4 +192,9 @@
     <string name="transpose_message">You are changing the key from %1$s to %2$s.\n\nDo you want to transpose all chords and solo notes to the new key?</string>
     <string name="transpose_yes">Yes, transpose</string>
     <string name="transpose_no">No, just change key</string>
+    
+    <!-- Solo Pattern Editor Modes -->
+    <string name="edit_mode">Edit</string>
+    <string name="preview_mode">Preview</string>
+    <string name="live_mode">Live</string>
 </resources>

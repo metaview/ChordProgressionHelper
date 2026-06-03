@@ -13,6 +13,7 @@ import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 import de.metaviewsoft.chordprogressionhelper.model.*
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
 import de.metaviewsoft.chordprogressionhelper.util.PreviewCoordinator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.InternalSerializationApi
@@ -329,6 +330,13 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
 
         if (settingsRepository.isChordPreviewEnabled) {
+            // Apply current sound settings to the preview player IMMEDIATELY (outside coroutine) for lower latency
+            previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
+            previewAudioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
+            previewAudioPlayer.strumLevel = settingsRepository.strumLevel.toDouble()
+            previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
+            previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
+
             // Register as preview owner so the Coordinator can stop us if another owner starts
             // onStop should cancel the running coroutine AND stop the audio buffer immediately
             val onStop: () -> Unit = {
@@ -347,14 +355,11 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
             PreviewCoordinator.requestStart(ownerId, false, onStop)
             Log.d(TAG, "previewChord: PreviewCoordinator.requestStart returned (took=${System.currentTimeMillis() - coordStartTime}ms)")
 
-            previewJob = viewModelScope.launch {
+            // Use Dispatchers.Main.immediate for minimal latency
+            previewJob = viewModelScope.launch(Dispatchers.Main.immediate) {
                 val launchTime = System.currentTimeMillis()
                 Log.d(TAG, "previewChord: coroutine STARTED for $chord (launchDelay=${launchTime - startTime}ms)")
                 try {
-                    // Apply current sound settings to the preview player so changes are audible immediately
-                    previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
-                    previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
-                    previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
                     val playerCallTime = System.currentTimeMillis()
                     Log.d(TAG, "previewChord: calling previewAudioPlayer.previewChord for $chord")
                     previewAudioPlayer.previewChord(chord, settingsRepository.pluckStrength)

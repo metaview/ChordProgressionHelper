@@ -149,6 +149,14 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
         saveCurrentSession()
     }
 
+    /** Update the progression of the current section (saves changes back to the song). */
+    fun updateCurrentSectionProgression(progression: ChordProgression) {
+        if (currentSectionIndex in song.sections.indices) {
+            song.sections[currentSectionIndex].progression = progression
+            saveCurrentSession()
+        }
+    }
+
     /** Select a section by index (returns the progression of selected section). */
     fun selectSongSection(index: Int): ChordProgression? {
         if (index !in song.sections.indices || index == currentSectionIndex) return null

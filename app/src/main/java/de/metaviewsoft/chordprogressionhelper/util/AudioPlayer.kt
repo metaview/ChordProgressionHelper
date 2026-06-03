@@ -31,6 +31,12 @@ class AudioPlayer {
     // Callback für AudioThread-Bereitschaft
     var audioThreadReadyCallback: AudioThreadReadyCallback? = null
 
+    init {
+        // Log native library availability on AudioPlayer creation
+        val nativeStatus = if (NativeAudio.isAvailable()) "LOADED" else "NOT AVAILABLE (using Kotlin fallback)"
+        android.util.Log.i("AudioPlayer", "Native audio library status: $nativeStatus")
+    }
+
     // helper for lowpass update to avoid numeric overload ambiguity in nested lambdas
     private fun lpFilter(prev: Double, alpha: Double, value: Double): Double =
         prev + alpha * (value - prev)
@@ -70,8 +76,9 @@ class AudioPlayer {
                                 AudioFormat.CHANNEL_OUT_MONO,
                                 AudioFormat.ENCODING_PCM_16BIT
                             )
-                            // Use minBuf directly (not *2) to minimise buffering latency
-                            val bufferSize = if (minBuf > 0) minBuf else sampleRate / 10
+                            // LATENCY OPTIMIZATION: Use even smaller buffer for minimal latency
+                            // Divide by 2 for keyboard/preview responsiveness
+                            val bufferSize = if (minBuf > 0) (minBuf / 2).coerceAtLeast(256) else sampleRate / 20
                             val builder = AudioTrack.Builder()
                                 .setAudioAttributes(
                                     AudioAttributes.Builder()
@@ -666,8 +673,6 @@ class AudioPlayer {
                             val eighthNoteSamples =
                                 (sampleRate * adjustedEighthNoteDuration).toInt().coerceAtLeast(1)
 
-                            onPositionChanged(measureIndex, strumIndex)
-
                             val chord: Chord? = measure.getChordAt(strumIndex)
                             val currentStrum = measure.strummingPattern.strums[strumIndex]
 
@@ -1130,6 +1135,10 @@ class AudioPlayer {
                             val samples =
                                 trimmed.map { v -> (v * scale).coerceIn(-1.0, 1.0) }.toDoubleArray()
                                     .toPcmShortArray()
+                            
+                            // Report position RIGHT BEFORE writing to AudioTrack for best audio-visual sync
+                            onPositionChanged(measureIndex, strumIndex)
+                            
                             audioTrack?.write(samples, 0, samples.size)
                         }
                     }
@@ -1845,6 +1854,18 @@ class AudioPlayer {
     // Convert a DoubleArray (values roughly in -1..1) to 16-bit PCM ShortArray.
     private fun DoubleArray.toPcmShortArray(): ShortArray {
         val shortArray = ShortArray(this.size)
+        
+        // Use native conversion if available for better performance
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.doubleToPcmShort(this, shortArray)
+                return shortArray
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native doubleToPcmShort failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         for (i in this.indices) {
             val sample = this[i].coerceIn(-1.0, 1.0)
             shortArray[i] = (sample * Short.MAX_VALUE).toInt().toShort()
@@ -1908,6 +1929,17 @@ class AudioPlayer {
      * - multiplied by envelopeScale (global) and drumLevel (global)
      */
     private fun addKick(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.addKick(buffer, duration, levelScale, envelopeScale, drumLevel)
+                return
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native addKick failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         val freq = 60.0
         val kickDuration = (duration * 0.5).toInt().coerceAtMost(buffer.size)
         for (i in 0 until kickDuration) {
@@ -1927,6 +1959,17 @@ class AudioPlayer {
      * - levelScale: multiplicative scale for loudness
      */
     private fun addSnare(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.addSnare(buffer, duration, levelScale, envelopeScale, drumLevel)
+                return
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native addSnare failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         val snareDuration = (duration * 0.2).toInt().coerceAtMost(buffer.size)
         for (i in 0 until snareDuration) {
             val noise = (Random.nextDouble() * 2 - 1)
@@ -1942,6 +1985,17 @@ class AudioPlayer {
      * - envelopeScale and levelScale control the perceived length and loudness
      */
     private fun addHiHat(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.addHiHat(buffer, duration, levelScale, envelopeScale, hiHatHighpass)
+                return
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native addHiHat failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         val hiHatDuration = (duration * 0.25).toInt().coerceAtMost(buffer.size)
         var lastNoise = 0.0
         for (i in 0 until hiHatDuration) {
@@ -2015,6 +2069,16 @@ class AudioPlayer {
     }
 
     private fun midiNoteToFrequency(midiNote: Int): Double {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                return NativeAudio.midiNoteToFrequency(midiNote)
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native midiNoteToFrequency failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         // Some parts of the app provide only a pitch class (0..11) as midiOffset.
         // If the midi value looks like an offset (very low), shift it into a usable octave
         // so we generate audible, correctly pitched tones instead of sub-audio rumble/noise.
@@ -2348,6 +2412,17 @@ class AudioPlayer {
         val numSamples = (sampleRate * durationSec).toInt()
         val samples = DoubleArray(numSamples)
 
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.generatePianoSample(samples, frequency)
+                return samples
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native generatePianoSample failed, using fallback: ${e.message}")
+            }
+        }
+
+        // Fallback to Kotlin implementation
         // Piano has harmonics with specific amplitude ratios
         // Reduced to 3 harmonics for better performance (was 6)
         val harmonics = listOf(
@@ -2672,10 +2747,13 @@ class AudioPlayer {
             val decaySamples  = (0.15  * sampleRate).toInt()
             val sustainLevel  = 0.3
             val attackDecaySamples = attackSamples + decaySamples
+            // Reduce gain for keyboard preview to match playback volume
+            // During playback, solo is mixed with chords before normalization
+            // Here it's solo-only, so we need lower gain to match perceived loudness
             val pianoGain = when (soloPreset) {
-                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN     -> 1.0
-                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.9
-                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO     -> 1.5
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN     -> 0.4
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.35
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO     -> 0.6
             } * soloLevel
 
             var samplesWritten = 0
@@ -2706,8 +2784,26 @@ class AudioPlayer {
                 } else {
                     for (i in 0 until n) chunkBuf[i] = karplusString!!.tick()
                 }
+                
+                // Apply piano gain to samples
+                for (i in 0 until n) {
+                    chunkBuf[i] = chunkBuf[i] * pianoGain
+                }
+                
+                // Normalize like main playback (targetPeak = 0.85) to match volume levels
+                var maxAbs = 0.0
+                for (i in 0 until n) {
+                    val a = kotlin.math.abs(chunkBuf[i])
+                    if (a > maxAbs) maxAbs = a
+                }
+                val targetPeak = 0.85
+                val scale = if (maxAbs > 0.0) {
+                    if (maxAbs > targetPeak) targetPeak / maxAbs else 1.0
+                } else 1.0
+                
+                // Convert to shorts with normalization applied
                 val shorts = ShortArray(n) { i ->
-                    (chunkBuf[i] * pianoGain * 32767.0 * 0.8).toInt().coerceIn(-32768, 32767).toShort()
+                    ((chunkBuf[i] * scale).coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
                 }
                 at.write(shorts, 0, shorts.size)
                 samplesWritten += n

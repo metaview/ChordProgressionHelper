@@ -16,11 +16,13 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
 import de.metaviewsoft.chordprogressionhelper.model.Chord
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
+import de.metaviewsoft.chordprogressionhelper.model.ChordType
 import de.metaviewsoft.chordprogressionhelper.model.DrumPattern
 import de.metaviewsoft.chordprogressionhelper.model.DrumStep
 import de.metaviewsoft.chordprogressionhelper.model.Key
 import de.metaviewsoft.chordprogressionhelper.model.Measure
 import de.metaviewsoft.chordprogressionhelper.model.Mode
+import de.metaviewsoft.chordprogressionhelper.model.Note
 import de.metaviewsoft.chordprogressionhelper.model.SoloPattern
 import de.metaviewsoft.chordprogressionhelper.model.StrummingPattern
 import de.metaviewsoft.chordprogressionhelper.model.Strum
@@ -54,9 +56,17 @@ class SoloPatternActivity : AppCompatActivity() {
         private const val TAG = "SoloPatternActivity"
     }
 
+    // Editing modes
+    enum class EditingMode {
+        PREVIEW,  // Keine Aufnahme, nur Anhören
+        EDIT,     // Schrittweise Eingabe am Cursor mit Auto-Advance
+        LIVE      // Aufnahme nur während Playback an Abspielposition
+    }
+
     // UI Views
     private lateinit var btnOk: MaterialButton
     private lateinit var btnPreview: MaterialButton
+    private lateinit var btnEditMode: MaterialButton
     private lateinit var measureListContainer: android.widget.LinearLayout
     private lateinit var measureScrollView: android.widget.ScrollView
     private lateinit var iconRest: MaterialButton
@@ -93,6 +103,9 @@ class SoloPatternActivity : AppCompatActivity() {
     private val rowCards = mutableListOf<MaterialCardView>()          // card per row for highlighting
     private var activeMeasureIndex = 0
     private var measureChordNames: List<String> = emptyList()
+    
+    // Current editing mode
+    private var currentMode = EditingMode.PREVIEW  // Start in preview mode by default
 
     // Computed property: always points to the active measure's slot array
     private val slots: Array<Slot>
@@ -103,6 +116,10 @@ class SoloPatternActivity : AppCompatActivity() {
     private var currentOctave: Int = 4
     // Job handle for the currently playing single-note preview so it can be cancelled
     private var previewJob: Job? = null
+    
+    // Cached colors for highlighting (avoid repeated lookups during playback)
+    private var highlightColor: Int = 0
+    private var slotDefaultColor: Int = 0
 
     // Service binding for preview
     private var playbackService: PlaybackService? = null
@@ -123,6 +140,9 @@ class SoloPatternActivity : AppCompatActivity() {
             playbackService = service
             isServiceBound = true
             Log.i(TAG, "Service bound to SoloPatternActivity")
+
+            // Start observing playback position for visual feedback
+            observePlaybackPosition()
 
             // If a preview was requested before binding completed, start it now
             pendingPreviewProgression?.let { prog ->
@@ -149,6 +169,7 @@ class SoloPatternActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.dialog_solo_pattern)
 
+        btnEditMode = findViewById(R.id.btnEditMode)
         // Initialize all views
         btnOk = findViewById(R.id.btnOk)
         btnPreview = findViewById(R.id.btnPreview)
@@ -176,9 +197,17 @@ class SoloPatternActivity : AppCompatActivity() {
         keyCsHigh = findViewById(R.id.keyCsHigh)
         keyDHigh = findViewById(R.id.keyDHigh)
 
-        // Initialize previewAudioPlayer with solo preset from settings
+        // Initialize previewAudioPlayer with solo preset and volume settings
         val settingsRepo = SettingsRepository(this)
         previewAudioPlayer.soloPreset = settingsRepo.soloPreset
+        // Apply volume settings (always set them, they have sensible defaults)
+        previewAudioPlayer.soloLevel = settingsRepo.soloLevel.toDouble()
+        previewAudioPlayer.strumLevel = settingsRepo.strumLevel.toDouble()
+        previewAudioPlayer.drumLevel = settingsRepo.drumLevel.toDouble()
+        
+        // Cache colors for highlighting to avoid repeated lookups during playback
+        highlightColor = ContextCompat.getColor(this, R.color.highlight_active)
+        slotDefaultColor = ContextCompat.getColor(this, R.color.slot_default)
 
         val measureIndex = intent?.getIntExtra(EXTRA_MEASURE_INDEX, -1) ?: -1
 
@@ -267,23 +296,57 @@ class SoloPatternActivity : AppCompatActivity() {
         octaveText.text = getString(R.string.octave_current, currentOctave)
 
         btnOk.setOnClickListener { performOk() }
+        btnEditMode.setOnClickListener { toggleEditMode() }
+        
+        // Initialize edit mode button appearance
+        updateEditModeButton()
         btnPreview.setOnClickListener { performPreview() }
 
         // Rest / LetRing buttons
         // Buttons below keyboard
         iconRest.setOnClickListener {
+            if (currentMode != EditingMode.EDIT) return@setOnClickListener  // Only work in edit mode
+            
             if (selectedSlot >= 0) {
                 slots[selectedSlot] = Slot.Rest
                 renderAllSlots()
-                highlightSelectedSlot()
+                
+                // FEATURE: Auto-advance to next slot/measure after Rest input
+                if (selectedSlot == 7) {
+                    // Jump to next measure if available
+                    if (activeMeasureIndex < allSlotsData.size - 1) {
+                        activateAndSelectSlot(activeMeasureIndex + 1, 0)
+                    } else {
+                        selectedSlot = 7
+                        highlightSelectedSlot()
+                    }
+                } else {
+                    selectedSlot += 1
+                    highlightSelectedSlot()
+                }
                 updatePreviewIfActive()
             }
         }
         iconLetRing.setOnClickListener {
+            if (currentMode != EditingMode.EDIT) return@setOnClickListener  // Only work in edit mode
+            
             if (selectedSlot >= 0) {
                 slots[selectedSlot] = Slot.LetRing
                 renderAllSlots()
-                highlightSelectedSlot()
+                
+                // FEATURE: Auto-advance to next slot/measure after LetRing input
+                if (selectedSlot == 7) {
+                    // Jump to next measure if available
+                    if (activeMeasureIndex < allSlotsData.size - 1) {
+                        activateAndSelectSlot(activeMeasureIndex + 1, 0)
+                    } else {
+                        selectedSlot = 7
+                        highlightSelectedSlot()
+                    }
+                } else {
+                    selectedSlot += 1
+                    highlightSelectedSlot()
+                }
                 updatePreviewIfActive()
             }
         }
@@ -376,43 +439,12 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun performPreview() {
-        // Convert slots to SoloPattern and play preview
-        val elements = mutableListOf<de.metaviewsoft.chordprogressionhelper.model.SoloElement>()
-        var i = 0
-        while (i < 8) {
-            when (val s = slots[i]) {
-                is Slot.NoteSlot -> {
-                    // count consecutive let ring following this note
-                    var len = 1
-                    var j = i + 1
-                    while (j < 8 && slots[j] is Slot.LetRing) { len++; j++ }
-                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note(s.midi, len))
-                    i = j
-                }
-                is Slot.Rest -> {
-                    // count consecutive rests
-                    var len = 1
-                    var j = i + 1
-                    while (j < 8 && slots[j] is Slot.Rest) { len++; j++ }
-                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest(len))
-                    i = j
-                }
-                is Slot.LetRing -> {
-                    // Standalone LetRing
-                    i++
-                }
-            }
-        }
-
-        if (elements.isEmpty()) {
-            Toast.makeText(this, "Pattern is empty, cannot preview", Toast.LENGTH_SHORT).show()
-            return
-        }
-
+        // Play preview of all measures
         try {
             if (!isPreviewActive) {
-                // Start looping preview
-                startPreviewWithCurrentPattern(elements)
+                // Start looping preview of all measures
+                // Pass empty list as placeholder - function will use allSlotsData instead
+                startPreviewWithCurrentPattern(emptyList())
 
                 // Update button icon to stop
                 try {
@@ -444,42 +476,70 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun startPreviewWithCurrentPattern(elements: List<de.metaviewsoft.chordprogressionhelper.model.SoloElement>) {
-        val pattern = SoloPattern(name = "Preview", elements = elements)
         val key = try { Key.valueOf(keyVal) } catch (_: Exception) { Key.C }
         val mode = try { Mode.valueOf(modeVal.uppercase()) } catch (_: Exception) { Mode.MAJOR }
         val tempProg = ChordProgression(name = "Preview", key = key, mode = mode, tempo = tempoVal)
         tempProg.measures.clear()
-        val m = Measure(1)
 
-        // Add tonic chord if available
-        try {
-            tonicChord?.let { m.addChord(it, 0) }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to add tonic chord to preview measure: ${e.message}")
+        // Add ALL measures to the progression for preview
+        for (measureIdx in allSlotsData.indices) {
+            val m = Measure(measureIdx + 1)
+
+            // Parse the correct chord for this measure
+            try {
+                val chordName = measureChordNames.getOrNull(measureIdx) ?: ""
+                val chord = if (chordName.isNotEmpty()) {
+                    parseChordName(chordName) ?: tonicChord
+                } else {
+                    tonicChord
+                }
+                // Add chord at beat 0
+                chord?.let { m.addChord(it, 0) }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse chord for measure $measureIdx: ${e.message}")
+                tonicChord?.let { m.addChord(it, 0) }
+            }
+
+            // Convert slots to pattern for this measure
+            val pattern = slotsToPattern(allSlotsData[measureIdx])
+            m.soloPattern = pattern
+
+            // FEATURE: Play progression parallel to solo (with light accompaniment)
+            try {
+                // Simple strumming pattern on beats 1, 3, 5, 7 for accompaniment
+                m.strummingPattern = StrummingPattern("Accompaniment", 
+                    listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST, 
+                           Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST))
+                           
+                // No drums during preview (keep focus on solo + chords)
+                m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set patterns: ${e.message}")
+                m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                m.strummingPattern = StrummingPattern("Silent", List(8) { Strum.REST })
+            }
+
+            tempProg.measures.add(m)
         }
-
-        m.soloPattern = pattern
-
-        // Ensure no drums are played during solo-only preview
-        try {
-            m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to set silent drum pattern: ${e.message}")
-        }
-
-        // Ensure no strumming is played
-        try {
-            m.strummingPattern = StrummingPattern("Silent", List(8) { Strum.REST })
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to set silent strumming pattern: ${e.message}")
-        }
-
-        tempProg.measures.add(m)
 
         try {
             PlaybackService.stopPreview(this)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to stop previous preview: ${e.message}")
+        }
+
+        // Update playback parameters to match settings (especially solo volume)
+        try {
+            val settingsRepo = SettingsRepository(this)
+            val updateIntent = Intent(this, PlaybackService::class.java).apply {
+                action = PlaybackService.ACTION_UPDATE_PARAMS
+                putExtra(PlaybackService.EXTRA_SOLO_LEVEL, settingsRepo.soloLevel)
+                putExtra(PlaybackService.EXTRA_DRUM_LEVEL, settingsRepo.drumLevel)
+                putExtra(PlaybackService.EXTRA_STRUM_LEVEL, settingsRepo.strumLevel)
+            }
+            startService(updateIntent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update playback parameters: ${e.message}")
         }
 
         try {
@@ -517,36 +577,167 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun updatePreviewIfActive() {
-        // If preview is currently playing, restart it with the updated pattern
+        // During playback: update without restarting in edit/live mode, restart in preview mode
         if (isPreviewActive) {
-            val elements = mutableListOf<de.metaviewsoft.chordprogressionhelper.model.SoloElement>()
-            var i = 0
-            while (i < 8) {
-                when (val s = slots[i]) {
-                    is Slot.NoteSlot -> {
-                        var len = 1
-                        var j = i + 1
-                        while (j < 8 && slots[j] is Slot.LetRing) { len++; j++ }
-                        elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note(s.midi, len))
-                        i = j
-                    }
-                    is Slot.Rest -> {
-                        var len = 1
-                        var j = i + 1
-                        while (j < 8 && slots[j] is Slot.Rest) { len++; j++ }
-                        elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest(len))
-                        i = j
-                    }
-                    is Slot.LetRing -> {
-                        i++
+            if (currentMode == EditingMode.PREVIEW) {
+                // Preview mode: restart preview
+                val elements = mutableListOf<de.metaviewsoft.chordprogressionhelper.model.SoloElement>()
+                var i = 0
+                while (i < 8) {
+                    when (val s = slots[i]) {
+                        is Slot.NoteSlot -> {
+                            var len = 1
+                            var j = i + 1
+                            while (j < 8 && slots[j] is Slot.LetRing) { len++; j++ }
+                            elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note(s.midi, len))
+                            i = j
+                        }
+                        is Slot.Rest -> {
+                            var len = 1
+                            var j = i + 1
+                            while (j < 8 && slots[j] is Slot.Rest) { len++; j++ }
+                            elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest(len))
+                            i = j
+                        }
+                        is Slot.LetRing -> {
+                            i++
+                        }
                     }
                 }
+
+                if (elements.isNotEmpty()) {
+                    startPreviewWithCurrentPattern(elements)
+                }
+                return
+            }
+            
+            // Edit or Live mode during playback: update the progression without restarting
+            val key = try { Key.valueOf(keyVal) } catch (_: Exception) { Key.C }
+            val mode = try { Mode.valueOf(modeVal.uppercase()) } catch (_: Exception) { Mode.MAJOR }
+            val tempProg = ChordProgression(name = "Preview", key = key, mode = mode, tempo = tempoVal)
+            tempProg.measures.clear()
+
+            // Add ALL measures to the progression
+            for (measureIdx in allSlotsData.indices) {
+                val m = Measure(measureIdx + 1)
+
+                // Parse the correct chord for this measure
+                try {
+                    val chordName = measureChordNames.getOrNull(measureIdx) ?: ""
+                    val chord = if (chordName.isNotEmpty()) {
+                        parseChordName(chordName) ?: tonicChord
+                    } else {
+                        tonicChord
+                    }
+                    chord?.let { m.addChord(it, 0) }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse chord for measure $measureIdx: ${e.message}")
+                    tonicChord?.let { m.addChord(it, 0) }
+                }
+
+                // Convert slots to pattern for this measure
+                val pattern = slotsToPattern(allSlotsData[measureIdx])
+                m.soloPattern = pattern
+
+                // Simple strumming pattern on beats 1, 3, 5, 7 for accompaniment
+                try {
+                    m.strummingPattern = StrummingPattern("Accompaniment", 
+                        listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST, 
+                               Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST))
+                    m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to set patterns: ${e.message}")
+                    m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+                    m.strummingPattern = StrummingPattern("Silent", List(8) { Strum.REST })
+                }
+
+                tempProg.measures.add(m)
             }
 
-            if (elements.isNotEmpty()) {
-                startPreviewWithCurrentPattern(elements)
+            // Update the progression in PlaybackService without restarting playback
+            try {
+                PlaybackService.updateProgression(this, tempProg)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update progression: ${e.message}")
+            }
+            return
+        }
+    }
+
+    /**
+     * Parse a chord name string (e.g. "C", "Dm", "G7", "Bb", "F#") into a Chord object.
+     * Returns null if parsing fails.
+     */
+    private fun parseChordName(chordName: String): Chord? {
+        if (chordName.isBlank()) return null
+        
+        val trimmed = chordName.trim()
+        
+        // Parse root note (first 1-2 characters)
+        val rootChar = trimmed[0].uppercaseChar()
+        val noteBase = when (rootChar) {
+            'C' -> Note.C
+            'D' -> Note.D
+            'E' -> Note.E
+            'F' -> Note.F
+            'G' -> Note.G
+            'A' -> Note.A
+            'B' -> Note.B
+            else -> return null
+        }
+        
+        var idx = 1
+        var root = noteBase
+        
+        // Check for accidental (#, b, ♯, ♭)
+        if (idx < trimmed.length) {
+            when (trimmed[idx]) {
+                '#', '♯' -> {
+                    // Sharp
+                    root = when (noteBase) {
+                        Note.C -> Note.C_SHARP
+                        Note.D -> Note.E_FLAT  // D# = Eb
+                        Note.E -> Note.F        // E# = F
+                        Note.F -> Note.F_SHARP
+                        Note.G -> Note.A_FLAT  // G# = Ab
+                        Note.A -> Note.B_FLAT  // A# = Bb
+                        Note.B -> Note.C       // B# = C
+                        else -> noteBase
+                    }
+                    idx++
+                }
+                'b', '♭' -> {
+                    // Flat
+                    root = when (noteBase) {
+                        Note.C -> Note.B       // Cb = B
+                        Note.D -> Note.C_SHARP // Db = C#
+                        Note.E -> Note.E_FLAT
+                        Note.F -> Note.E       // Fb = E
+                        Note.G -> Note.F_SHARP // Gb = F#
+                        Note.A -> Note.A_FLAT
+                        Note.B -> Note.B_FLAT
+                        else -> noteBase
+                    }
+                    idx++
+                }
             }
         }
+        
+        // Parse quality (rest of the string)
+        val qualitySuffix = if (idx < trimmed.length) trimmed.substring(idx) else ""
+        val quality = when {
+            qualitySuffix.isEmpty() -> ChordType.MAJOR
+            qualitySuffix == "m" || qualitySuffix == "min" || qualitySuffix == "minor" -> ChordType.MINOR
+            qualitySuffix == "7" -> ChordType.DOMINANT_SEVENTH
+            qualitySuffix == "°" || qualitySuffix == "dim" -> ChordType.DIMINISHED
+            qualitySuffix == "5" -> ChordType.POWER
+            else -> ChordType.MAJOR  // Default to major if unknown
+        }
+        
+        // Scale degree name is just the chord display name for now
+        val scaleDegreeName = root.displayName + quality.suffix
+        
+        return Chord(root, quality, scaleDegreeName)
     }
 
     // Expand a SoloPattern into an 8-slot representation
@@ -627,12 +818,14 @@ class SoloPatternActivity : AppCompatActivity() {
         val btns = rowSlotViews.getOrNull(rowIdx) ?: return
         for ((i, btn) in btns.withIndex()) {
             if (i == selSlot) {
+                // Ausgewählter Slot: helles lila
                 btn.background = androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg_light, theme)
                 btn.backgroundTintList = null
                 btn.elevation = 10f
                 btn.scaleX = 1.03f; btn.scaleY = 1.03f
             } else {
-                btn.background = androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg, theme)
+                // Normale Slots: grau (nicht lila!)
+                btn.setBackgroundColor(slotDefaultColor)
                 btn.backgroundTintList = null
                 btn.elevation = 0f
                 btn.scaleX = 1.0f; btn.scaleY = 1.0f
@@ -728,7 +921,8 @@ class SoloPatternActivity : AppCompatActivity() {
                     text = "-"
                     setTextColor(android.graphics.Color.WHITE)
                     textSize = 11f
-                    background = ContextCompat.getDrawable(this@SoloPatternActivity, R.drawable.purple_button_bg)
+                    // Initial color: gray (will be set properly by highlightRowSlots)
+                    setBackgroundColor(slotDefaultColor)
                     backgroundTintList = null
                     val r = rowIdx; val s = slotIdx
                     setOnClickListener { activateAndSelectSlot(r, s) }
@@ -744,7 +938,11 @@ class SoloPatternActivity : AppCompatActivity() {
         }
 
         // Render labels and apply initial highlights
-        for (rowIdx in allSlotsData.indices) renderRowSlots(rowIdx)
+        for (rowIdx in allSlotsData.indices) {
+            renderRowSlots(rowIdx)
+            // Set initial colors (all gray, no selection)
+            highlightRowSlots(rowIdx, -1)
+        }
         updateRowHighlights()
     }
 
@@ -776,8 +974,14 @@ class SoloPatternActivity : AppCompatActivity() {
 
     private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0) {
         val midi = (currentOctave + octaveOffset + 1) * 12 + pitchClass
-        // Trigger note directly on the audio thread — no coroutine/IO-dispatcher overhead
-        previewAudioPlayer.triggerSoloNotePreview(midi, 0.3)
+        
+        // Always trigger note preview for audio feedback
+        try {
+            Log.d(TAG, "onKeyPressed: midi=$midi, triggering preview")
+            previewAudioPlayer.triggerSoloNotePreview(midi, 0.3)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to trigger preview note: ${e.message}", e)
+        }
 
         // visual key press effect: elevation change
         try {
@@ -803,13 +1007,76 @@ class SoloPatternActivity : AppCompatActivity() {
             }
         } catch (_: Exception) {}
 
-        // if a slot is selected, write the note there
-        if (selectedSlot >= 0) {
-            slots[selectedSlot] = Slot.NoteSlot(midi)
-            // clear subsequent LetRing that belonged to a previous note
-            var j = selectedSlot + 1
-            while (j < 8 && slots[j] is Slot.LetRing) { slots[j] = Slot.Rest; j++ }
-            renderAllSlots(); highlightSelectedSlot()
+        // Handle note input based on current mode
+        when (currentMode) {
+            EditingMode.PREVIEW -> {
+                // Preview mode: just play sound, don't write
+                return
+            }
+            EditingMode.LIVE -> {
+                // Live mode: only record during playback
+                if (!isPreviewActive) {
+                    // No playback running, don't record
+                    return
+                }
+            }
+            EditingMode.EDIT -> {
+                // Edit mode: always allow input (handled below)
+            }
+        }
+
+        // Determine target slot based on mode
+        val targetMeasure: Int
+        val targetSlot: Int
+        
+        if (currentMode == EditingMode.LIVE) {
+            // Live mode: write at current playback position
+            if (lastHighlightedMeasure >= 0 && lastHighlightedSlot >= 0) {
+                targetMeasure = lastHighlightedMeasure
+                targetSlot = lastHighlightedSlot
+            } else {
+                // Playback running but no position yet - don't write
+                return
+            }
+        } else {
+            // Edit mode: write at selected cursor position
+            if (selectedSlot < 0) return  // No slot selected
+            targetMeasure = activeMeasureIndex
+            targetSlot = selectedSlot
+        }
+
+        // Write the note at target position
+        if (targetMeasure in allSlotsData.indices && targetSlot in 0..7) {
+            val targetSlots = allSlotsData[targetMeasure]
+            targetSlots[targetSlot] = Slot.NoteSlot(midi)
+            
+            // Clear subsequent LetRing that belonged to a previous note
+            var j = targetSlot + 1
+            while (j < 8 && targetSlots[j] is Slot.LetRing) {
+                targetSlots[j] = Slot.Rest
+                j++
+            }
+            
+            // Render the updated measure
+            renderRowSlots(targetMeasure)
+            
+            // Auto-advance only in edit mode (not in live mode)
+            if (currentMode == EditingMode.EDIT) {
+                if (targetSlot == 7) {
+                    // Jump to next measure if available
+                    if (targetMeasure < allSlotsData.size - 1) {
+                        activateAndSelectSlot(targetMeasure + 1, 0)
+                    } else {
+                        // Stay at end of last measure
+                        selectedSlot = 7
+                        highlightSelectedSlot()
+                    }
+                } else {
+                    selectedSlot = targetSlot + 1
+                    highlightSelectedSlot()
+                }
+            }
+            
             updatePreviewIfActive()
         }
     }
@@ -846,7 +1113,20 @@ class SoloPatternActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        Log.i(TAG, "onResume() called")
         PlaybackService.stop(this)
+        
+        // Ensure preview audio player is ready
+        try {
+            val settingsRepo = SettingsRepository(this)
+            previewAudioPlayer.soloPreset = settingsRepo.soloPreset
+            previewAudioPlayer.soloLevel = settingsRepo.soloLevel.toDouble()
+            previewAudioPlayer.strumLevel = settingsRepo.strumLevel.toDouble()
+            previewAudioPlayer.drumLevel = settingsRepo.drumLevel.toDouble()
+            Log.i(TAG, "Preview audio player re-initialized in onResume() - soloLevel=${settingsRepo.soloLevel}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to re-initialize preview audio player: ${e.message}")
+        }
     }
 
     override fun onDestroy() {
@@ -937,5 +1217,116 @@ class SoloPatternActivity : AppCompatActivity() {
             out[i] = ( (v * Short.MAX_VALUE).toInt() ).toShort()
         }
         return out
+    }
+
+    private fun observePlaybackPosition() {
+        playbackService?.let { service ->
+            // Use Main.immediate dispatcher for minimal latency
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                service.currentPlaybackPosition.collect { position ->
+                    if (position != null) {
+                        val (measureIndex, slotIndex) = position
+                        highlightActiveNote(measureIndex, slotIndex)
+                    } else {
+                        // No playback - clear all highlights
+                        clearAllHighlights()
+                    }
+                }
+            }
+        }
+    }
+
+    private var lastHighlightedMeasure: Int = -1
+    private var lastHighlightedSlot: Int = -1
+
+    private fun highlightActiveNote(measureIndex: Int, slotIndex: Int) {
+        // Already on Main dispatcher from observePlaybackPosition - no need for runOnUiThread
+        // Clear previous slot highlight (zurück zu grau)
+        if (lastHighlightedMeasure >= 0 && lastHighlightedSlot >= 0 &&
+            lastHighlightedMeasure < rowSlotViews.size &&
+            lastHighlightedSlot < rowSlotViews[lastHighlightedMeasure].size) {
+            // Reset to gray unless it's the selected slot
+            if (lastHighlightedMeasure == activeMeasureIndex && lastHighlightedSlot == selectedSlot) {
+                // Keep selected slot highlighted (light purple)
+                rowSlotViews[lastHighlightedMeasure][lastHighlightedSlot].background = 
+                    androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg_light, theme)
+            } else {
+                rowSlotViews[lastHighlightedMeasure][lastHighlightedSlot].setBackgroundColor(slotDefaultColor)
+            }
+        }
+
+        // Set new active slot highlight (grün)
+        if (measureIndex >= 0 && slotIndex >= 0 &&
+            measureIndex < rowSlotViews.size &&
+            slotIndex < rowSlotViews[measureIndex].size) {
+            rowSlotViews[measureIndex][slotIndex].setBackgroundColor(highlightColor)
+        }
+
+        // Remember current highlights
+        lastHighlightedMeasure = measureIndex
+        lastHighlightedSlot = slotIndex
+        
+        // In preview mode during playback: move cursor to follow playback position
+        if (currentMode == EditingMode.PREVIEW && isPreviewActive) {
+            if (measureIndex != activeMeasureIndex || slotIndex != selectedSlot) {
+                activateAndSelectSlot(measureIndex, slotIndex)
+            }
+        }
+    }
+
+    private fun clearAllHighlights() {
+        // Already on Main dispatcher from observePlaybackPosition - no need for runOnUiThread
+        if (lastHighlightedMeasure >= 0 && lastHighlightedMeasure < rowCards.size) {
+            rowCards[lastHighlightedMeasure].strokeWidth = 0
+        }
+        if (lastHighlightedMeasure >= 0 && lastHighlightedSlot >= 0 &&
+            lastHighlightedMeasure < rowSlotViews.size &&
+            lastHighlightedSlot < rowSlotViews[lastHighlightedMeasure].size) {
+            rowSlotViews[lastHighlightedMeasure][lastHighlightedSlot].setBackgroundColor(slotDefaultColor)
+        }
+        lastHighlightedMeasure = -1
+        lastHighlightedSlot = -1
+    }
+    
+    private fun toggleEditMode() {
+        // Cycle through modes: Preview -> Edit -> Live -> Preview
+        currentMode = when (currentMode) {
+            EditingMode.PREVIEW -> EditingMode.EDIT
+            EditingMode.EDIT -> EditingMode.LIVE
+            EditingMode.LIVE -> EditingMode.PREVIEW
+        }
+        updateEditModeButton()
+        
+        // Show toast to inform user of current mode
+        val modeText = when (currentMode) {
+            EditingMode.PREVIEW -> getString(R.string.preview_mode)
+            EditingMode.EDIT -> getString(R.string.edit_mode)
+            EditingMode.LIVE -> getString(R.string.live_mode)
+        }
+        Toast.makeText(this, modeText, Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun updateEditModeButton() {
+        try {
+            when (currentMode) {
+                EditingMode.PREVIEW -> {
+                    btnEditMode.text = getString(R.string.preview_mode)
+                    btnEditMode.setIconResource(R.drawable.ic_visibility)
+                    btnEditMode.alpha = 0.7f
+                }
+                EditingMode.EDIT -> {
+                    btnEditMode.text = getString(R.string.edit_mode)
+                    btnEditMode.setIconResource(R.drawable.ic_edit)
+                    btnEditMode.alpha = 1.0f
+                }
+                EditingMode.LIVE -> {
+                    btnEditMode.text = getString(R.string.live_mode)
+                    btnEditMode.setIconResource(R.drawable.ic_radio_button_checked)
+                    btnEditMode.alpha = 1.0f
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update edit mode button: ${e.message}")
+        }
     }
 }

@@ -432,6 +432,22 @@
             app:iconGravity="textStart"
             android:padding="8dp" />
 
+        <Space
+            android:layout_width="8dp"
+            android:layout_height="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnEditMode"
+            style="@style/Widget.ChordProgressionHelper.MaterialButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/edit_mode"
+            app:icon="@drawable/ic_edit"
+            app:iconTint="@color/colorOnPrimary"
+            app:iconPadding="4dp"
+            app:iconGravity="textStart"
+            android:padding="8dp" />
+
         <!-- flexible spacer pushes the following buttons to the right -->
         <View
             android:layout_width="0dp"

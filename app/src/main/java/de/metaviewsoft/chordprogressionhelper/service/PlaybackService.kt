@@ -443,7 +443,10 @@ class PlaybackService : Service() {
                     else -> settingsRepository.countInBeats
                 },
                 onPositionChanged = { measureIndex, strumIndex ->
-                    _currentPlaybackPosition.value = Pair(measureIndex, strumIndex)
+                    // Update position on Main thread immediately for minimal UI latency
+                    serviceScope.launch(Dispatchers.Main.immediate) {
+                        _currentPlaybackPosition.value = Pair(measureIndex, strumIndex)
+                    }
                 },
                 startMeasureIndex = startPos?.first ?: 0,
                 startStrumIndex = startPos?.second ?: 0,
@@ -703,6 +706,7 @@ class PlaybackService : Service() {
                     if (idx in target.measures.indices) {
                         try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
                         try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                        try { target.measures[idx].soloPattern = srcMeasure.soloPattern } catch (_: Exception) {}
                     } else {
                         target.measures.add(srcMeasure)
                     }
@@ -721,6 +725,7 @@ class PlaybackService : Service() {
                     if (idx in target.measures.indices) {
                         try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
                         try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                        try { target.measures[idx].soloPattern = srcMeasure.soloPattern } catch (_: Exception) {}
                     } else {
                         target.measures.add(srcMeasure)
                     }

@@ -467,6 +467,8 @@ class ProgressionActivity : AppCompatActivity() {
         PlaybackService.stop(this)
         SongActivity.selectedProgression?.let { prog ->
             if (prog === viewModel.progression) return@let  // already current, nothing to do
+            // Save current progression back to song before switching sections
+            songViewModel.updateCurrentSectionProgression(viewModel.progression)
             val idx = songViewModel.findSectionIndexForProgression(prog)
             songViewModel.selectSongSection(idx)?.let { progression ->
                 viewModel.progression = progression
@@ -484,6 +486,9 @@ class ProgressionActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Save current progression back to song to ensure changes are immediately available
+        songViewModel.updateCurrentSectionProgression(viewModel.progression)
+        
         // Only stop playback when the activity is finishing (switching to another activity),
         // not when the app is just going to background
         if (isFinishing || isChangingConfigurations) {

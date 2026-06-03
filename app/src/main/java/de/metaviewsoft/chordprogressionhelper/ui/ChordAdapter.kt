@@ -108,7 +108,17 @@ class ChordAdapter(
                 }
             }
 
-            binding.root.setOnClickListener { onChordClick(chord) }
+            // Use OnTouchListener instead of OnClickListener for instant response on ACTION_DOWN
+            binding.root.setOnTouchListener { v, event ->
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        onChordClick(chord)
+                        v.performClick()  // Still trigger click for accessibility
+                        true
+                    }
+                    else -> false
+                }
+            }
 
             binding.root.setOnLongClickListener { view ->
                 // Show a small popup menu to either start drag or convert to Power chord
