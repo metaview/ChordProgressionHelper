@@ -201,9 +201,17 @@ class SoloPatternActivity : AppCompatActivity() {
         val settingsRepo = SettingsRepository(this)
         previewAudioPlayer.soloPreset = settingsRepo.soloPreset
         // Apply volume settings (always set them, they have sensible defaults)
-        previewAudioPlayer.soloLevel = settingsRepo.soloLevel.toDouble()
+        val soloLevel = settingsRepo.soloLevel.toDouble().coerceAtLeast(0.5)  // Minimum 0.5 for keyboard preview
+        previewAudioPlayer.soloLevel = soloLevel
         previewAudioPlayer.strumLevel = settingsRepo.strumLevel.toDouble()
         previewAudioPlayer.drumLevel = settingsRepo.drumLevel.toDouble()
+        previewAudioPlayer.masterVolume = 1.0
+        Log.i(TAG, "PreviewAudioPlayer initialized: soloLevel=$soloLevel (from settings: ${settingsRepo.soloLevel}), masterVolume=${previewAudioPlayer.masterVolume}, preset=${previewAudioPlayer.soloPreset}")
+        
+        // CRITICAL: Initialize the audio track synchronously here at startup
+        // This ensures it's ready before any key can be pressed
+        previewAudioPlayer.ensurePreviewTrackReady()
+        Log.i(TAG, "Preview audio track initialized at startup")
         
         // Cache colors for highlighting to avoid repeated lookups during playback
         highlightColor = ContextCompat.getColor(this, R.color.highlight_active)
@@ -979,8 +987,9 @@ class SoloPatternActivity : AppCompatActivity() {
         try {
             Log.d(TAG, "onKeyPressed: midi=$midi, triggering preview")
             previewAudioPlayer.triggerSoloNotePreview(midi, 0.3)
+            Log.d(TAG, "triggerSoloNotePreview completed for midi=$midi")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to trigger preview note: ${e.message}", e)
+            Log.e(TAG, "Failed to trigger preview note: ${e.message}", e)
         }
 
         // visual key press effect: elevation change
@@ -1116,16 +1125,18 @@ class SoloPatternActivity : AppCompatActivity() {
         Log.i(TAG, "onResume() called")
         PlaybackService.stop(this)
         
-        // Ensure preview audio player is ready
+        // Re-apply settings in case they changed while activity was paused
         try {
             val settingsRepo = SettingsRepository(this)
             previewAudioPlayer.soloPreset = settingsRepo.soloPreset
-            previewAudioPlayer.soloLevel = settingsRepo.soloLevel.toDouble()
+            val soloLevel = settingsRepo.soloLevel.toDouble().coerceAtLeast(0.5)
+            previewAudioPlayer.soloLevel = soloLevel
             previewAudioPlayer.strumLevel = settingsRepo.strumLevel.toDouble()
             previewAudioPlayer.drumLevel = settingsRepo.drumLevel.toDouble()
-            Log.i(TAG, "Preview audio player re-initialized in onResume() - soloLevel=${settingsRepo.soloLevel}")
+            previewAudioPlayer.masterVolume = 1.0
+            Log.i(TAG, "Preview audio player settings updated: soloLevel=$soloLevel, masterVolume=${previewAudioPlayer.masterVolume}")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to re-initialize preview audio player: ${e.message}")
+            Log.w(TAG, "Failed to update preview audio player settings: ${e.message}", e)
         }
     }
 

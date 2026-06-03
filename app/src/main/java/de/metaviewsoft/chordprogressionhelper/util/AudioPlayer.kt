@@ -69,16 +69,20 @@ class AudioPlayer {
                 audioHandler = Handler(audioHandlerThread!!.looper)
                 // Create a small cached preview AudioTrack on the audio thread to warm-up resources.
                 audioHandler!!.post {
+                    android.util.Log.d("AudioPlayer", "Starting previewAudioTrack creation...")
                     try {
                         if (previewAudioTrack == null) {
+                            android.util.Log.d("AudioPlayer", "previewAudioTrack is null, creating new instance...")
                             val minBuf = AudioTrack.getMinBufferSize(
                                 sampleRate,
                                 AudioFormat.CHANNEL_OUT_MONO,
                                 AudioFormat.ENCODING_PCM_16BIT
                             )
+                            android.util.Log.d("AudioPlayer", "minBufferSize=$minBuf")
                             // LATENCY OPTIMIZATION: Use even smaller buffer for minimal latency
                             // Divide by 2 for keyboard/preview responsiveness
                             val bufferSize = if (minBuf > 0) (minBuf / 2).coerceAtLeast(256) else sampleRate / 20
+                            android.util.Log.d("AudioPlayer", "Using bufferSize=$bufferSize")
                             val builder = AudioTrack.Builder()
                                 .setAudioAttributes(
                                     AudioAttributes.Builder()
@@ -97,10 +101,14 @@ class AudioPlayer {
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                 builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                             }
+                            android.util.Log.d("AudioPlayer", "Building AudioTrack...")
                             previewAudioTrack = builder.build()
+                            android.util.Log.d("AudioPlayer", "AudioTrack built successfully, state=${previewAudioTrack?.state}")
                             try {
                                 previewAudioTrack?.play()
+                                android.util.Log.d("AudioPlayer", "AudioTrack.play() called, playState=${previewAudioTrack?.playState}")
                                 previewAudioTrack?.setVolume(masterVolume.toFloat())
+                                android.util.Log.d("AudioPlayer", "AudioTrack.setVolume($masterVolume) called")
                             } catch (e: Exception) {
                                 android.util.Log.w(
                                     "AudioPlayer",
@@ -108,15 +116,18 @@ class AudioPlayer {
                                     e
                                 )
                             }
+                        } else {
+                            android.util.Log.d("AudioPlayer", "previewAudioTrack already exists, skipping creation")
                         }
                     } catch (t: Throwable) {
-                        android.util.Log.w(
+                        android.util.Log.e(
                             "AudioPlayer",
-                            "ensureAudioThreadStarted: failed to create previewAudioTrack: ${t.message}",
+                            "ensureAudioThreadStarted: FAILED to create previewAudioTrack: ${t.message}",
                             t
                         )
                         previewAudioTrack = null
                     }
+                    android.util.Log.d("AudioPlayer", "previewAudioTrack creation completed, result=${if (previewAudioTrack != null) "SUCCESS" else "FAILED"}")
                     // Pre-generate drum samples for instant drum previews
                     // Run synchronously (blocking) on the audio thread to ensure they're ready before playback
                     val drumGenStartTime = System.currentTimeMillis()
@@ -192,6 +203,32 @@ class AudioPlayer {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Ensures the preview audio track is created and ready.
+     * This method blocks until the track is available.
+     * Call this from onResume() to avoid null track on first key press.
+     */
+    fun ensurePreviewTrackReady() {
+        ensureAudioThreadStarted()
+        
+        // Wait for previewAudioTrack to be created (max 500ms)
+        var attempts = 0
+        while (previewAudioTrack == null && attempts < 50) {
+            try {
+                Thread.sleep(10)
+                attempts++
+            } catch (e: InterruptedException) {
+                break
+            }
+        }
+        
+        if (previewAudioTrack == null) {
+            android.util.Log.w("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack still null after ${attempts * 10}ms")
+        } else {
+            android.util.Log.d("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack ready after ${attempts * 10}ms")
         }
     }
 
@@ -2718,19 +2755,31 @@ class AudioPlayer {
      * so a superseded note exits its write loop within at most 10ms.
      */
     fun triggerSoloNotePreview(midiNote: Int, durationSec: Double = 0.3) {
+        android.util.Log.d("AudioPlayer", "triggerSoloNotePreview called: midiNote=$midiNote, soloLevel=$soloLevel, masterVolume=$masterVolume")
         ensureAudioThreadStarted()
         val myPreviewId = ++currentPreviewId
         shouldStopPreview = false
         audioHandler?.removeCallbacksAndMessages(null)
+        android.util.Log.d("AudioPlayer", "Posting to audioHandler, previewId=$myPreviewId")
         audioHandler?.post {
-            if (myPreviewId != currentPreviewId) return@post
-            val at = previewAudioTrack ?: return@post
+            android.util.Log.d("AudioPlayer", "audioHandler.post executed, previewId=$myPreviewId, currentPreviewId=$currentPreviewId")
+            if (myPreviewId != currentPreviewId) {
+                android.util.Log.w("AudioPlayer", "Preview ID mismatch, aborting")
+                return@post
+            }
+            val at = previewAudioTrack
+            if (at == null) {
+                android.util.Log.e("AudioPlayer", "previewAudioTrack is NULL! Cannot play sound.")
+                return@post
+            }
+            android.util.Log.d("AudioPlayer", "previewAudioTrack found, playState=${at.playState}, state=${at.state}")
 
             // Clear any buffered audio for an immediate clean start
             try { at.pause() } catch (_: Exception) {}
             try { at.flush() } catch (_: Exception) {}
             try { at.play()  } catch (_: Exception) {}
             try { at.setVolume(masterVolume.toFloat()) } catch (_: Exception) {}
+            android.util.Log.d("AudioPlayer", "AudioTrack prepared: play() called, volume set to $masterVolume")
 
             val freq = midiNoteToFrequency(midiNote)
             val totalSamples = (sampleRate * durationSec).toInt()
@@ -2810,5 +2859,5 @@ class AudioPlayer {
             }
         }
     }
-    }
+}
 
