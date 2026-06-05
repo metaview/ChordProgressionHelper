@@ -192,7 +192,7 @@ class SongActivity : AppCompatActivity() {
         }
 
         binding.songRepeatButton.setOnClickListener {
-            viewModel.onRepeatToggle(!(viewModel.isLooping.value ?: false))
+            viewModel.onRepeatSongToggle(!(viewModel.isLoopingSong.value ?: false))
         }
     }
 
@@ -215,7 +215,7 @@ class SongActivity : AppCompatActivity() {
             sectionAdapter.setSelectedIndex(index)
         }
 
-        viewModel.isLooping.observe(this) { isLooping ->
+        viewModel.isLoopingSong.observe(this) { isLooping ->
             updateRepeatButton(isLooping)
         }
     }

@@ -87,6 +87,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     val key: LiveData<Key> = _key
 
     val isLooping: MutableLiveData<Boolean> = MutableLiveData(false)
+    val isLoopingSong: MutableLiveData<Boolean> = MutableLiveData(false)
 
     private val TAG = "ProgressionViewModel"
 
@@ -96,6 +97,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         tempo = MutableLiveData(progression.tempo)
         _key.value = progression.key
         isLooping.value = settingsRepository.isLoopingEnabled
+        isLoopingSong.value = settingsRepository.isLoopingSongEnabled
         updateAllChords()
         updateMeasures()
         updateSongSectionsState()
@@ -827,6 +829,11 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     fun onRepeatToggle(isToggled: Boolean) {
         isLooping.value = isToggled
         settingsRepository.isLoopingEnabled = isToggled
+    }
+
+    fun onRepeatSongToggle(isToggled: Boolean) {
+        isLoopingSong.value = isToggled
+        settingsRepository.isLoopingSongEnabled = isToggled
     }
 
     @OptIn(InternalSerializationApi::class)
