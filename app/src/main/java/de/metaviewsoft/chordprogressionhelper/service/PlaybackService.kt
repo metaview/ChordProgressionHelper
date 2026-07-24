@@ -331,8 +331,7 @@ class PlaybackService : Service() {
                                     }
                                     parsedProg.measures.forEachIndexed { idx, srcMeasure ->
                                         if (idx in target.measures.indices) {
-                                            try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
-                                            try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                                            copyMeasureContent(target.measures[idx], srcMeasure)
                                         } else {
                                             target.measures.add(srcMeasure)
                                         }
@@ -681,6 +680,22 @@ class PlaybackService : Service() {
          }
     }
 
+    /**
+     * Copies all musical content from [src] onto [dst] in place. Used when merging an incoming
+     * progression into the one that is already being played. Must include EVERY per-measure musical
+     * field — previously only drum/strumming patterns were copied, which silently dropped solo
+     * patterns and chords when a song was started over an already-active playback state.
+     */
+    private fun copyMeasureContent(dst: Measure, src: Measure) {
+        try { dst.strummingPattern = src.strummingPattern } catch (_: Exception) {}
+        try { dst.drumPattern = src.drumPattern } catch (_: Exception) {}
+        try { dst.soloPattern = src.soloPattern } catch (_: Exception) {}
+        try {
+            dst.chordEvents.clear()
+            dst.chordEvents.addAll(src.chordEvents)
+        } catch (_: Exception) {}
+    }
+
     // Helper to apply live progression updates (used by ACTION_UPDATE_PROGRESSION)
     private fun applyUpdatedProgression(parsed: ChordProgression) {
          try {
@@ -699,8 +714,7 @@ class PlaybackService : Service() {
                 }
                 parsed.measures.forEachIndexed { idx, srcMeasure ->
                     if (idx in target.measures.indices) {
-                        try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
-                        try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                        copyMeasureContent(target.measures[idx], srcMeasure)
                     } else {
                         target.measures.add(srcMeasure)
                     }
@@ -717,8 +731,7 @@ class PlaybackService : Service() {
                 }
                 parsed.measures.forEachIndexed { idx, srcMeasure ->
                     if (idx in target.measures.indices) {
-                        try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
-                        try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                        copyMeasureContent(target.measures[idx], srcMeasure)
                     } else {
                         target.measures.add(srcMeasure)
                     }

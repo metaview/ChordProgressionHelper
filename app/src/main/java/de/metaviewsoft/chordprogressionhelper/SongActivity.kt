@@ -6,9 +6,7 @@ import android.content.ServiceConnection
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
@@ -41,40 +39,20 @@ class SongActivity : AppCompatActivity() {
     companion object {
         /** The currently active progression across all activities. */
         var selectedProgression: ChordProgression? = null
+        /** Selected section index handover back to MainActivity. */
+        var selectedSectionIndex: Int? = null
     }
 
     private lateinit var binding: ActivitySongBinding
     private lateinit var viewModel: ProgressionViewModel
     private lateinit var sectionAdapter: SectionAdapter
     private lateinit var sectionTouchHelper: ItemTouchHelper
-    private var lastSelectedIndex = -1
     private var isUpdatingSongName = false
 
     private var playbackService: PlaybackService? = null
     private var isServiceBound = false
 
-    private val beatHandler = Handler(Looper.getMainLooper())
-    private var beatRunnable: Runnable? = null
     private var currentPlayingSectionIdx: Int = -1
-
-    private fun startBeatTimer(eighthNoteMs: Long) {
-        stopBeatTimer()
-        val r = object : Runnable {
-            override fun run() {
-                if (currentPlayingSectionIdx >= 0) {
-                    sectionAdapter.onBeat()
-                    beatHandler.postDelayed(this, eighthNoteMs)
-                }
-            }
-        }
-        beatRunnable = r
-        beatHandler.post(r)
-    }
-
-    private fun stopBeatTimer() {
-        beatRunnable?.let { beatHandler.removeCallbacks(it) }
-        beatRunnable = null
-    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -100,9 +78,12 @@ class SongActivity : AppCompatActivity() {
         )[ProgressionViewModel::class.java]
 
         // Select the first section whose progression matches the globally selected one
-        val prog = selectedProgression ?: viewModel.progression
-        val idx = viewModel.findSectionIndexForProgression(prog)
+        val idx = selectedSectionIndex
+            ?: selectedProgression?.let { viewModel.findSectionIndexForProgression(it) }
+            ?: 0
         viewModel.selectSongSection(idx)
+        selectedSectionIndex = idx
+        selectedProgression = viewModel.progression
 
         PlaybackService.stop(this)
         setupRecyclerView()
@@ -118,7 +99,6 @@ class SongActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        stopBeatTimer()
         if (isServiceBound) {
             unbindService(serviceConnection)
             isServiceBound = false
@@ -128,15 +108,10 @@ class SongActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         sectionAdapter = SectionAdapter(
             onSectionClick = { position ->
-                val currentIndex = viewModel.selectedSongSectionIndex.value ?: 0
-                if (position == currentIndex && lastSelectedIndex == currentIndex) {
-                    finish()
-                } else {
-                    lastSelectedIndex = position
-                    viewModel.selectSongSection(position)
-                    selectedProgression = viewModel.progression
-                    refreshSections()
-                }
+                viewModel.selectSongSection(position)
+                selectedSectionIndex = position
+                selectedProgression = viewModel.progression
+                finish()
             },
             onMenuClick = { position, anchor ->
                 showSectionMenu(position, anchor)
@@ -210,11 +185,6 @@ class SongActivity : AppCompatActivity() {
             refreshSections()
         }
 
-        viewModel.selectedSongSectionIndex.observe(this) { index ->
-            lastSelectedIndex = index
-            sectionAdapter.setSelectedIndex(index)
-        }
-
         viewModel.isLoopingSong.observe(this) { isLooping ->
             updateRepeatButton(isLooping)
         }
@@ -230,7 +200,6 @@ class SongActivity : AppCompatActivity() {
                     if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
                 )
                 if (!isPlaying) {
-                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 }
@@ -239,21 +208,18 @@ class SongActivity : AppCompatActivity() {
         lifecycleScope.launch {
             service.currentPlaybackPosition.collect { position ->
                 if (position == null) {
-                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 } else {
-                    val (measureIndex, _) = position
+                    val (measureIndex, strumIndex) = position
                     val sectionIdx = viewModel.getSectionIndexForMeasure(measureIndex)
                     val sectionTempo = viewModel.getTempoForMeasure(measureIndex)
                     playbackService?.setTempo(sectionTempo)
                     if (sectionIdx != currentPlayingSectionIdx) {
                         currentPlayingSectionIdx = sectionIdx
                         sectionAdapter.setPlayingIndex(sectionIdx)
-                        // Derive 8th-note duration from tempo of current section
-                        val eighthNoteMs = (60_000L / sectionTempo) / 2
-                        startBeatTimer(eighthNoteMs)
                     }
+                    sectionAdapter.setProgress(sectionIdx, viewModel.getSectionProgress(measureIndex, strumIndex))
                 }
             }
         }
@@ -261,13 +227,9 @@ class SongActivity : AppCompatActivity() {
 
     private fun refreshSections() {
         val sectionNames = viewModel.songSectionNames.value.orEmpty()
-        val selectedIndex = viewModel.selectedSongSectionIndex.value ?: 0
         val items = sectionNames.map { name -> SectionAdapter.SectionItem(name = name) } +
             SectionAdapter.SectionItem(name = "", isAddButton = true)
-        sectionAdapter.submitList(items) {
-            sectionAdapter.setSelectedIndex(selectedIndex)
-        }
-        lastSelectedIndex = selectedIndex
+        sectionAdapter.submitList(items)
     }
 
     private fun updateRepeatButton(isLooping: Boolean) {

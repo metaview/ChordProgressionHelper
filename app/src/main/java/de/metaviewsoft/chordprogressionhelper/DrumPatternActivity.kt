@@ -18,7 +18,6 @@ import de.metaviewsoft.chordprogressionhelper.model.Key
 import de.metaviewsoft.chordprogressionhelper.model.Mode
 import kotlinx.serialization.json.Json
 import android.widget.Toast
-import android.content.res.ColorStateList
 import androidx.activity.OnBackPressedCallback
 import kotlinx.serialization.InternalSerializationApi
 import androidx.lifecycle.lifecycleScope
@@ -112,10 +111,6 @@ class DrumPatternActivity : AppCompatActivity() {
                 binding.btnTest.isClickable = true
                 binding.btnTest.isFocusable = true
                 binding.btnTest.alpha = 1.0f
-            try {
-                val color = ThemeColorResolver.onSurface(this@DrumPatternActivity)
-                binding.btnTest.iconTint = ColorStateList.valueOf(color)
-            } catch (_: Exception) {}
             } catch (_: Exception) {}
         }
 

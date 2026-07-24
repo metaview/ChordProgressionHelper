@@ -161,6 +161,24 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         return (section?.progression?.tempo ?: progression.tempo).coerceIn(60, 240)
     }
 
+    /** Returns 0..1 progress through the section containing the given global measure/strum position. */
+    fun getSectionProgress(measureIndex: Int, strumIndex: Int): Float {
+        var offset = 0
+        for (section in song.sections) {
+            val measures = section.progression.measures
+            val count = measures.size.coerceAtLeast(1)
+            if (measureIndex < offset + count) {
+                val localMeasureIndex = (measureIndex - offset).coerceIn(0, count - 1)
+                val totalStrums = measures.getOrNull(localMeasureIndex)
+                    ?.strummingPattern?.strums?.size?.coerceAtLeast(1) ?: 1
+                val strumFraction = strumIndex.coerceIn(0, totalStrums - 1).toFloat() / totalStrums
+                return (localMeasureIndex + strumFraction) / count
+            }
+            offset += count
+        }
+        return 0f
+    }
+
     /** Returns distinct progressions used in the song (by identity, preserving order). */
     fun getUniqueSongProgressions(): List<ChordProgression> =
         song.sections.map { it.progression }.distinctBy { System.identityHashCode(it) }

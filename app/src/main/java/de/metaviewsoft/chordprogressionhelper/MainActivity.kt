@@ -445,11 +445,12 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         PlaybackService.stop(this)
-        SongActivity.selectedProgression?.let { prog ->
-            if (prog === viewModel.progression) return@let  // already current, nothing to do
-            val idx = viewModel.findSectionIndexForProgression(prog)
-            viewModel.selectSongSection(idx) // no-op if already current index
-            viewModel.forceRefreshCurrentProgression() // re-emits all LiveData for current section
+        val selectedIndex = SongActivity.selectedSectionIndex
+        val fallbackIndex = SongActivity.selectedProgression?.let { viewModel.findSectionIndexForProgression(it) }
+        val idx = selectedIndex ?: fallbackIndex
+        if (idx != null) {
+            viewModel.selectSongSection(idx)
+            viewModel.forceRefreshCurrentProgression()
             binding.root.post {
                 // run after LiveData observers have updated the spinner adapter
                 val count = songSectionSpinnerAdapter.count
@@ -457,6 +458,9 @@ class MainActivity : AppCompatActivity() {
                     binding.songSectionSpinner.setSelection(idx)
                 }
             }
+            // Consume one-shot handover values to avoid stale re-selection on future resumes.
+            SongActivity.selectedSectionIndex = null
+            SongActivity.selectedProgression = null
         }
     }
 
@@ -603,6 +607,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSongDialog() {
         PlaybackService.stop(this)
+        SongActivity.selectedSectionIndex = viewModel.selectedSongSectionIndex.value ?: 0
         SongActivity.selectedProgression = viewModel.progression
         startActivity(Intent(this, SongActivity::class.java))
     }
