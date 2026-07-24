@@ -6,9 +6,7 @@ import android.content.ServiceConnection
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
@@ -57,28 +55,7 @@ class SongActivity : AppCompatActivity() {
     private var playbackService: PlaybackService? = null
     private var isServiceBound = false
 
-    private val beatHandler = Handler(Looper.getMainLooper())
-    private var beatRunnable: Runnable? = null
     private var currentPlayingSectionIdx: Int = -1
-
-    private fun startBeatTimer(eighthNoteMs: Long) {
-        stopBeatTimer()
-        val r = object : Runnable {
-            override fun run() {
-                if (currentPlayingSectionIdx >= 0) {
-                    sectionAdapter.onBeat()
-                    beatHandler.postDelayed(this, eighthNoteMs)
-                }
-            }
-        }
-        beatRunnable = r
-        beatHandler.post(r)
-    }
-
-    private fun stopBeatTimer() {
-        beatRunnable?.let { beatHandler.removeCallbacks(it) }
-        beatRunnable = null
-    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -146,7 +123,6 @@ class SongActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        stopBeatTimer()
         // Only stop playback when the activity is finishing (switching to another activity),
         // not when the app is just going to background
         if (isFinishing || isChangingConfigurations) {
@@ -268,7 +244,6 @@ class SongActivity : AppCompatActivity() {
                     if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
                 )
                 if (!isPlaying) {
-                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 }
@@ -277,21 +252,18 @@ class SongActivity : AppCompatActivity() {
         lifecycleScope.launch {
             service.currentPlaybackPosition.collect { position ->
                 if (position == null) {
-                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 } else {
-                    val (measureIndex, _) = position
+                    val (measureIndex, strumIndex) = position
                     val sectionIdx = songViewModel.getSectionIndexForMeasure(measureIndex)
                     val sectionTempo = songViewModel.getTempoForMeasure(measureIndex)
                     playbackService?.setTempo(sectionTempo)
                     if (sectionIdx != currentPlayingSectionIdx) {
                         currentPlayingSectionIdx = sectionIdx
                         sectionAdapter.setPlayingIndex(sectionIdx)
-                        // Derive 8th-note duration from tempo of current section
-                        val eighthNoteMs = (60_000L / sectionTempo) / 2
-                        startBeatTimer(eighthNoteMs)
                     }
+                    sectionAdapter.setProgress(sectionIdx, songViewModel.getSectionProgress(measureIndex, strumIndex))
                 }
             }
         }

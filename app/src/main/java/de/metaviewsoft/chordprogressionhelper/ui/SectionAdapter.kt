@@ -1,7 +1,5 @@
 package de.metaviewsoft.chordprogressionhelper.ui
 
-import android.os.Handler
-import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -27,18 +25,12 @@ class SectionAdapter(
 
     private var selectedIndex: Int = -1
     private var playingIndex: Int = -1
-    private var beatIndex: Int = -1
-    private val beatHandler = Handler(Looper.getMainLooper())
-    private val clearBeat = Runnable {
-        val prev = beatIndex
-        beatIndex = -1
-        if (prev >= 0 && prev < currentList.size) notifyItemChanged(prev, BEAT_PAYLOAD)
-    }
+    private var playProgress: Float = 0f
 
     companion object {
         const val VIEW_TYPE_SECTION = 0
         const val VIEW_TYPE_ADD = 1
-        private const val BEAT_PAYLOAD = "beat"
+        private const val PROGRESS_PAYLOAD = "progress"
         class SectionDiffCallback : DiffUtil.ItemCallback<SectionItem>() {
             override fun areItemsTheSame(oldItem: SectionItem, newItem: SectionItem): Boolean {
                 return oldItem.name == newItem.name && oldItem.isAddButton == newItem.isAddButton
@@ -60,25 +52,18 @@ class SectionAdapter(
     fun setPlayingIndex(index: Int) {
         val previous = playingIndex
         playingIndex = index
-        if (index < 0) {
-            beatHandler.removeCallbacks(clearBeat)
-            val prev = beatIndex
-            beatIndex = -1
-            if (prev >= 0 && prev < currentList.size) notifyItemChanged(prev, BEAT_PAYLOAD)
-        }
+        playProgress = 0f
         if (previous != index) {
             if (previous >= 0 && previous < currentList.size) notifyItemChanged(previous)
             if (index >= 0 && index < currentList.size) notifyItemChanged(index)
         }
     }
 
-    /** Called on each beat — briefly flashes the playing section highlight. */
-    fun onBeat() {
-        if (playingIndex < 0 || playingIndex >= currentList.size) return
-        beatHandler.removeCallbacks(clearBeat)
-        beatIndex = playingIndex
-        notifyItemChanged(beatIndex, BEAT_PAYLOAD)
-        beatHandler.postDelayed(clearBeat, 60)
+    /** Called as playback advances through the playing section; fraction is 0..1, filled left-to-right. */
+    fun setProgress(index: Int, fraction: Float) {
+        if (index != playingIndex || index < 0 || index >= currentList.size) return
+        playProgress = fraction.coerceIn(0f, 1f)
+        notifyItemChanged(index, PROGRESS_PAYLOAD)
     }
 
     fun getSectionCount(): Int = currentList.count { !it.isAddButton }
@@ -105,8 +90,8 @@ class SectionAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: List<Any>) {
-        if (payloads.contains(BEAT_PAYLOAD) && holder is SectionViewHolder) {
-            holder.applyBackground(position == selectedIndex, position == beatIndex)
+        if (payloads.contains(PROGRESS_PAYLOAD) && holder is SectionViewHolder) {
+            holder.applyBackground(position == playingIndex, playProgress)
             return
         }
         super.onBindViewHolder(holder, position, payloads)
@@ -114,26 +99,44 @@ class SectionAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (holder) {
-            is SectionViewHolder -> holder.bind(getItem(position).name, position, position == selectedIndex, position == playingIndex)
+            is SectionViewHolder -> holder.bind(getItem(position).name, position, position == playingIndex)
             is AddViewHolder -> holder.bind()
         }
     }
 
     inner class SectionViewHolder(private val binding: ItemSectionBinding) : RecyclerView.ViewHolder(binding.root) {
 
-        fun applyBackground(isSelected: Boolean, isBeat: Boolean) {
-            itemView.background = when {
-                isBeat -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background_beat)
-                isSelected -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background_selected)
-                else -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background)
+        private val cornerRadiusPx = 8f * itemView.resources.displayMetrics.density
+        private val baseDrawable = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = cornerRadiusPx
+        }
+        private val fillDrawable = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = cornerRadiusPx
+        }
+        private val progressDrawable = android.graphics.drawable.ClipDrawable(
+            fillDrawable, android.view.Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL
+        )
+        private val playingDrawable = android.graphics.drawable.LayerDrawable(arrayOf(baseDrawable, progressDrawable))
+
+        fun applyBackground(isPlaying: Boolean, progress: Float = 0f) {
+            if (isPlaying) {
+                val context = itemView.context
+                baseDrawable.setColor(androidx.core.content.ContextCompat.getColor(context, R.color.section_item_bg))
+                fillDrawable.setColor(androidx.core.content.ContextCompat.getColor(context, R.color.section_item_beat_bg))
+                progressDrawable.level = (progress.coerceIn(0f, 1f) * 10000).toInt()
+                itemView.background = playingDrawable
+            } else {
+                itemView.background = androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background)
             }
         }
 
-        fun bind(sectionName: String, position: Int, isSelected: Boolean, isPlaying: Boolean) {
+        fun bind(sectionName: String, position: Int, isPlaying: Boolean) {
             binding.sectionNumberText.text = (position + 1).toString()
             binding.sectionNameText.text = sectionName.substringAfter(". ", sectionName)
 
-            applyBackground(isSelected, position == beatIndex)
+            applyBackground(isPlaying, playProgress)
 
             binding.root.setOnClickListener {
                 onSectionClick(position)
