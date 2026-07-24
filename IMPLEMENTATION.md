@@ -22,7 +22,7 @@ ChordProgressionHelper/
 │   ├── src/
 │   │   ├── main/
 │   │   │   ├── java/com/metaview/chordprogressionhelper/
-│   │   │   │   ├── MainActivity.kt           # Main activity
+│   │   │   │   ├── ProgressionActivity.kt           # Main activity
 │   │   │   │   ├── model/
 │   │   │   │   │   ├── Key.kt               # 12 musical keys
 │   │   │   │   │   ├── Mode.kt              # 4 modes (Major, Minor, Dorian, Mixolydian)

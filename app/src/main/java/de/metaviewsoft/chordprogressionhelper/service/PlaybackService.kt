@@ -16,7 +16,7 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.util.Log
-import de.metaviewsoft.chordprogressionhelper.MainActivity
+import de.metaviewsoft.chordprogressionhelper.SongActivity
 import de.metaviewsoft.chordprogressionhelper.R
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionStore
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
@@ -124,6 +124,7 @@ class PlaybackService : Service() {
         // Initialize crunch levels from settings
         audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
         audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
+        audioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
 
         prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
@@ -141,6 +142,7 @@ class PlaybackService : Service() {
                 SettingsRepository.KEY_SHUFFLE_FACTOR -> audioPlayer.shuffleFactor = settingsRepository.shuffleFactor.toFloat()
                 SettingsRepository.KEY_STRUM_CRUNCH_LEVEL -> audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
                 SettingsRepository.KEY_SOLO_CRUNCH_LEVEL -> audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
+                SettingsRepository.KEY_MASTER_VOLUME -> audioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
             }
         }
         settingsRepository.registerChangeListener(prefsListener)
@@ -331,7 +333,8 @@ class PlaybackService : Service() {
                                     }
                                     parsedProg.measures.forEachIndexed { idx, srcMeasure ->
                                         if (idx in target.measures.indices) {
-                                            copyMeasureContent(target.measures[idx], srcMeasure)
+                                            try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
+                                            try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
                                         } else {
                                             target.measures.add(srcMeasure)
                                         }
@@ -430,7 +433,7 @@ class PlaybackService : Service() {
                     currentIsLoopingPreview -> true
                     currentIsPreview -> false
                     currentIsSong -> settingsRepository.isLoopingSongEnabled
-                    else -> settingsRepository.isLoopingEnabled
+                    else -> settingsRepository.isLoopingProgressionEnabled
                 } },
                 pluckStrength = settingsRepository.pluckStrength,
                 // For previews (Test/Default pattern) we must not perform a count-in
@@ -440,7 +443,10 @@ class PlaybackService : Service() {
                     else -> settingsRepository.countInBeats
                 },
                 onPositionChanged = { measureIndex, strumIndex ->
-                    _currentPlaybackPosition.value = Pair(measureIndex, strumIndex)
+                    // Update position on Main thread immediately for minimal UI latency
+                    serviceScope.launch(Dispatchers.Main.immediate) {
+                        _currentPlaybackPosition.value = Pair(measureIndex, strumIndex)
+                    }
                 },
                 startMeasureIndex = startPos?.first ?: 0,
                 startStrumIndex = startPos?.second ?: 0,
@@ -596,7 +602,7 @@ class PlaybackService : Service() {
 
     private fun createNotification(progression: ChordProgression, isPlaying: Boolean): Notification {
         Log.i(TAG, "createNotification: isPlaying=$isPlaying, progression=${progression.name}")
-        val notificationIntent = Intent(this, MainActivity::class.java)
+        val notificationIntent = Intent(this, SongActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE)
 
         // Create PendingIntents for the remoteview buttons
@@ -680,22 +686,6 @@ class PlaybackService : Service() {
          }
     }
 
-    /**
-     * Copies all musical content from [src] onto [dst] in place. Used when merging an incoming
-     * progression into the one that is already being played. Must include EVERY per-measure musical
-     * field — previously only drum/strumming patterns were copied, which silently dropped solo
-     * patterns and chords when a song was started over an already-active playback state.
-     */
-    private fun copyMeasureContent(dst: Measure, src: Measure) {
-        try { dst.strummingPattern = src.strummingPattern } catch (_: Exception) {}
-        try { dst.drumPattern = src.drumPattern } catch (_: Exception) {}
-        try { dst.soloPattern = src.soloPattern } catch (_: Exception) {}
-        try {
-            dst.chordEvents.clear()
-            dst.chordEvents.addAll(src.chordEvents)
-        } catch (_: Exception) {}
-    }
-
     // Helper to apply live progression updates (used by ACTION_UPDATE_PROGRESSION)
     private fun applyUpdatedProgression(parsed: ChordProgression) {
          try {
@@ -714,7 +704,9 @@ class PlaybackService : Service() {
                 }
                 parsed.measures.forEachIndexed { idx, srcMeasure ->
                     if (idx in target.measures.indices) {
-                        copyMeasureContent(target.measures[idx], srcMeasure)
+                        try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
+                        try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                        try { target.measures[idx].soloPattern = srcMeasure.soloPattern } catch (_: Exception) {}
                     } else {
                         target.measures.add(srcMeasure)
                     }
@@ -731,7 +723,9 @@ class PlaybackService : Service() {
                 }
                 parsed.measures.forEachIndexed { idx, srcMeasure ->
                     if (idx in target.measures.indices) {
-                        copyMeasureContent(target.measures[idx], srcMeasure)
+                        try { target.measures[idx].drumPattern = srcMeasure.drumPattern } catch (_: Exception) {}
+                        try { target.measures[idx].strummingPattern = srcMeasure.strummingPattern } catch (_: Exception) {}
+                        try { target.measures[idx].soloPattern = srcMeasure.soloPattern } catch (_: Exception) {}
                     } else {
                         target.measures.add(srcMeasure)
                     }
@@ -836,17 +830,13 @@ class PlaybackService : Service() {
         }
 
         fun stop(context: android.content.Context) {
-            val intent = Intent(context, PlaybackService::class.java)
+            // Send ACTION_STOP intent so the service can stop itself properly.
+            // context.stopService() does NOT work reliably for foreground services!
+            val intent = Intent(context, PlaybackService::class.java).apply { action = ACTION_STOP }
             try {
-                context.stopService(intent)
+                context.startService(intent)
             } catch (e: Exception) {
-                Log.w("PlaybackService", "stop(context) failed to call stopService: ${e.message}")
-                try {
-                    val stopIntent = Intent(context, PlaybackService::class.java).apply { action = ACTION_STOP }
-                    context.startService(stopIntent)
-                } catch (e2: Exception) {
-                    Log.w("PlaybackService", "stop(context) fallback failed: ${e2.message}")
-                }
+                Log.w("PlaybackService", "stop(context) failed to send ACTION_STOP: ${e.message}")
             }
         }
 

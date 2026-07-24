@@ -16,7 +16,7 @@ class SettingsRepository(context: Context) {
         const val KEY_COUNT_IN_BEATS = "key_count_in_beats"
         const val KEY_COUNT_IN_BEATS_SONG = "key_count_in_beats_song"
         const val KEY_PLUCK_STRENGTH = "key_pluck_strength"
-        const val KEY_IS_LOOPING = "key_is_looping"
+        const val KEY_IS_LOOPING_PROGRESSION = "key_is_looping"
         const val KEY_IS_LOOPING_SONG = "key_is_looping_song"
         // Sound subgroup keys
         const val KEY_DRUM_LEVEL = "key_drum_level"
@@ -48,6 +48,7 @@ class SettingsRepository(context: Context) {
         // Crunch/Overdrive gain levels (separate for strum and solo)
         const val KEY_STRUM_CRUNCH_LEVEL = "key_strum_crunch_level"
         const val KEY_SOLO_CRUNCH_LEVEL = "key_solo_crunch_level"
+        const val KEY_MASTER_VOLUME = "key_master_volume"  // In-App Master-Lautstärke (0.0..1.0)
         // Defaults used in New dialog
         const val KEY_DEFAULT_KEY_NAME = "key_default_key_name"
         const val KEY_DEFAULT_BPM = "key_default_bpm"
@@ -107,9 +108,9 @@ class SettingsRepository(context: Context) {
         set(value) = prefs.edit { putInt(KEY_PLUCK_STRENGTH, value) }
 
     // Looping setting for single progression/section
-    var isLoopingEnabled: Boolean
-        get() = prefs.getBoolean(KEY_IS_LOOPING, false)
-        set(value) = prefs.edit { putBoolean(KEY_IS_LOOPING, value) }
+    var isLoopingProgressionEnabled: Boolean
+        get() = prefs.getBoolean(KEY_IS_LOOPING_PROGRESSION, false)
+        set(value) = prefs.edit { putBoolean(KEY_IS_LOOPING_PROGRESSION, value) }
 
     // Looping setting for full song
     var isLoopingSongEnabled: Boolean
@@ -179,6 +180,11 @@ class SettingsRepository(context: Context) {
     var soloCrunchLevel: Float
         get() = prefs.getFloat(KEY_SOLO_CRUNCH_LEVEL, 1.0f)
         set(value) = prefs.edit { putFloat(KEY_SOLO_CRUNCH_LEVEL, value.coerceIn(0.0f, 2.0f)) }
+
+    // In-App Master-Lautstärke (0.0 = stumm, 1.0 = volle Lautstärke)
+    var masterVolume: Float
+        get() = prefs.getFloat(KEY_MASTER_VOLUME, 1.0f).coerceIn(0.0f, 1.0f)
+        set(value) = prefs.edit { putFloat(KEY_MASTER_VOLUME, value.coerceIn(0.0f, 1.0f)) }
 
     var defaultKeyName: String
         get() = prefs.getString(KEY_DEFAULT_KEY_NAME, "C") ?: "C"

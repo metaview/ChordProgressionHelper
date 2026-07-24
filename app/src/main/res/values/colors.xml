@@ -22,6 +22,10 @@
     <color name="section_item_beat_bg">#FF505050</color>
     <color name="section_item_selected_bg">#7C4DFF</color>
 
+    <!-- Pattern editor highlighting -->
+    <color name="highlight_active">#FF4CAF50</color>
+    <color name="slot_default">#FF424242</color>
+
     <!-- Launcher icon -->
     <color name="ic_launcher_background">#7C4DFF</color>
 </resources>

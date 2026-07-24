@@ -31,6 +31,12 @@ class AudioPlayer {
     // Callback für AudioThread-Bereitschaft
     var audioThreadReadyCallback: AudioThreadReadyCallback? = null
 
+    init {
+        // Log native library availability on AudioPlayer creation
+        val nativeStatus = if (NativeAudio.isAvailable()) "LOADED" else "NOT AVAILABLE (using Kotlin fallback)"
+        android.util.Log.i("AudioPlayer", "Native audio library status: $nativeStatus")
+    }
+
     // helper for lowpass update to avoid numeric overload ambiguity in nested lambdas
     private fun lpFilter(prev: Double, alpha: Double, value: Double): Double =
         prev + alpha * (value - prev)
@@ -63,19 +69,26 @@ class AudioPlayer {
                 audioHandler = Handler(audioHandlerThread!!.looper)
                 // Create a small cached preview AudioTrack on the audio thread to warm-up resources.
                 audioHandler!!.post {
+                    android.util.Log.d("AudioPlayer", "Starting previewAudioTrack creation...")
                     try {
                         if (previewAudioTrack == null) {
+                            android.util.Log.d("AudioPlayer", "previewAudioTrack is null, creating new instance...")
                             val minBuf = AudioTrack.getMinBufferSize(
                                 sampleRate,
                                 AudioFormat.CHANNEL_OUT_MONO,
                                 AudioFormat.ENCODING_PCM_16BIT
                             )
-                            // Ensure buffer size is valid: at least minBuf, and use minBuf * 2 for safety (doubles the minimum)
-                            val bufferSize = if (minBuf > 0) minBuf * 2 else sampleRate / 2
-                            previewAudioTrack = AudioTrack.Builder()
+                            android.util.Log.d("AudioPlayer", "minBufferSize=$minBuf")
+                            // LATENCY OPTIMIZATION: Use even smaller buffer for minimal latency
+                            // Divide by 2 for keyboard/preview responsiveness
+                            val bufferSize = if (minBuf > 0) (minBuf / 2).coerceAtLeast(256) else sampleRate / 20
+                            android.util.Log.d("AudioPlayer", "Using bufferSize=$bufferSize")
+                            val builder = AudioTrack.Builder()
                                 .setAudioAttributes(
-                                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
+                                    AudioAttributes.Builder()
+                                        .setUsage(AudioAttributes.USAGE_GAME)
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                        .build()
                                 )
                                 .setAudioFormat(
                                     AudioFormat.Builder()
@@ -85,9 +98,17 @@ class AudioPlayer {
                                 )
                                 .setTransferMode(AudioTrack.MODE_STREAM)
                                 .setBufferSizeInBytes(bufferSize)
-                                .build()
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                            }
+                            android.util.Log.d("AudioPlayer", "Building AudioTrack...")
+                            previewAudioTrack = builder.build()
+                            android.util.Log.d("AudioPlayer", "AudioTrack built successfully, state=${previewAudioTrack?.state}")
                             try {
                                 previewAudioTrack?.play()
+                                android.util.Log.d("AudioPlayer", "AudioTrack.play() called, playState=${previewAudioTrack?.playState}")
+                                previewAudioTrack?.setVolume(masterVolume.toFloat())
+                                android.util.Log.d("AudioPlayer", "AudioTrack.setVolume($masterVolume) called")
                             } catch (e: Exception) {
                                 android.util.Log.w(
                                     "AudioPlayer",
@@ -95,15 +116,18 @@ class AudioPlayer {
                                     e
                                 )
                             }
+                        } else {
+                            android.util.Log.d("AudioPlayer", "previewAudioTrack already exists, skipping creation")
                         }
                     } catch (t: Throwable) {
-                        android.util.Log.w(
+                        android.util.Log.e(
                             "AudioPlayer",
-                            "ensureAudioThreadStarted: failed to create previewAudioTrack: ${t.message}",
+                            "ensureAudioThreadStarted: FAILED to create previewAudioTrack: ${t.message}",
                             t
                         )
                         previewAudioTrack = null
                     }
+                    android.util.Log.d("AudioPlayer", "previewAudioTrack creation completed, result=${if (previewAudioTrack != null) "SUCCESS" else "FAILED"}")
                     // Pre-generate drum samples for instant drum previews
                     // Run synchronously (blocking) on the audio thread to ensure they're ready before playback
                     val drumGenStartTime = System.currentTimeMillis()
@@ -182,6 +206,32 @@ class AudioPlayer {
         }
     }
 
+    /**
+     * Ensures the preview audio track is created and ready.
+     * This method blocks until the track is available.
+     * Call this from onResume() to avoid null track on first key press.
+     */
+    fun ensurePreviewTrackReady() {
+        ensureAudioThreadStarted()
+        
+        // Wait for previewAudioTrack to be created (max 500ms)
+        var attempts = 0
+        while (previewAudioTrack == null && attempts < 50) {
+            try {
+                Thread.sleep(10)
+                attempts++
+            } catch (e: InterruptedException) {
+                break
+            }
+        }
+        
+        if (previewAudioTrack == null) {
+            android.util.Log.w("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack still null after ${attempts * 10}ms")
+        } else {
+            android.util.Log.d("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack ready after ${attempts * 10}ms")
+        }
+    }
+
     private fun shutdownAudioThread() {
         synchronized(this) {
             try {
@@ -239,6 +289,18 @@ class AudioPlayer {
     var strumLevel: Double = 1.0
 
     /**
+     * masterVolume: In-App Master-Lautstärkeregler (0.0 = stumm, 1.0 = volle Lautstärke).
+     * Wirkt als Gain-Multiplikator direkt auf den AudioTrack und beeinflusst nur diese App.
+     */
+    @Volatile
+    var masterVolume: Double = 1.0
+        set(value) {
+            field = value
+            audioTrack?.setVolume(value.toFloat())
+            previewAudioTrack?.setVolume(value.toFloat())
+        }
+
+    /**
      * envelopeScale: skaliert Hüllkurven/Amplituden von Percussion und einigen Effekten.
      * - Werte um 1.0 sind normal; größere Werte verlängern teilweise Sustain/Release in den verwendeten Envelopes
      * - Wird z.B. beim Kick/Snare/HiHat und bei der Piano-Envelope eingesetzt
@@ -249,7 +311,7 @@ class AudioPlayer {
     /**
      * hiHatHighpass: Einflussfaktor im HiHat-Generator
      * - wirkt wie ein einfacher Hochpass/Detail-Filter auf das generierte Rauschen der HiHat
-     * - Werte >1 betonen die hohen Frequenzen; Werte <1 dämpfen die Höhen
+     * - Werte >1 betonen die hohen Frequenzen; Werte <1 daempfen die Hoehen
      */
     @Volatile
     var hiHatHighpass: Double = 1.0
@@ -403,6 +465,7 @@ class AudioPlayer {
                     .build()
                 val trackPlayTime = System.currentTimeMillis()
                 audioTrack?.play()
+                audioTrack?.setVolume(masterVolume.toFloat())
                 val trackPlayDoneTime = System.currentTimeMillis()
                 android.util.Log.d(
                     "AudioPlayer",
@@ -646,8 +709,6 @@ class AudioPlayer {
 
                             val eighthNoteSamples =
                                 (sampleRate * adjustedEighthNoteDuration).toInt().coerceAtLeast(1)
-
-                            onPositionChanged(measureIndex, strumIndex)
 
                             val chord: Chord? = measure.getChordAt(strumIndex)
                             val currentStrum = measure.strummingPattern.strums[strumIndex]
@@ -1111,6 +1172,10 @@ class AudioPlayer {
                             val samples =
                                 trimmed.map { v -> (v * scale).coerceIn(-1.0, 1.0) }.toDoubleArray()
                                     .toPcmShortArray()
+                            
+                            // Report position RIGHT BEFORE writing to AudioTrack for best audio-visual sync
+                            onPositionChanged(measureIndex, strumIndex)
+                            
                             audioTrack?.write(samples, 0, samples.size)
                         }
                     }
@@ -1826,6 +1891,18 @@ class AudioPlayer {
     // Convert a DoubleArray (values roughly in -1..1) to 16-bit PCM ShortArray.
     private fun DoubleArray.toPcmShortArray(): ShortArray {
         val shortArray = ShortArray(this.size)
+        
+        // Use native conversion if available for better performance
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.doubleToPcmShort(this, shortArray)
+                return shortArray
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native doubleToPcmShort failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         for (i in this.indices) {
             val sample = this[i].coerceIn(-1.0, 1.0)
             shortArray[i] = (sample * Short.MAX_VALUE).toInt().toShort()
@@ -1889,6 +1966,17 @@ class AudioPlayer {
      * - multiplied by envelopeScale (global) and drumLevel (global)
      */
     private fun addKick(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.addKick(buffer, duration, levelScale, envelopeScale, drumLevel)
+                return
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native addKick failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         val freq = 60.0
         val kickDuration = (duration * 0.5).toInt().coerceAtMost(buffer.size)
         for (i in 0 until kickDuration) {
@@ -1908,6 +1996,17 @@ class AudioPlayer {
      * - levelScale: multiplicative scale for loudness
      */
     private fun addSnare(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.addSnare(buffer, duration, levelScale, envelopeScale, drumLevel)
+                return
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native addSnare failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         val snareDuration = (duration * 0.2).toInt().coerceAtMost(buffer.size)
         for (i in 0 until snareDuration) {
             val noise = (Random.nextDouble() * 2 - 1)
@@ -1923,6 +2022,17 @@ class AudioPlayer {
      * - envelopeScale and levelScale control the perceived length and loudness
      */
     private fun addHiHat(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.addHiHat(buffer, duration, levelScale, envelopeScale, hiHatHighpass)
+                return
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native addHiHat failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         val hiHatDuration = (duration * 0.25).toInt().coerceAtMost(buffer.size)
         var lastNoise = 0.0
         for (i in 0 until hiHatDuration) {
@@ -1996,6 +2106,16 @@ class AudioPlayer {
     }
 
     private fun midiNoteToFrequency(midiNote: Int): Double {
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                return NativeAudio.midiNoteToFrequency(midiNote)
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native midiNoteToFrequency failed, using fallback: ${e.message}")
+            }
+        }
+        
+        // Fallback to Kotlin implementation
         // Some parts of the app provide only a pitch class (0..11) as midiOffset.
         // If the midi value looks like an offset (very low), shift it into a usable octave
         // so we generate audible, correctly pitched tones instead of sub-audio rumble/noise.
@@ -2329,6 +2449,17 @@ class AudioPlayer {
         val numSamples = (sampleRate * durationSec).toInt()
         val samples = DoubleArray(numSamples)
 
+        // Use native implementation if available
+        if (NativeAudio.isAvailable()) {
+            try {
+                NativeAudio.generatePianoSample(samples, frequency)
+                return samples
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "Native generatePianoSample failed, using fallback: ${e.message}")
+            }
+        }
+
+        // Fallback to Kotlin implementation
         // Piano has harmonics with specific amplitude ratios
         // Reduced to 3 harmonics for better performance (was 6)
         val harmonics = listOf(
@@ -2616,4 +2747,117 @@ class AudioPlayer {
                 "previewPianoNote FINISHED: midiNote=$midiNote (totalTime=${System.currentTimeMillis() - startTime}ms, previewId=$myPreviewId)"
             )
         }
+
+    /**
+     * Fire-and-forget solo note trigger with minimal latency.
+     * Posts directly to the audio handler thread — no coroutine or IO-dispatcher hop.
+     * Uses pause/flush/play to clear any buffered audio immediately, and 10ms chunks
+     * so a superseded note exits its write loop within at most 10ms.
+     */
+    fun triggerSoloNotePreview(midiNote: Int, durationSec: Double = 0.3) {
+        android.util.Log.d("AudioPlayer", "triggerSoloNotePreview called: midiNote=$midiNote, soloLevel=$soloLevel, masterVolume=$masterVolume")
+        ensureAudioThreadStarted()
+        val myPreviewId = ++currentPreviewId
+        shouldStopPreview = false
+        audioHandler?.removeCallbacksAndMessages(null)
+        android.util.Log.d("AudioPlayer", "Posting to audioHandler, previewId=$myPreviewId")
+        audioHandler?.post {
+            android.util.Log.d("AudioPlayer", "audioHandler.post executed, previewId=$myPreviewId, currentPreviewId=$currentPreviewId")
+            if (myPreviewId != currentPreviewId) {
+                android.util.Log.w("AudioPlayer", "Preview ID mismatch, aborting")
+                return@post
+            }
+            val at = previewAudioTrack
+            if (at == null) {
+                android.util.Log.e("AudioPlayer", "previewAudioTrack is NULL! Cannot play sound.")
+                return@post
+            }
+            android.util.Log.d("AudioPlayer", "previewAudioTrack found, playState=${at.playState}, state=${at.state}")
+
+            // Clear any buffered audio for an immediate clean start
+            try { at.pause() } catch (_: Exception) {}
+            try { at.flush() } catch (_: Exception) {}
+            try { at.play()  } catch (_: Exception) {}
+            try { at.setVolume(masterVolume.toFloat()) } catch (_: Exception) {}
+            android.util.Log.d("AudioPlayer", "AudioTrack prepared: play() called, volume set to $masterVolume")
+
+            val freq = midiNoteToFrequency(midiNote)
+            val totalSamples = (sampleRate * durationSec).toInt()
+            // 10ms chunks: limits delay when a new key supersedes this note
+            val chunkSize = sampleRate / 100
+
+            val karplusString =
+                if (soloPreset != de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO) {
+                    KarplusStrongString(freq, sampleRate, 3, 0.998).apply { pluck() }
+                } else null
+
+            val harmonics = listOf(1.0 to 1.0, 2.0 to 0.6, 3.0 to 0.3)
+            val attackSamples = (0.002 * sampleRate).toInt()
+            val decaySamples  = (0.15  * sampleRate).toInt()
+            val sustainLevel  = 0.3
+            val attackDecaySamples = attackSamples + decaySamples
+            // Reduce gain for keyboard preview to match playback volume
+            // During playback, solo is mixed with chords before normalization
+            // Here it's solo-only, so we need lower gain to match perceived loudness
+            val pianoGain = when (soloPreset) {
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN     -> 0.4
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.35
+                de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO     -> 0.6
+            } * soloLevel
+
+            var samplesWritten = 0
+            while (samplesWritten < totalSamples && myPreviewId == currentPreviewId) {
+                val n = minOf(chunkSize, totalSamples - samplesWritten)
+                val chunkBuf = DoubleArray(n)
+                if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO) {
+                    for (i in 0 until n) {
+                        val s = samplesWritten + i
+                        val t = s.toDouble() / sampleRate
+                        var sample = 0.0
+                        for ((harmonic, amplitude) in harmonics) {
+                            sample += amplitude * sin(2.0 * PI * freq * harmonic * t)
+                        }
+                        val env = when {
+                            s < attackSamples -> s.toDouble() / attackSamples
+                            s < attackDecaySamples -> {
+                                val dp = (s - attackSamples).toDouble() / decaySamples
+                                1.0 - (1.0 - sustainLevel) * dp
+                            }
+                            else -> {
+                                val rp = (s - attackDecaySamples).toDouble() / (totalSamples - attackDecaySamples)
+                                sustainLevel * (1.0 - rp)
+                            }
+                        }.coerceIn(0.0, 1.0)
+                        chunkBuf[i] = sample * env
+                    }
+                } else {
+                    for (i in 0 until n) chunkBuf[i] = karplusString!!.tick()
+                }
+                
+                // Apply piano gain to samples
+                for (i in 0 until n) {
+                    chunkBuf[i] = chunkBuf[i] * pianoGain
+                }
+                
+                // Normalize like main playback (targetPeak = 0.85) to match volume levels
+                var maxAbs = 0.0
+                for (i in 0 until n) {
+                    val a = kotlin.math.abs(chunkBuf[i])
+                    if (a > maxAbs) maxAbs = a
+                }
+                val targetPeak = 0.85
+                val scale = if (maxAbs > 0.0) {
+                    if (maxAbs > targetPeak) targetPeak / maxAbs else 1.0
+                } else 1.0
+                
+                // Convert to shorts with normalization applied
+                val shorts = ShortArray(n) { i ->
+                    ((chunkBuf[i] * scale).coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
+                }
+                at.write(shorts, 0, shorts.size)
+                samplesWritten += n
+            }
+        }
     }
+}
+

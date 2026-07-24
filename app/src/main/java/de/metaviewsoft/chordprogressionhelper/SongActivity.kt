@@ -6,9 +6,9 @@ import android.content.ServiceConnection
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
-import android.text.Editable
-import android.text.TextWatcher
+import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
@@ -16,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.PopupMenu
+import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -25,11 +26,13 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import de.metaviewsoft.chordprogressionhelper.BuildConfig
 import de.metaviewsoft.chordprogressionhelper.databinding.ActivitySongBinding
 import de.metaviewsoft.chordprogressionhelper.SettingsActivity
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.ui.ProgressionViewModel
+import de.metaviewsoft.chordprogressionhelper.ui.SongViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
 import kotlinx.coroutines.launch
@@ -39,20 +42,43 @@ class SongActivity : AppCompatActivity() {
     companion object {
         /** The currently active progression across all activities. */
         var selectedProgression: ChordProgression? = null
-        /** Selected section index handover back to MainActivity. */
-        var selectedSectionIndex: Int? = null
     }
 
+    private val TAG = "SongActivity"
+
     private lateinit var binding: ActivitySongBinding
-    private lateinit var viewModel: ProgressionViewModel
+    private lateinit var settingsRepository: de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
+    private lateinit var songViewModel: SongViewModel
+    private lateinit var progressionViewModel: ProgressionViewModel
     private lateinit var sectionAdapter: SectionAdapter
     private lateinit var sectionTouchHelper: ItemTouchHelper
-    private var isUpdatingSongName = false
+    private var lastSelectedIndex = -1
 
     private var playbackService: PlaybackService? = null
     private var isServiceBound = false
 
+    private val beatHandler = Handler(Looper.getMainLooper())
+    private var beatRunnable: Runnable? = null
     private var currentPlayingSectionIdx: Int = -1
+
+    private fun startBeatTimer(eighthNoteMs: Long) {
+        stopBeatTimer()
+        val r = object : Runnable {
+            override fun run() {
+                if (currentPlayingSectionIdx >= 0) {
+                    sectionAdapter.onBeat()
+                    beatHandler.postDelayed(this, eighthNoteMs)
+                }
+            }
+        }
+        beatRunnable = r
+        beatHandler.post(r)
+    }
+
+    private fun stopBeatTimer() {
+        beatRunnable?.let { beatHandler.removeCallbacks(it) }
+        beatRunnable = null
+    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -72,23 +98,44 @@ class SongActivity : AppCompatActivity() {
         binding = ActivitySongBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        viewModel = ViewModelProvider(
+        songViewModel = ViewModelProvider(
+            application as MyApplication,
+            ViewModelProvider.AndroidViewModelFactory(application)
+        )[SongViewModel::class.java]
+
+        progressionViewModel = ViewModelProvider(
             application as MyApplication,
             ViewModelProvider.AndroidViewModelFactory(application)
         )[ProgressionViewModel::class.java]
 
         // Select the first section whose progression matches the globally selected one
-        val idx = selectedSectionIndex
-            ?: selectedProgression?.let { viewModel.findSectionIndexForProgression(it) }
-            ?: 0
-        viewModel.selectSongSection(idx)
-        selectedSectionIndex = idx
-        selectedProgression = viewModel.progression
+        val prog = selectedProgression ?: songViewModel.getCurrentProgression()
+        val idx = songViewModel.findSectionIndexForProgression(prog)
+        songViewModel.selectSongSection(idx)?.let { progression ->
+            progressionViewModel.progression = progression
+        }
 
         PlaybackService.stop(this)
         setupRecyclerView()
+        setupVolumeControl()
         setupListeners()
         observeViewModel()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Stop any running playback when entering this activity
+        PlaybackService.stop(this)
+        // Sync the highlighted section with whatever is currently active in the ViewModel.
+        // This covers the case where the user changed sections via the spinner in ProgressionActivity
+        // and then navigated back here.
+        val idx = songViewModel.selectedSongSectionIndex.value ?: 0
+        sectionAdapter.setSelectedIndex(idx)
+        // Sync volume SeekBar with current in-app master volume
+        if (::settingsRepository.isInitialized) {
+            binding.volumeSeekBar.progress =
+                (settingsRepository.masterVolume * 100).toInt()
+        }
     }
 
     override fun onStart() {
@@ -99,6 +146,19 @@ class SongActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        stopBeatTimer()
+        // Only stop playback when the activity is finishing (switching to another activity),
+        // not when the app is just going to background
+        if (isFinishing || isChangingConfigurations) {
+            Log.i(TAG, "onStop: Activity finishing/changing config - stopping playback")
+            if (isServiceBound && playbackService != null) {
+                try { playbackService?.stopPlayback() } catch (e: Exception) { Log.w(TAG, "onStop: stopPlayback failed: ${e.message}") }
+            } else {
+                try { PlaybackService.stop(this) } catch (e: Exception) { Log.w(TAG, "onStop: PlaybackService.stop failed: ${e.message}") }
+            }
+        } else {
+            Log.i(TAG, "onStop: Activity going to background - keeping playback running")
+        }
         if (isServiceBound) {
             unbindService(serviceConnection)
             isServiceBound = false
@@ -108,10 +168,11 @@ class SongActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         sectionAdapter = SectionAdapter(
             onSectionClick = { position ->
-                viewModel.selectSongSection(position)
-                selectedSectionIndex = position
-                selectedProgression = viewModel.progression
-                finish()
+                songViewModel.selectSongSection(position)?.let { progression ->
+                    progressionViewModel.progression = progression
+                    selectedProgression = progression
+                }
+                startActivity(Intent(this, ProgressionActivity::class.java))
             },
             onMenuClick = { position, anchor ->
                 showSectionMenu(position, anchor)
@@ -129,32 +190,39 @@ class SongActivity : AppCompatActivity() {
         binding.songSectionsRecyclerView.adapter = sectionAdapter
 
         sectionTouchHelper = ItemTouchHelper(
-            SectionAdapter.SectionTouchHelperCallback(sectionAdapter) { fromPosition, toPosition ->
-                viewModel.moveSongSection(fromPosition, toPosition)
+            SectionAdapter.SectionTouchHelperCallback(sectionAdapter) { from, to ->
+                songViewModel.moveSongSection(from, to)?.let { progression ->
+                    progressionViewModel.progression = progression
+                }
                 refreshSections()
             }
         )
         sectionTouchHelper.attachToRecyclerView(binding.songSectionsRecyclerView)
     }
 
-    private fun setupListeners() {
-        binding.songNameEditText.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                if (!isUpdatingSongName) {
-                    viewModel.setSongName(s?.toString().orEmpty())
+    private fun setupVolumeControl() {
+        settingsRepository = de.metaviewsoft.chordprogressionhelper.data.SettingsRepository(this)
+        binding.volumeSeekBar.max = 100
+        binding.volumeSeekBar.progress = (settingsRepository.masterVolume * 100).toInt()
+        binding.volumeSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    settingsRepository.masterVolume = progress / 100f
                 }
             }
+            override fun onStartTrackingTouch(seekBar: SeekBar) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar) {}
         })
+    }
 
+    private fun setupListeners() {
         binding.songMenuButton.setOnClickListener { showMenu(it) }
 
         binding.songPlayButton.setOnClickListener {
             if (playbackService?.isPlaying?.value == true) {
                 PlaybackService.pause(this)
             } else {
-                PlaybackService.playSong(this, viewModel.createSongPlaybackProgression())
+                PlaybackService.playSong(this, songViewModel.createSongPlaybackProgression())
             }
         }
 
@@ -167,25 +235,25 @@ class SongActivity : AppCompatActivity() {
         }
 
         binding.songRepeatButton.setOnClickListener {
-            viewModel.onRepeatSongToggle(!(viewModel.isLoopingSong.value ?: false))
+            songViewModel.onSongRepeatToggle(!(songViewModel.isSongLooping.value ?: false))
         }
     }
 
     private fun observeViewModel() {
-        viewModel.songName.observe(this) { name ->
-            isUpdatingSongName = true
-            if (binding.songNameEditText.text?.toString() != name) {
-                binding.songNameEditText.setText(name ?: getString(R.string.song_name_default))
-                binding.songNameEditText.setSelection(binding.songNameEditText.text?.length ?: 0)
-            }
-            isUpdatingSongName = false
+        songViewModel.songName.observe(this) { name ->
+            binding.songNameEditText.text = name ?: getString(R.string.song_name_default)
         }
 
-        viewModel.songSectionNames.observe(this) {
+        songViewModel.songSectionNames.observe(this) {
             refreshSections()
         }
 
-        viewModel.isLoopingSong.observe(this) { isLooping ->
+        songViewModel.selectedSongSectionIndex.observe(this) { index ->
+            lastSelectedIndex = index
+            sectionAdapter.setSelectedIndex(index)
+        }
+
+        songViewModel.isSongLooping.observe(this) { isLooping ->
             updateRepeatButton(isLooping)
         }
     }
@@ -200,6 +268,7 @@ class SongActivity : AppCompatActivity() {
                     if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
                 )
                 if (!isPlaying) {
+                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 }
@@ -208,28 +277,35 @@ class SongActivity : AppCompatActivity() {
         lifecycleScope.launch {
             service.currentPlaybackPosition.collect { position ->
                 if (position == null) {
+                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 } else {
-                    val (measureIndex, strumIndex) = position
-                    val sectionIdx = viewModel.getSectionIndexForMeasure(measureIndex)
-                    val sectionTempo = viewModel.getTempoForMeasure(measureIndex)
+                    val (measureIndex, _) = position
+                    val sectionIdx = songViewModel.getSectionIndexForMeasure(measureIndex)
+                    val sectionTempo = songViewModel.getTempoForMeasure(measureIndex)
                     playbackService?.setTempo(sectionTempo)
                     if (sectionIdx != currentPlayingSectionIdx) {
                         currentPlayingSectionIdx = sectionIdx
                         sectionAdapter.setPlayingIndex(sectionIdx)
+                        // Derive 8th-note duration from tempo of current section
+                        val eighthNoteMs = (60_000L / sectionTempo) / 2
+                        startBeatTimer(eighthNoteMs)
                     }
-                    sectionAdapter.setProgress(sectionIdx, viewModel.getSectionProgress(measureIndex, strumIndex))
                 }
             }
         }
     }
 
     private fun refreshSections() {
-        val sectionNames = viewModel.songSectionNames.value.orEmpty()
+        val sectionNames = songViewModel.songSectionNames.value.orEmpty()
+        val selectedIndex = songViewModel.selectedSongSectionIndex.value ?: 0
         val items = sectionNames.map { name -> SectionAdapter.SectionItem(name = name) } +
             SectionAdapter.SectionItem(name = "", isAddButton = true)
-        sectionAdapter.submitList(items)
+        sectionAdapter.submitList(items) {
+            sectionAdapter.setSelectedIndex(selectedIndex)
+        }
+        lastSelectedIndex = selectedIndex
     }
 
     private fun updateRepeatButton(isLooping: Boolean) {
@@ -250,39 +326,38 @@ class SongActivity : AppCompatActivity() {
     }
 
     private fun showAddSectionDialog() {
-        val uniqueProgressions = viewModel.getUniqueSongProgressions()
-        val entries = uniqueProgressions.map { it.name.ifBlank { getString(R.string.song_section_unnamed) } }.toMutableList()
-        entries.add(getString(R.string.song_section_new_progression))
-        val newProgressionIndex = entries.lastIndex
+        promptForSectionName(getString(R.string.song_section_add), "") { name ->
+            val currentProgression = songViewModel.getCurrentProgression()
+            songViewModel.addSongSection(name, currentProgression.key, currentProgression.mode, currentProgression.tempo)
+            selectedProgression = songViewModel.getCurrentProgression()
+            progressionViewModel.progression = selectedProgression!!
+            refreshSections()
+        }
+    }
 
-        var selectedIndex = newProgressionIndex
-        val dialogView = layoutInflater.inflate(android.R.layout.select_dialog_singlechoice, null)
-        val listView = android.widget.ListView(this)
-        listView.choiceMode = android.widget.AbsListView.CHOICE_MODE_SINGLE
-        val adapter = android.widget.ArrayAdapter(this, android.R.layout.select_dialog_singlechoice, entries)
-        listView.adapter = adapter
-        listView.setItemChecked(newProgressionIndex, true)
-        listView.setOnItemClickListener { _, _, position, _ -> selectedIndex = position }
-
-        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(
-            this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog
-        )
-            .setTitle(getString(R.string.song_section_add))
-            .setView(listView)
-            .setPositiveButton(getString(R.string.ok)) { _, _ ->
-                promptForSectionName(getString(R.string.song_section_add), "") { name ->
-                    if (selectedIndex == newProgressionIndex) {
-                        viewModel.addSongSection(name)
-                    } else {
-                        viewModel.addSongSectionWithProgression(name, uniqueProgressions[selectedIndex])
-                    }
-                    selectedProgression = viewModel.progression
-                    refreshSections()
-                }
+    private fun showDuplicateSectionDialog(position: Int) {
+        val currentSection = songViewModel.getSectionAt(position) ?: return
+        val currentName = currentSection.name.ifBlank { "Section ${position + 1}" }
+        val suggestedName = "$currentName Copy"
+        promptForSectionName(getString(R.string.song_section_duplicate), suggestedName) { name ->
+            val source = songViewModel.getSectionAt(position) ?: return@promptForSectionName
+            val copied = try {
+                kotlinx.serialization.json.Json.decodeFromString(
+                    de.metaviewsoft.chordprogressionhelper.model.ChordProgression.serializer(),
+                    kotlinx.serialization.json.Json.encodeToString(
+                        de.metaviewsoft.chordprogressionhelper.model.ChordProgression.serializer(),
+                        source.progression
+                    )
+                )
+            } catch (_: Exception) {
+                source.progression.copy(measures = source.progression.measures.toMutableList())
             }
-            .setNegativeButton(getString(R.string.cancel), null)
-            .create()
-        dialog.show()
+            copied.name = name
+            songViewModel.addSongSectionWithProgression(name, copied)
+            selectedProgression = songViewModel.getCurrentProgression()
+            progressionViewModel.progression = selectedProgression!!
+            refreshSections()
+        }
     }
 
     private fun showMenu(anchor: View) {
@@ -292,46 +367,76 @@ class SongActivity : AppCompatActivity() {
         popup.menu.add(0, 2, 2, getString(R.string.save_song_title))
         popup.menu.add(0, 3, 3, getString(R.string.delete_song_title))
         popup.menu.add(0, 4, 4, getString(R.string.settings_title))
+        popup.menu.add(0, 5, 5, getString(R.string.about_title))
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                0 -> { viewModel.requestNewProgression(); finish(); true }
+                0 -> { showNewSongDialog(); true }
                 1 -> { showLoadSongDialog(); true }
                 2 -> { showSaveSongDialog(); true }
                 3 -> { showDeleteSongDialog(); true }
                 4 -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
+                5 -> { showAboutDialog(); true }
                 else -> false
             }
         }
         popup.show()
+    }
+
+    private fun showAboutDialog() {
+        val versionInfo = "Version ${BuildConfig.VERSION_NAME}\n\n"
+        val message = versionInfo + getString(R.string.about_message)
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.about_title))
+            .setMessage(message)
+            .setPositiveButton(getString(R.string.ok), null)
+            .create()
+        dialog.setOnShowListener { styleDialogButtons(dialog) }
+        dialog.show()
     }
 
     private fun showSectionMenu(position: Int, anchor: View) {
         val popup = PopupMenu(this, anchor)
-        popup.menuInflater.inflate(R.menu.song_section_menu, popup.menu)
+        popup.menu.add(0, 0, 0, getString(R.string.song_section_rename))
+        popup.menu.add(0, 1, 1, getString(R.string.song_section_duplicate))
+        popup.menu.add(0, 2, 2, getString(R.string.delete))
+        popup.menu.add(0, 3, 3, getString(R.string.song_section_move_up))
+        popup.menu.add(0, 4, 4, getString(R.string.song_section_move_down))
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                R.id.menu_rename_section -> {
-                    val currentTitle = viewModel.songSectionNames.value?.getOrNull(position).orEmpty()
+                0 -> {
+                    val currentTitle = songViewModel.songSectionNames.value?.getOrNull(position).orEmpty()
                     val defaultName = currentTitle.substringAfter(". ", currentTitle)
-                    promptForSectionName(getString(R.string.song_section_rename), defaultName) { name ->
-                        viewModel.renameSongSection(position, name)
+                    promptForSectionName(getString(R.string.song_section_rename), defaultName, excludePosition = position) { name ->
+                        songViewModel.renameSongSection(position, name)
                         refreshSections()
                     }
                     true
                 }
-                R.id.menu_delete_section -> {
-                    viewModel.deleteSongSection(position)
+                1 -> {
+                    showDuplicateSectionDialog(position)
+                    true
+                }
+                2 -> {
+                    val currentProgression = songViewModel.getCurrentProgression()
+                    songViewModel.deleteSongSection(position, currentProgression.key, currentProgression.mode, currentProgression.tempo)?.let { progression ->
+                        progressionViewModel.progression = progression
+                        selectedProgression = progression
+                    }
                     refreshSections()
                     true
                 }
-                R.id.menu_move_section_up -> {
-                    viewModel.moveSongSection(position, (position - 1).coerceAtLeast(0))
+                3 -> {
+                    songViewModel.moveSongSection(position, (position - 1).coerceAtLeast(0))?.let { progression ->
+                        progressionViewModel.progression = progression
+                    }
                     refreshSections()
                     true
                 }
-                R.id.menu_move_section_down -> {
-                    val names = viewModel.songSectionNames.value.orEmpty()
-                    viewModel.moveSongSection(position, (position + 1).coerceAtMost(names.lastIndex))
+                4 -> {
+                    val names = songViewModel.songSectionNames.value.orEmpty()
+                    songViewModel.moveSongSection(position, (position + 1).coerceAtMost(names.lastIndex))?.let { progression ->
+                        progressionViewModel.progression = progression
+                    }
                     refreshSections()
                     true
                 }
@@ -341,17 +446,48 @@ class SongActivity : AppCompatActivity() {
         popup.show()
     }
 
-    private fun promptForSectionName(title: String, initialValue: String, onConfirm: (String) -> Unit) {
+    private fun promptForSectionName(title: String, initialValue: String, excludePosition: Int = -1, onConfirm: (String) -> Unit) {
         val editText = android.widget.EditText(this).apply {
             setText(initialValue)
             setSelection(text.length)
             hint = getString(R.string.song_section_name_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 1
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(title)
             .setView(editText)
             .setPositiveButton(getString(R.string.ok)) { _, _ ->
-                onConfirm(editText.text?.toString().orEmpty())
+                val name = editText.text?.toString()?.trim().orEmpty()
+                // Check if name already exists (excluding current position for rename)
+                if (name.isNotEmpty() && songViewModel.isSectionNameTaken(name, excludePosition)) {
+                    Toast.makeText(this, getString(R.string.song_section_name_exists), Toast.LENGTH_SHORT).show()
+                    // Reopen dialog with same input
+                    promptForSectionName(title, name, excludePosition, onConfirm)
+                } else {
+                    onConfirm(name)
+                }
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .create()
+        dialog.setOnShowListener { styleDialogButtons(dialog) }
+        dialog.show()
+    }
+
+    private fun showNewSongDialog() {
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
+            .setTitle(getString(R.string.new_song_title))
+            .setMessage(getString(R.string.new_song_message))
+            .setPositiveButton(getString(R.string.continue_button)) { _, _ ->
+                PlaybackService.stop(this)
+                val defaultKey = settingsRepository.defaultKeyName.let { name ->
+                    de.metaviewsoft.chordprogressionhelper.model.Key.entries.firstOrNull { it.name == name } ?: de.metaviewsoft.chordprogressionhelper.model.Key.C
+                }
+                val defaultTempo = settingsRepository.defaultBpm.coerceIn(60, 240)
+                songViewModel.newSong(defaultKey, defaultTempo)
+                selectedProgression = null
+                progressionViewModel.progression = songViewModel.getCurrentProgression()
             }
             .setNegativeButton(getString(R.string.cancel), null)
             .create()
@@ -360,7 +496,7 @@ class SongActivity : AppCompatActivity() {
     }
 
     private fun showLoadSongDialog() {
-        val savedNames = viewModel.getSavedSongNames()
+        val savedNames = songViewModel.getSavedSongNames()
         if (savedNames.isEmpty()) {
             Toast.makeText(this, getString(R.string.no_saved_songs_found), Toast.LENGTH_SHORT).show()
             return
@@ -380,7 +516,10 @@ class SongActivity : AppCompatActivity() {
             .setView(dialogView)
             .setPositiveButton(getString(R.string.ok)) { _, _ ->
                 if (selectedPosition >= 0) {
-                    viewModel.loadSong(savedNames[selectedPosition])
+                    songViewModel.loadSong(savedNames[selectedPosition])?.let { progression ->
+                        progressionViewModel.progression = progression
+                        selectedProgression = progression
+                    }
                     refreshSections()
                 }
             }
@@ -404,10 +543,13 @@ class SongActivity : AppCompatActivity() {
 
     private fun showSaveSongDialog() {
         val editText = android.widget.EditText(this).apply {
-            val currentName = viewModel.songName.value.orEmpty()
+            val currentName = songViewModel.songName.value.orEmpty()
             setText(currentName)
             setSelection(text.length)
             hint = getString(R.string.song_name_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            maxLines = 1
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
 
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
@@ -425,13 +567,13 @@ class SongActivity : AppCompatActivity() {
                     Toast.makeText(this, getString(R.string.please_enter_name), Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                val existing = viewModel.getSavedSongNames()
+                val existing = songViewModel.getSavedSongNames()
                 if (existing.contains(name)) {
                     val overwriteDialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
                         .setTitle(getString(R.string.overwrite_song_title))
                         .setMessage(getString(R.string.overwrite_song_message, name))
                         .setPositiveButton(getString(R.string.overwrite)) { _, _ ->
-                            viewModel.saveNamedSong(name)
+                            songViewModel.saveNamedSong(name)
                             dialog.dismiss()
                         }
                         .setNegativeButton(getString(R.string.cancel), null)
@@ -439,7 +581,7 @@ class SongActivity : AppCompatActivity() {
                     overwriteDialog.setOnShowListener { styleDialogButtons(overwriteDialog) }
                     overwriteDialog.show()
                 } else {
-                    viewModel.saveNamedSong(name)
+                    songViewModel.saveNamedSong(name)
                     dialog.dismiss()
                 }
             }
@@ -448,7 +590,7 @@ class SongActivity : AppCompatActivity() {
     }
 
     private fun showDeleteSongDialog() {
-        val savedNames = viewModel.getSavedSongNames()
+        val savedNames = songViewModel.getSavedSongNames()
         if (savedNames.isEmpty()) {
             Toast.makeText(this, getString(R.string.no_saved_songs_delete), Toast.LENGTH_SHORT).show()
             return
@@ -473,7 +615,7 @@ class SongActivity : AppCompatActivity() {
                 .setTitle(getString(R.string.confirm_delete_title))
                 .setMessage(getString(R.string.confirm_delete_message, songName))
                 .setPositiveButton(getString(R.string.delete)) { _, _ ->
-                    viewModel.deleteSong(songName)
+                    songViewModel.deleteSong(songName)
                     Toast.makeText(this, getString(R.string.song_deleted_message, songName), Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
                 }

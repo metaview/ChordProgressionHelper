@@ -1,5 +1,7 @@
 package de.metaviewsoft.chordprogressionhelper.ui
 
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -25,12 +27,18 @@ class SectionAdapter(
 
     private var selectedIndex: Int = -1
     private var playingIndex: Int = -1
-    private var playProgress: Float = 0f
+    private var beatIndex: Int = -1
+    private val beatHandler = Handler(Looper.getMainLooper())
+    private val clearBeat = Runnable {
+        val prev = beatIndex
+        beatIndex = -1
+        if (prev >= 0 && prev < currentList.size) notifyItemChanged(prev, BEAT_PAYLOAD)
+    }
 
     companion object {
         const val VIEW_TYPE_SECTION = 0
         const val VIEW_TYPE_ADD = 1
-        private const val PROGRESS_PAYLOAD = "progress"
+        private const val BEAT_PAYLOAD = "beat"
         class SectionDiffCallback : DiffUtil.ItemCallback<SectionItem>() {
             override fun areItemsTheSame(oldItem: SectionItem, newItem: SectionItem): Boolean {
                 return oldItem.name == newItem.name && oldItem.isAddButton == newItem.isAddButton
@@ -52,18 +60,25 @@ class SectionAdapter(
     fun setPlayingIndex(index: Int) {
         val previous = playingIndex
         playingIndex = index
-        playProgress = 0f
+        if (index < 0) {
+            beatHandler.removeCallbacks(clearBeat)
+            val prev = beatIndex
+            beatIndex = -1
+            if (prev >= 0 && prev < currentList.size) notifyItemChanged(prev, BEAT_PAYLOAD)
+        }
         if (previous != index) {
             if (previous >= 0 && previous < currentList.size) notifyItemChanged(previous)
             if (index >= 0 && index < currentList.size) notifyItemChanged(index)
         }
     }
 
-    /** Called as playback advances through the playing section; fraction is 0..1, filled left-to-right. */
-    fun setProgress(index: Int, fraction: Float) {
-        if (index != playingIndex || index < 0 || index >= currentList.size) return
-        playProgress = fraction.coerceIn(0f, 1f)
-        notifyItemChanged(index, PROGRESS_PAYLOAD)
+    /** Called on each beat — briefly flashes the playing section highlight. */
+    fun onBeat() {
+        if (playingIndex < 0 || playingIndex >= currentList.size) return
+        beatHandler.removeCallbacks(clearBeat)
+        beatIndex = playingIndex
+        notifyItemChanged(beatIndex, BEAT_PAYLOAD)
+        beatHandler.postDelayed(clearBeat, 60)
     }
 
     fun getSectionCount(): Int = currentList.count { !it.isAddButton }
@@ -90,8 +105,8 @@ class SectionAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: List<Any>) {
-        if (payloads.contains(PROGRESS_PAYLOAD) && holder is SectionViewHolder) {
-            holder.applyBackground(isSelected = false, isPlaying = position == playingIndex, progress = playProgress)
+        if (payloads.contains(BEAT_PAYLOAD) && holder is SectionViewHolder) {
+            holder.applyBackground(position == selectedIndex, position == beatIndex)
             return
         }
         super.onBindViewHolder(holder, position, payloads)
@@ -99,44 +114,18 @@ class SectionAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (holder) {
-            is SectionViewHolder -> holder.bind(getItem(position).name, position, isSelected = false, isPlaying = position == playingIndex)
+            is SectionViewHolder -> holder.bind(getItem(position).name, position, position == selectedIndex, position == playingIndex)
             is AddViewHolder -> holder.bind()
         }
     }
 
     inner class SectionViewHolder(private val binding: ItemSectionBinding) : RecyclerView.ViewHolder(binding.root) {
 
-        private val cornerRadiusPx = 8f * itemView.resources.displayMetrics.density
-        private val baseDrawable = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadius = cornerRadiusPx
-        }
-        private val fillDrawable = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadius = cornerRadiusPx
-        }
-        private val progressDrawable = android.graphics.drawable.ClipDrawable(
-            fillDrawable, android.view.Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL
-        )
-        private val playingDrawable = android.graphics.drawable.LayerDrawable(arrayOf(baseDrawable, progressDrawable))
-
-        fun applyBackground(isSelected: Boolean, isPlaying: Boolean, progress: Float = 0f) {
-            if (isPlaying) {
-                val context = itemView.context
-                baseDrawable.setColor(
-                    androidx.core.content.ContextCompat.getColor(
-                        context,
-                        if (isSelected) R.color.section_item_selected_bg else R.color.section_item_bg
-                    )
-                )
-                fillDrawable.setColor(androidx.core.content.ContextCompat.getColor(context, R.color.section_item_beat_bg))
-                progressDrawable.level = (progress.coerceIn(0f, 1f) * 10000).toInt()
-                itemView.background = playingDrawable
-            } else {
-                itemView.background = when {
-                    isSelected -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background_selected)
-                    else -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background)
-                }
+        fun applyBackground(isSelected: Boolean, isBeat: Boolean) {
+            itemView.background = when {
+                isBeat -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background_beat)
+                isSelected -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background_selected)
+                else -> androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background)
             }
         }
 
@@ -144,7 +133,7 @@ class SectionAdapter(
             binding.sectionNumberText.text = (position + 1).toString()
             binding.sectionNameText.text = sectionName.substringAfter(". ", sectionName)
 
-            applyBackground(isSelected, isPlaying, playProgress)
+            applyBackground(isSelected, position == beatIndex)
 
             binding.root.setOnClickListener {
                 onSectionClick(position)
@@ -171,12 +160,17 @@ class SectionAdapter(
     }
 
     /**
-     * ItemTouchHelper.Callback for drag-drop reordering
+     * ItemTouchHelper.Callback for drag-drop reordering.
+     * Visual feedback during drag via notifyItemMoved; ViewModel is only updated once on drop.
      */
     class SectionTouchHelperCallback(
         private val adapter: SectionAdapter,
-        private val onMove: (from: Int, to: Int) -> Unit
+        private val onDrop: (from: Int, to: Int) -> Unit
     ) : ItemTouchHelper.Callback() {
+
+        private var dragFrom = -1
+        private var dragCurrent = -1
+        private var originalBackground: android.graphics.drawable.Drawable? = null
 
         override fun getMovementFlags(
             recyclerView: RecyclerView,
@@ -185,8 +179,7 @@ class SectionAdapter(
             if (!adapter.isSectionPosition(viewHolder.bindingAdapterPosition)) {
                 return 0
             }
-            val dragFlags = ItemTouchHelper.UP or ItemTouchHelper.DOWN
-            return makeMovementFlags(dragFlags, 0)
+            return makeMovementFlags(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0)
         }
 
         override fun onMove(
@@ -194,24 +187,43 @@ class SectionAdapter(
             source: RecyclerView.ViewHolder,
             target: RecyclerView.ViewHolder
         ): Boolean {
-            val fromPosition = source.bindingAdapterPosition
-            val toPosition = target.bindingAdapterPosition
-
-            if (!adapter.isSectionPosition(fromPosition) || !adapter.isSectionPosition(toPosition)) {
-                return false
-            }
-
-            if (fromPosition < toPosition) {
-                onMove(fromPosition, toPosition)
-            } else if (fromPosition > toPosition) {
-                onMove(fromPosition, toPosition)
-            }
+            val from = source.bindingAdapterPosition
+            val to = target.bindingAdapterPosition
+            if (!adapter.isSectionPosition(from) || !adapter.isSectionPosition(to)) return false
+            if (dragFrom < 0) dragFrom = from
+            dragCurrent = to
+            adapter.notifyItemMoved(from, to)
             return true
         }
 
-        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-            // Swiping not supported; use menu for delete
+        override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(viewHolder, actionState)
+            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                viewHolder?.itemView?.let { v ->
+                    originalBackground = v.background
+                    v.alpha = 0.95f
+                    v.elevation = 24f
+                    v.setBackgroundColor(android.graphics.Color.parseColor("#F0F0F0"))
+                }
+            }
         }
+
+        override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+            super.clearView(recyclerView, viewHolder)
+            viewHolder.itemView.alpha = 1.0f
+            viewHolder.itemView.elevation = 0f
+            viewHolder.itemView.background = originalBackground
+            originalBackground = null
+            val from = dragFrom
+            val to = dragCurrent
+            dragFrom = -1
+            dragCurrent = -1
+            if (from >= 0 && to >= 0 && from != to) {
+                onDrop(from, to)
+            }
+        }
+
+        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
 
         override fun isLongPressDragEnabled(): Boolean = false
 

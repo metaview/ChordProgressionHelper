@@ -18,6 +18,7 @@ import de.metaviewsoft.chordprogressionhelper.model.Key
 import de.metaviewsoft.chordprogressionhelper.model.Mode
 import kotlinx.serialization.json.Json
 import android.widget.Toast
+import android.content.res.ColorStateList
 import androidx.activity.OnBackPressedCallback
 import kotlinx.serialization.InternalSerializationApi
 import androidx.lifecycle.lifecycleScope
@@ -451,13 +452,17 @@ class DrumPatternActivity : AppCompatActivity() {
                 try {
                     val preview = chip.findViewById<LinearLayout>(R.id.previewContainer)
                     preview.removeAllViews()
+                    val dp = resources.displayMetrics.density
+                    val dotPx = (8 * dp).toInt()
+                    val colPx = (10 * dp).toInt()
+                    val marPx = (2 * dp).toInt()
+                    val radPx = 4 * dp
+                    val color = android.graphics.Color.WHITE
                     p.steps.forEach { step ->
-                        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; val lp = LinearLayout.LayoutParams(24, LinearLayout.LayoutParams.WRAP_CONTENT); lp.setMargins(2,0,2,0); layoutParams = lp; gravity = android.view.Gravity.CENTER }
-                        val kick = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.kick) 1.0f else 0.25f }
-                        val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.snare) 1.0f else 0.25f }
-                        val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.25f }
-                        // apply theme color
-                        try { val color = ThemeColorResolver.onSurface(this@DrumPatternActivity); (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } catch (_: Exception) {}
+                        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; val lp = LinearLayout.LayoutParams(colPx, LinearLayout.LayoutParams.WRAP_CONTENT); lp.setMargins(marPx,0,marPx,0); layoutParams = lp; gravity = android.view.Gravity.CENTER }
+                        val kick = View(this).apply { layoutParams = LinearLayout.LayoutParams(dotPx,dotPx); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = radPx; bg.setColor(color); setBackground(bg); alpha = if (step.kick) 1.0f else 0.2f }
+                        val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(dotPx,dotPx); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = radPx; bg.setColor(color); setBackground(bg); alpha = if (step.snare) 1.0f else 0.2f }
+                        val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(dotPx,dotPx); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = radPx; bg.setColor(color); setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.2f }
                         col.addView(kick); col.addView(snare); col.addView(hihat)
                         preview.addView(col)
                     }
@@ -498,12 +503,17 @@ class DrumPatternActivity : AppCompatActivity() {
                 try {
                     val preview = chip.findViewById<LinearLayout>(R.id.previewContainer)
                     preview.removeAllViews()
+                    val dp = resources.displayMetrics.density
+                    val dotPx = (8 * dp).toInt()
+                    val colPx = (10 * dp).toInt()
+                    val marPx = (2 * dp).toInt()
+                    val radPx = 4 * dp
+                    val color = android.graphics.Color.WHITE
                     p.steps.forEach { step ->
-                        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; val lp = LinearLayout.LayoutParams(24, LinearLayout.LayoutParams.WRAP_CONTENT); lp.setMargins(2,0,2,0); layoutParams = lp; gravity = android.view.Gravity.CENTER }
-                        val kick = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.kick) 1.0f else 0.25f }
-                        val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.snare) 1.0f else 0.25f }
-                        val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(12,12); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = 6f; setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.25f }
-                        try { val color = ThemeColorResolver.onSurface(this@DrumPatternActivity); (kick.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (snare.background as? android.graphics.drawable.GradientDrawable)?.setColor(color); (hihat.background as? android.graphics.drawable.GradientDrawable)?.setColor(color) } catch (_: Exception) {}
+                        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; val lp = LinearLayout.LayoutParams(colPx, LinearLayout.LayoutParams.WRAP_CONTENT); lp.setMargins(marPx,0,marPx,0); layoutParams = lp; gravity = android.view.Gravity.CENTER }
+                        val kick = View(this).apply { layoutParams = LinearLayout.LayoutParams(dotPx,dotPx); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = radPx; bg.setColor(color); setBackground(bg); alpha = if (step.kick) 1.0f else 0.2f }
+                        val snare = View(this).apply { layoutParams = LinearLayout.LayoutParams(dotPx,dotPx); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = radPx; bg.setColor(color); setBackground(bg); alpha = if (step.snare) 1.0f else 0.2f }
+                        val hihat = View(this).apply { layoutParams = LinearLayout.LayoutParams(dotPx,dotPx); val bg = android.graphics.drawable.GradientDrawable(); bg.cornerRadius = radPx; bg.setColor(color); setBackground(bg); alpha = if (step.hiHat) 1.0f else 0.2f }
                         col.addView(kick); col.addView(snare); col.addView(hihat)
                         preview.addView(col)
                     }
@@ -583,6 +593,7 @@ class DrumPatternActivity : AppCompatActivity() {
      */
     override fun onResume() {
         super.onResume()
+        PlaybackService.stop(this)
         try {
             binding.btnTest.isEnabled = true
             binding.btnTest.isClickable = true

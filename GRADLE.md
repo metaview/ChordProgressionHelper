@@ -69,27 +69,27 @@
 
 **Build + Install + Run (schnellste Variante):**
 ```bash
-./gradlew app:installDebug && adb shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.MainActivity
+./gradlew app:installDebug && adb shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.ProgressionActivity
 ```
 
 **Nur starten (wenn bereits installiert):**
 ```bash
-adb shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.MainActivity
+adb shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.ProgressionActivity
 ```
 
 **Release-Version starten:**
 ```bash
-adb shell am start -n de.metaviewsoft.chordprogressionhelper/de.metaviewsoft.chordprogressionhelper.MainActivity
+adb shell am start -n de.metaviewsoft.chordprogressionhelper/de.metaviewsoft.chordprogressionhelper.ProgressionActivity
 ```
 
 **Auf spezifischem Gerät starten:**
 ```bash
-adb -s <device_id> shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.MainActivity
+adb -s <device_id> shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.ProgressionActivity
 ```
 
 **Mit Logs im gleichen Terminal:**
 ```bash
-./gradlew app:installDebug && adb shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.MainActivity && adb logcat
+./gradlew app:installDebug && adb shell am start -n de.metaviewsoft.chordprogressionhelper.debug/de.metaviewsoft.chordprogressionhelper.ProgressionActivity && adb logcat
 ```
 
 **Alle verbundenen Geräte/Emulatoren anzeigen:**

@@ -21,6 +21,8 @@
             android:hint="@string/song_name_hint"
             android:importantForAutofill="no"
             android:inputType="textCapSentences"
+            android:maxLines="1"
+            android:imeOptions="actionDone"
             android:minHeight="48dp" />
 
         <ImageButton

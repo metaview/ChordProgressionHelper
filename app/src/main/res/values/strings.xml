@@ -3,6 +3,15 @@
     <string name="app_name">Chord Progression Helper</string>
     <string name="notification_permission_required">Notification permission is required for background playback.</string>
 
+    <!-- Progression menu items -->
+    <string name="new_progression_title">New Progression</string>
+    <string name="load_progression_title">Load Progression</string>
+    <string name="save_progression_title">Save Progression</string>
+    <string name="delete_progression_title">Delete Progression</string>
+    <string name="import_progression_title">Import</string>
+    <string name="export_progression_title">Export Progression</string>
+    <string name="share_progression_title">Share Progression</string>
+
     <string name="export_for_sharing_failed">Export for sharing failed</string>
     <string name="share_failed">Share failed</string>
     <string name="share_progression">Share progression</string>
@@ -17,8 +26,8 @@
     <string name="imported_x">Imported %1$s</string>
     <string name="exported_n_files">Exported %1$d files</string>
 
-    <string name="about_title">About Chord Progression Helper</string>
-    <string name="about_message">Version 0.95\n\nDeveloped by MetaViewSoft with assistance from an AI assistant.</string>
+    <string name="about_title">About</string>
+    <string name="about_message">Developed by MetaViewSoft with assistance from an AI assistant.</string>
     <string name="ok">OK</string>
 
     <string name="load_title">Load Progression</string>
@@ -37,6 +46,7 @@
 
     <string name="start_new_title">Start New Progression?</string>
     <string name="start_new_message">This will clear the current progression. Are you sure?</string>
+    <string name="new_song_message">This will discard the current song and all its sections. Are you sure?</string>
     <string name="new_button">New</string>
     <string name="continue_button">Continue</string>
 
@@ -46,8 +56,6 @@
     <string name="delete_measure_title">Delete Measure?</string>
     <string name="delete_measure_message">This measure contains chords. Are you sure you want to delete it?</string>
 
-    <string name="export_progression_title">Export Progression</string>
-    <string name="share_progression_title">Share Progression</string>
     <string name="song_name_default">New Song</string>
     <string name="song_name_hint">Song name</string>
     <string name="song_button">Song</string>
@@ -56,6 +64,8 @@
     <string name="song_add_section">New section</string>
     <string name="song_play">Play song</string>
     <string name="song_close">Close</string>
+
+    <!-- Song menu items -->
     <string name="new_song_title">New Song</string>
     <string name="save_song_title">Save Song</string>
     <string name="load_song_title">Load Song</string>
@@ -106,7 +116,7 @@
     <string name="parallel_chords">Parallel chords</string>
     <string name="song_section_label">Song Section</string>
     <string name="song_section_actions_cd">Section actions</string>
-    <string name="song_section_add">Add Section</string>
+    <string name="song_section_add">+ Add Section</string>
     <string name="song_section_new_progression">New (empty) Progression</string>
     <string name="song_section_unnamed">(unnamed)</string>
     <string name="song_section_rename">Rename</string>
@@ -116,6 +126,7 @@
     <string name="song_section_move_up">Move up</string>
     <string name="song_section_move_down">Move down</string>
     <string name="song_section_name_hint">Section name (e.g. Verse, Chorus)</string>
+    <string name="song_section_name_exists">A section with this name already exists. Please choose a different name.</string>
     <string name="progression_label">Progression</string>
     <string name="play_pause_cd">Play or pause</string>
     <string name="stop_cd">Stop playback</string>
@@ -181,4 +192,16 @@
     <string name="transpose_message">You are changing the key from %1$s to %2$s.\n\nDo you want to transpose all chords and solo notes to the new key?</string>
     <string name="transpose_yes">Yes, transpose</string>
     <string name="transpose_no">No, just change key</string>
+    
+    <!-- Solo Pattern Editor Modes -->
+    <string name="edit_mode">Edit</string>
+    <string name="preview_mode">Preview</string>
+    <string name="live_mode">Live</string>
+    
+    <!-- Copy/Paste -->
+    <string name="copy">Copy Solo Pattern</string>
+    <string name="paste">Paste Solo Pattern</string>
+    <string name="copied_solo_pattern">Solo pattern copied</string>
+    <string name="pasted_solo_pattern">Solo pattern pasted</string>
+    <string name="no_solo_pattern_to_paste">No solo pattern to paste</string>
 </resources>

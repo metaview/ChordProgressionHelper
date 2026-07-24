@@ -13,10 +13,23 @@ android {
         applicationId "de.metaviewsoft.chordprogressionhelper"
         minSdk 24
         targetSdk 36
-        versionCode 3
-        versionName "0.97"
+        versionCode Integer.parseInt(APP_VERSION_CODE)
+        versionName APP_VERSION_NAME
+
+        buildConfigField "String", "VERSION_NAME", "\"${APP_VERSION_NAME}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        // NDK configuration for native audio library
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17 -O3 -ffast-math -Wall"
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
     }
 
     dependenciesInfo {
@@ -81,7 +94,15 @@ android {
     }
     buildFeatures {
         viewBinding true
+        buildConfig true
     }
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+    ndkVersion "27.0.12077973"
 }
 
 // Configure Zip tasks globally so APK/ZIP entries are reproducible across environments

@@ -41,7 +41,7 @@ class StrummingPatternActivity : AppCompatActivity() {
     private var isPreviewActive = false
     private var measureIndex = -1
     private lateinit var currentStrums: MutableList<Strum>
-    // Preview context passed from MainActivity
+    // Preview context passed from ProgressionActivity
     private var tonicChord: Chord? = null
     private var keyVal: Key = Key.C
     private var modeVal: Mode = Mode.MAJOR
@@ -176,7 +176,7 @@ class StrummingPatternActivity : AppCompatActivity() {
             }
         } ?: StrummingPattern.DEFAULT
 
-        // Try to deserialize a tonic chord (first scale degree) and other context provided by MainActivity for preview playback
+        // Try to deserialize a tonic chord (first scale degree) and other context provided by ProgressionActivity for preview playback
         val tonicJson = intent?.getStringExtra(EXTRA_TONIC_CHORD_JSON)
         tonicChord = try {
             if (!tonicJson.isNullOrEmpty()) Json.decodeFromString(Chord.serializer(), tonicJson) else null
@@ -242,6 +242,11 @@ class StrummingPatternActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.w(TAG, "onCreate: failed to add onBackPressed callback: ${e.message}", e)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        PlaybackService.stop(this)
     }
 
     override fun onStart() {
@@ -507,21 +512,13 @@ class StrummingPatternActivity : AppCompatActivity() {
                 val iv = ImageView(this).apply {
                     setImageResource(drawableId)
                     layoutParams = LinearLayout.LayoutParams((20 * resources.displayMetrics.density).toInt(), (20 * resources.displayMetrics.density).toInt())
-                    try {
-                        setColorFilter(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to resolve colorOnSurface for legend icon: ${e.message}", e)
-                    }
+                    setColorFilter(android.graphics.Color.WHITE)
                 }
                 val tv = TextView(this).apply {
                     text = getString(labelResId)
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins((8 * resources.displayMetrics.density).toInt(), 0, 0, 0) }
-                    try {
-                        setTextColor(ThemeColorResolver.onSurface(this@StrummingPatternActivity))
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to resolve colorOnSurface for legend label: ${e.message}", e)
-                    }
+                    setTextColor(android.graphics.Color.WHITE)
                 }
                 row.addView(iv)
                 row.addView(tv)

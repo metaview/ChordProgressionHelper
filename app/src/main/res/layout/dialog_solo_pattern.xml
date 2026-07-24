@@ -1,25 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:fitsSystemWindows="true">
 
-    <TextView
-        android:id="@+id/titleText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/solo_pattern_editor_title"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+    <!-- Scrollable list of all measure rows -->
+    <ScrollView
+        android:id="@+id/measureScrollView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:fillViewport="false"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/keyboardArea"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
-    <!-- Octave controls + keyboard -->
+        <LinearLayout
+            android:id="@+id/measureListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp" />
+
+    </ScrollView>
+
+    <!-- Fixed keyboard area, sits above the button bar -->
     <LinearLayout
-        android:layout_width="match_parent"
+        android:id="@+id/keyboardArea"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginTop="12dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        app:layout_constraintBottom_toTopOf="@id/buttonBar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
         <!-- Keyboard container: white keys with overlayed black keys -->
         <FrameLayout
@@ -385,112 +405,97 @@
 
     </LinearLayout>
 
-    <!-- Row with 8 slots for the monophonic melody (one measure = 8 eighth notes) -->
+    <!-- Fixed button bar at the bottom, always visible -->
     <LinearLayout
-        android:id="@+id/slotsRow"
-        android:layout_width="match_parent"
+        android:id="@+id/buttonBar"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="12dp"
-        android:weightSum="8">
-
-        <!-- Slot views: use Button styled similarly to Strumming slots (purple) -->
-        <Button
-            android:id="@+id/slot0"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot1"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot2"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot3"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot4"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot5"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot6"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-        <Button
-            android:id="@+id/slot7"
-            style="@style/Widget.App.Button.Purple"
-            android:background="@drawable/purple_button_bg"
-            android:backgroundTint="@null"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="@string/dash" />
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="12dp">
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="16dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPreview"
             style="@style/Widget.ChordProgressionHelper.MaterialButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
             android:contentDescription="@string/test"
             app:icon="@drawable/ic_play_arrow"
-            app:iconTint="?attr/colorOnSurface"
+            app:iconTint="@color/colorOnPrimary"
+            app:iconPadding="0dp"
+            app:iconGravity="textStart"
+            android:padding="8dp" />
+
+        <Space
+            android:layout_width="4dp"
+            android:layout_height="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnEditMode"
+            style="@style/Widget.ChordProgressionHelper.MaterialButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="100dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/edit_mode"
+            app:icon="@drawable/ic_edit"
+            app:iconTint="@color/colorOnPrimary"
+            app:iconPadding="0dp"
+            app:iconGravity="textStart"
+            android:padding="8dp" />
+
+        <Space
+            android:layout_width="4dp"
+            android:layout_height="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCopy"
+            style="@style/Widget.ChordProgressionHelper.MaterialButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/copy"
+            app:icon="@drawable/ic_content_copy"
+            app:iconTint="@color/colorOnPrimary"
+            app:iconPadding="0dp"
+            app:iconGravity="textStart"
+            android:padding="8dp" />
+
+        <Space
+            android:layout_width="4dp"
+            android:layout_height="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPaste"
+            style="@style/Widget.ChordProgressionHelper.MaterialButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/paste"
+            app:icon="@drawable/ic_content_paste"
+            app:iconTint="@color/colorOnPrimary"
             app:iconPadding="0dp"
             app:iconGravity="textStart"
             android:padding="8dp" />
@@ -506,9 +511,15 @@
             style="@style/Widget.ChordProgressionHelper.MaterialButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/save" />
+            android:minWidth="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:text="@string/save"
+            android:padding="8dp" />
 
 
     </LinearLayout>
 
-</LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
