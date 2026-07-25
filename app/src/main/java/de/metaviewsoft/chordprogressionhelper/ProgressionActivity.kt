@@ -472,10 +472,14 @@ class ProgressionActivity : AppCompatActivity() {
             val idx = songViewModel.findSectionIndexForProgression(prog)
             songViewModel.selectSongSection(idx)?.let { progression ->
                 viewModel.progression = progression
-                viewModel.refreshUIAfterProgressionChange()
             }
             songViewModel.forceRefresh() // re-emits all LiveData for current section (triggers observer which sets spinner selection)
         }
+        // Always sync the editor UI to the current progression. SongActivity may have reassigned
+        // viewModel.progression (new song / new section / section click) without refreshing the
+        // derived LiveData, which previously left the editor showing the old section's content
+        // until the section was switched again via the spinner.
+        viewModel.refreshUIAfterProgressionChange()
     }
 
     override fun onStart() {
