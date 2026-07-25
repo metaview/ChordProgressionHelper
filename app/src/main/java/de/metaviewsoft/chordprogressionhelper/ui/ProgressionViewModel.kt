@@ -357,24 +357,28 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
             PreviewCoordinator.requestStart(ownerId, false, onStop)
             Log.d(TAG, "previewChord: PreviewCoordinator.requestStart returned (took=${System.currentTimeMillis() - coordStartTime}ms)")
 
-            // Use Dispatchers.Main.immediate for minimal latency
+            // Use Dispatchers.Main.immediate for minimal latency.
+            // Start a SUSTAINED chord that keeps sounding until the key is released (releaseChordPreview).
+            // Coordinator ownership is kept until a new preview supersedes it or stop() is called, so
+            // an external preview can still interrupt us via onStop.
             previewJob = viewModelScope.launch(Dispatchers.Main.immediate) {
-                val launchTime = System.currentTimeMillis()
-                Log.d(TAG, "previewChord: coroutine STARTED for $chord (launchDelay=${launchTime - startTime}ms)")
                 try {
-                    val playerCallTime = System.currentTimeMillis()
-                    Log.d(TAG, "previewChord: calling previewAudioPlayer.previewChord for $chord")
-                    previewAudioPlayer.previewChord(chord, settingsRepository.pluckStrength)
-                    val playerReturnTime = System.currentTimeMillis()
-                    Log.d(TAG, "previewChord: previewAudioPlayer.previewChord RETURNED for $chord (took=${playerReturnTime - playerCallTime}ms)")
-                } finally {
-                    // Ensure we clear coordinator ownership when preview finishes
-                    Log.d(TAG, "previewChord: coroutine FINISHED for $chord, calling requestStop($ownerId)")
-                    PreviewCoordinator.requestStop(ownerId)
+                    previewAudioPlayer.startSustainedChord(chord, settingsRepository.pluckStrength)
+                } catch (e: Exception) {
+                    Log.w(TAG, "previewChord: startSustainedChord failed: ${e.message}", e)
                 }
             }
         }
         Log.d(TAG, "previewChord$chord END (totalSetupTime=${System.currentTimeMillis() - startTime}ms)")
+    }
+
+    /** Key-up from a chord button: let the currently-held chord preview ring out and stop. */
+    fun releaseChordPreview() {
+        try {
+            previewAudioPlayer.releaseSustainedChord()
+        } catch (e: Exception) {
+            Log.w(TAG, "releaseChordPreview failed: ${e.message}", e)
+        }
     }
 
     private fun updateRelatedChords(allChords: List<Chord>) {

@@ -1542,6 +1542,120 @@ class AudioPlayer {
         )
     }
 
+    /** Set to true (from any thread) to make a running sustained chord preview ring out and stop. */
+    @Volatile
+    private var sustainReleasing = false
+
+    /**
+     * Start a chord preview that KEEPS SOUNDING (press-and-hold). It rings with a slow decay while
+     * held; call [releaseSustainedChord] on key-up to fade it out over ~1.2s. A new call supersedes
+     * the previous one; the note also stops on [stop] or once it has decayed to silence.
+     */
+    suspend fun startSustainedChord(chord: Chord, pluckStrength: Int) = withContext(Dispatchers.IO) {
+        val myPreviewId = ++currentPreviewId
+        sustainReleasing = false
+        shouldStopPreview = false
+        ensureAudioThreadStarted()
+        val frequencies = chord.getMidiNotes().map { midiNoteToFrequency(it) }
+        audioHandler?.post post@{
+            if (myPreviewId != currentPreviewId) return@post
+            try {
+                val at = previewAudioTrack ?: return@post
+                // High feedback -> long sustain while the key is held.
+                val sustainDecay = 0.9998
+                val strings =
+                    if (voicePreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO) {
+                        frequencies.flatMap { freq ->
+                            listOf(
+                                KarplusStrongString(freq, sampleRate, pluckStrength, sustainDecay).apply { pluck() },
+                                KarplusStrongString(freq * 1.001, sampleRate, pluckStrength, sustainDecay).apply { pluck() }
+                            )
+                        }
+                    } else {
+                        frequencies.map { freq ->
+                            KarplusStrongString(freq, sampleRate, pluckStrength, sustainDecay).apply { pluck() }
+                        }
+                    }
+
+                val presetNormalizationMultiplier = when (voicePreset) {
+                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30
+                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.7
+                    else -> 0.7
+                }
+                val normalizationFactor = frequencies.size * presetNormalizationMultiplier + 1.0
+
+                try { at.flush() } catch (_: Exception) {}
+
+                // Initial 20ms for an instant start, and to estimate headroom (avoid clipping).
+                val initialCount = (sampleRate * 20 / 1000).coerceAtLeast(1)
+                val warm = DoubleArray(initialCount)
+                var quickMax = 0.0
+                for (i in 0 until initialCount) {
+                    var s = 0.0
+                    for (st in strings) s += st.tick()
+                    warm[i] = s * voiceGain
+                    val a = kotlin.math.abs(warm[i])
+                    if (a > quickMax) quickMax = a
+                }
+                val postNormPeak = if (normalizationFactor > 0.0) quickMax / normalizationFactor else quickMax
+                val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
+                val finalGain = headroom / normalizationFactor
+
+                val initPcm = ShortArray(initialCount)
+                for (i in 0 until initialCount) {
+                    initPcm[i] = (warm[i] * finalGain * 32767.0).toInt().coerceIn(-32768, 32767).toShort()
+                }
+                if (myPreviewId != currentPreviewId) return@post
+                at.write(initPcm, 0, initialCount)
+
+                // Continuous streaming loop. AudioTrack.write blocks, pacing this to real time, so
+                // releaseSustainedChord()/stop() (checked each 50ms chunk) take effect promptly.
+                val chunk = (sampleRate / 20).coerceAtLeast(1) // 50ms
+                val buf = DoubleArray(chunk)
+                val pcm = ShortArray(chunk)
+                var releaseGain = 1.0
+                val releaseStep = 1.0 / (sampleRate * 1.2) // fade-out over ~1.2s on release
+                var silentChunks = 0
+                var produced = initialCount
+                val maxSamples = sampleRate * 20 // hard safety cap (~20s) if never released
+
+                while (myPreviewId == currentPreviewId && !shouldStopPreview && produced < maxSamples) {
+                    val releasing = sustainReleasing
+                    var peak = 0.0
+                    for (i in 0 until chunk) {
+                        var s = 0.0
+                        for (st in strings) s += st.tick()
+                        var v = s * voiceGain * finalGain
+                        if (releasing) {
+                            releaseGain -= releaseStep
+                            if (releaseGain < 0.0) releaseGain = 0.0
+                            v *= releaseGain
+                        }
+                        buf[i] = v
+                        val a = kotlin.math.abs(v)
+                        if (a > peak) peak = a
+                    }
+                    for (i in 0 until chunk) {
+                        pcm[i] = (buf[i] * 32767.0).toInt().coerceIn(-32768, 32767).toShort()
+                    }
+                    if (myPreviewId != currentPreviewId || shouldStopPreview) break
+                    at.write(pcm, 0, chunk)
+                    produced += chunk
+                    if (releasing && releaseGain <= 0.0) break
+                    // End the loop once the note has naturally decayed to near-silence.
+                    if (peak < 0.0005) { if (++silentChunks > 4) break } else silentChunks = 0
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "startSustainedChord failed: ${e.message}", e)
+            }
+        }
+    }
+
+    /** Key-up for [startSustainedChord]: let the currently-held chord ring out and stop. */
+    fun releaseSustainedChord() {
+        sustainReleasing = true
+    }
+
     suspend fun previewKick(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
         ensureAudioThreadStarted()
         val deferred = CompletableDeferred<Unit>()
@@ -2858,6 +2972,93 @@ class AudioPlayer {
                 samplesWritten += n
             }
         }
+    }
+
+    /**
+     * Start a solo keyboard note that KEEPS SOUNDING (press-and-hold), using the current solo
+     * preset/level. Call [releaseSustainedNote] on key-up to fade it out over ~1.2s. A new call
+     * supersedes the previous note; it also stops on [stop] or after decaying to silence.
+     */
+    fun startSustainedNote(midiNote: Int) {
+        ensureAudioThreadStarted()
+        val myPreviewId = ++currentPreviewId
+        sustainReleasing = false
+        shouldStopPreview = false
+        audioHandler?.post post@{
+            if (myPreviewId != currentPreviewId) return@post
+            val at = previewAudioTrack ?: return@post
+            try {
+                try { at.pause() } catch (_: Exception) {}
+                try { at.flush() } catch (_: Exception) {}
+                try { at.play() } catch (_: Exception) {}
+                try { at.setVolume(masterVolume.toFloat()) } catch (_: Exception) {}
+
+                val freq = midiNoteToFrequency(midiNote)
+                val isPiano = soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO
+                // High feedback -> long sustain for the Karplus (Clean/Overdrive) voice.
+                val karplus = if (!isPiano) KarplusStrongString(freq, sampleRate, 3, 0.9998).apply { pluck() } else null
+                val harmonics = listOf(1.0 to 1.0, 2.0 to 0.6, 3.0 to 0.3)
+                val attackSamples = (0.005 * sampleRate).toInt().coerceAtLeast(1)
+                val gain = (when (soloPreset) {
+                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN -> 0.4
+                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.35
+                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO -> 0.6
+                }) * soloLevel
+
+                val chunk = (sampleRate / 20).coerceAtLeast(1) // 50ms
+                val buf = DoubleArray(chunk)
+                val pcm = ShortArray(chunk)
+                var releaseGain = 1.0
+                val releaseStep = 1.0 / (sampleRate * 1.2) // ~1.2s fade-out on release
+                var produced = 0
+                var silentChunks = 0
+                val maxSamples = sampleRate * 20 // safety cap if never released
+
+                while (myPreviewId == currentPreviewId && !shouldStopPreview && produced < maxSamples) {
+                    val releasing = sustainReleasing
+                    var peak = 0.0
+                    for (i in 0 until chunk) {
+                        val s = produced + i
+                        val raw = if (isPiano) {
+                            val t = s.toDouble() / sampleRate
+                            var v = 0.0
+                            for ((h, amp) in harmonics) v += amp * sin(2.0 * PI * freq * h * t)
+                            // short attack ramp, then hold at full level while the key is down
+                            val env = if (s < attackSamples) s.toDouble() / attackSamples else 1.0
+                            v * env
+                        } else {
+                            karplus!!.tick()
+                        }
+                        var vv = raw * gain
+                        if (releasing) {
+                            releaseGain -= releaseStep
+                            if (releaseGain < 0.0) releaseGain = 0.0
+                            vv *= releaseGain
+                        }
+                        buf[i] = vv
+                        val a = kotlin.math.abs(vv); if (a > peak) peak = a
+                    }
+                    // Peak limiter (targetPeak 0.85) to match playback loudness. It only scales DOWN,
+                    // so it never undoes the release fade.
+                    var maxAbs = 0.0
+                    for (i in 0 until chunk) { val a = kotlin.math.abs(buf[i]); if (a > maxAbs) maxAbs = a }
+                    val scale = if (maxAbs > 0.85) 0.85 / maxAbs else 1.0
+                    for (i in 0 until chunk) pcm[i] = ((buf[i] * scale).coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
+                    if (myPreviewId != currentPreviewId || shouldStopPreview) break
+                    at.write(pcm, 0, chunk)
+                    produced += chunk
+                    if (releasing && releaseGain <= 0.0) break
+                    if (peak < 0.0005) { if (++silentChunks > 4) break } else silentChunks = 0
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("AudioPlayer", "startSustainedNote failed: ${e.message}", e)
+            }
+        }
+    }
+
+    /** Key-up for [startSustainedNote]: let the currently-held note ring out and stop. */
+    fun releaseSustainedNote() {
+        sustainReleasing = true
     }
 }
 

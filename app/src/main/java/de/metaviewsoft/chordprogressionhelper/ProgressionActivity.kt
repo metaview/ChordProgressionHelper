@@ -487,9 +487,11 @@ class ProgressionActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Make sure a held-down chord preview doesn't keep ringing after leaving the screen.
+        try { viewModel.stopPreviewNow() } catch (e: Exception) { Log.w(TAG, "onStop: stopPreviewNow failed: ${e.message}") }
         // Save current progression back to song to ensure changes are immediately available
         songViewModel.updateCurrentSectionProgression(viewModel.progression)
-        
+
         // Only stop playback when the activity is finishing (switching to another activity),
         // not when the app is just going to background
         if (isFinishing || isChangingConfigurations) {
@@ -936,25 +938,37 @@ class ProgressionActivity : AppCompatActivity() {
              } catch (e: Exception) {
                  Log.w(TAG, "Failed to make power chord: ${e.message}")
              }
-         })
-        relatedChordAdapter = ChordAdapter({ chord ->
-            viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
-        }) { chord ->
-            val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
-            viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
-        }
-        borrowedMinorChordAdapter = ChordAdapter({ chord ->
-            viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
-        }) { chord ->
-            val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
-            viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
-        }
-        borrowedMajorChordAdapter = ChordAdapter({ chord ->
-            viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
-        }) { chord ->
-            val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
-            viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
-        }
+         }, onChordRelease = { viewModel.releaseChordPreview() })
+        relatedChordAdapter = ChordAdapter(
+            onChordClick = { chord ->
+                viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
+            },
+            onMakePower = { chord ->
+                val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
+                viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
+            },
+            onChordRelease = { viewModel.releaseChordPreview() }
+        )
+        borrowedMinorChordAdapter = ChordAdapter(
+            onChordClick = { chord ->
+                viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
+            },
+            onMakePower = { chord ->
+                val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
+                viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
+            },
+            onChordRelease = { viewModel.releaseChordPreview() }
+        )
+        borrowedMajorChordAdapter = ChordAdapter(
+            onChordClick = { chord ->
+                viewModel.setSelectedChord(chord, ownerId = "MAIN", startPreviewImmediately = true)
+            },
+            onMakePower = { chord ->
+                val powerChord = Chord(chord.root, ChordType.POWER, chord.scaleDegreeName)
+                viewModel.setSelectedChord(powerChord, ownerId = "MAIN", startPreviewImmediately = true)
+            },
+            onChordRelease = { viewModel.releaseChordPreview() }
+        )
         binding.chordRecyclerView.adapter = chordAdapter
         binding.relatedChordRecyclerView.adapter = relatedChordAdapter
         binding.borrowedMinorChordRecyclerView.adapter = borrowedMinorChordAdapter

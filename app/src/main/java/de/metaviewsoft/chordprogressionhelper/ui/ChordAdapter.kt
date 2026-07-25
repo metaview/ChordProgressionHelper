@@ -18,7 +18,8 @@ import de.metaviewsoft.chordprogressionhelper.model.Chord
 
 class ChordAdapter(
     private val onChordClick: (Chord) -> Unit,
-    private val onMakePower: (Chord) -> Unit = {}
+    private val onMakePower: (Chord) -> Unit = {},
+    private val onChordRelease: () -> Unit = {}
 ) : ListAdapter<Chord, ChordAdapter.ChordViewHolder>(ChordDiffCallback()) {
 
     private var selectedChord: Chord? = null
@@ -108,12 +109,18 @@ class ChordAdapter(
                 }
             }
 
-            // Use OnTouchListener instead of OnClickListener for instant response on ACTION_DOWN
+            // Use OnTouchListener instead of OnClickListener for instant response on ACTION_DOWN.
+            // Press-and-hold: ACTION_DOWN starts the (sustained) preview, ACTION_UP/CANCEL releases it.
             binding.root.setOnTouchListener { v, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
                         onChordClick(chord)
                         v.performClick()  // Still trigger click for accessibility
+                        true
+                    }
+                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        onChordRelease()
                         true
                     }
                     else -> false
