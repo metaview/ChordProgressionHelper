@@ -29,7 +29,6 @@ import de.metaviewsoft.chordprogressionhelper.databinding.ActivitySongBinding
 import de.metaviewsoft.chordprogressionhelper.SettingsActivity
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
-import de.metaviewsoft.chordprogressionhelper.ui.ProgressionViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.SongViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
@@ -47,7 +46,6 @@ class SongActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySongBinding
     private lateinit var settingsRepository: de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
     private lateinit var songViewModel: SongViewModel
-    private lateinit var progressionViewModel: ProgressionViewModel
     private lateinit var sectionAdapter: SectionAdapter
     private lateinit var sectionTouchHelper: ItemTouchHelper
     private var lastSelectedIndex = -1
@@ -80,17 +78,10 @@ class SongActivity : AppCompatActivity() {
             ViewModelProvider.AndroidViewModelFactory(application)
         )[SongViewModel::class.java]
 
-        progressionViewModel = ViewModelProvider(
-            application as MyApplication,
-            ViewModelProvider.AndroidViewModelFactory(application)
-        )[ProgressionViewModel::class.java]
-
         // Select the first section whose progression matches the globally selected one
         val prog = selectedProgression ?: songViewModel.getCurrentProgression()
         val idx = songViewModel.findSectionIndexForProgression(prog)
-        songViewModel.selectSongSection(idx)?.let { progression ->
-            progressionViewModel.progression = progression
-        }
+        songViewModel.selectSongSection(idx)
 
         PlaybackService.stop(this)
         setupRecyclerView()
@@ -144,10 +135,7 @@ class SongActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         sectionAdapter = SectionAdapter(
             onSectionClick = { position ->
-                songViewModel.selectSongSection(position)?.let { progression ->
-                    progressionViewModel.progression = progression
-                    selectedProgression = progression
-                }
+                selectedProgression = songViewModel.selectSongSection(position)
                 startActivity(Intent(this, ProgressionActivity::class.java))
             },
             onMenuClick = { position, anchor ->
@@ -167,9 +155,7 @@ class SongActivity : AppCompatActivity() {
 
         sectionTouchHelper = ItemTouchHelper(
             SectionAdapter.SectionTouchHelperCallback(sectionAdapter) { from, to ->
-                songViewModel.moveSongSection(from, to)?.let { progression ->
-                    progressionViewModel.progression = progression
-                }
+                songViewModel.moveSongSection(from, to)
                 refreshSections()
             }
         )
@@ -302,7 +288,6 @@ class SongActivity : AppCompatActivity() {
             val currentProgression = songViewModel.getCurrentProgression()
             songViewModel.addSongSection(name, currentProgression.key, currentProgression.mode, currentProgression.tempo)
             selectedProgression = songViewModel.getCurrentProgression()
-            progressionViewModel.progression = selectedProgression!!
             refreshSections()
         }
     }
@@ -327,7 +312,6 @@ class SongActivity : AppCompatActivity() {
             copied.name = name
             songViewModel.addSongSectionWithProgression(name, copied)
             selectedProgression = songViewModel.getCurrentProgression()
-            progressionViewModel.progression = selectedProgression!!
             refreshSections()
         }
     }
@@ -390,25 +374,18 @@ class SongActivity : AppCompatActivity() {
                 }
                 2 -> {
                     val currentProgression = songViewModel.getCurrentProgression()
-                    songViewModel.deleteSongSection(position, currentProgression.key, currentProgression.mode, currentProgression.tempo)?.let { progression ->
-                        progressionViewModel.progression = progression
-                        selectedProgression = progression
-                    }
+                    selectedProgression = songViewModel.deleteSongSection(position, currentProgression.key, currentProgression.mode, currentProgression.tempo)
                     refreshSections()
                     true
                 }
                 3 -> {
-                    songViewModel.moveSongSection(position, (position - 1).coerceAtLeast(0))?.let { progression ->
-                        progressionViewModel.progression = progression
-                    }
+                    songViewModel.moveSongSection(position, (position - 1).coerceAtLeast(0))
                     refreshSections()
                     true
                 }
                 4 -> {
                     val names = songViewModel.songSectionNames.value.orEmpty()
-                    songViewModel.moveSongSection(position, (position + 1).coerceAtMost(names.lastIndex))?.let { progression ->
-                        progressionViewModel.progression = progression
-                    }
+                    songViewModel.moveSongSection(position, (position + 1).coerceAtMost(names.lastIndex))
                     refreshSections()
                     true
                 }
@@ -459,7 +436,6 @@ class SongActivity : AppCompatActivity() {
                 val defaultTempo = settingsRepository.defaultBpm.coerceIn(60, 240)
                 songViewModel.newSong(defaultKey, defaultTempo)
                 selectedProgression = null
-                progressionViewModel.progression = songViewModel.getCurrentProgression()
             }
             .setNegativeButton(getString(R.string.cancel), null)
             .create()
@@ -488,10 +464,7 @@ class SongActivity : AppCompatActivity() {
             .setView(dialogView)
             .setPositiveButton(getString(R.string.ok)) { _, _ ->
                 if (selectedPosition >= 0) {
-                    songViewModel.loadSong(savedNames[selectedPosition])?.let { progression ->
-                        progressionViewModel.progression = progression
-                        selectedProgression = progression
-                    }
+                    selectedProgression = songViewModel.loadSong(savedNames[selectedPosition])
                     refreshSections()
                 }
             }

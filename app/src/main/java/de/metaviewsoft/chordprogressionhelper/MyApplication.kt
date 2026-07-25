@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionRepository
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
+import de.metaviewsoft.chordprogressionhelper.data.SongSession
 
 class MyApplication : Application(), ViewModelStoreOwner {
 
@@ -21,6 +22,11 @@ class MyApplication : Application(), ViewModelStoreOwner {
 
     val settingsRepository: SettingsRepository by lazy {
         SettingsRepository(this)
+    }
+
+    /** Single in-memory source of truth for the current song, shared by all ViewModels. */
+    val songSession: SongSession by lazy {
+        SongSession(progressionRepository)
     }
 
     override fun onCreate() {

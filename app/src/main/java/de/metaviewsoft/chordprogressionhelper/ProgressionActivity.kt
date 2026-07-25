@@ -465,20 +465,17 @@ class ProgressionActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         PlaybackService.stop(this)
+        // If SongActivity handed us a specific progression, make sure its section is the current
+        // one in the shared session. (progression now always reflects the current section, so this
+        // is just about selecting the right section — no copying/writing-back needed.)
         SongActivity.selectedProgression?.let { prog ->
-            if (prog === viewModel.progression) return@let  // already current, nothing to do
-            // Save current progression back to song before switching sections
-            songViewModel.updateCurrentSectionProgression(viewModel.progression)
-            val idx = songViewModel.findSectionIndexForProgression(prog)
-            songViewModel.selectSongSection(idx)?.let { progression ->
-                viewModel.progression = progression
+            if (prog !== viewModel.progression) {
+                val idx = songViewModel.findSectionIndexForProgression(prog)
+                songViewModel.selectSongSection(idx)
+                songViewModel.forceRefresh() // updates the section spinner selection
             }
-            songViewModel.forceRefresh() // re-emits all LiveData for current section (triggers observer which sets spinner selection)
         }
-        // Always sync the editor UI to the current progression. SongActivity may have reassigned
-        // viewModel.progression (new song / new section / section click) without refreshing the
-        // derived LiveData, which previously left the editor showing the old section's content
-        // until the section was switched again via the spinner.
+        // Always sync the editor UI to the current section's progression.
         viewModel.refreshUIAfterProgressionChange()
     }
 
@@ -529,11 +526,8 @@ class ProgressionActivity : AppCompatActivity() {
                 // Only react if this is NOT a programmatic selection (i.e., user changed it)
                 if (position != lastProgrammaticSpinnerPosition) {
                     lastProgrammaticSpinnerPosition = position
-                    songViewModel.selectSongSection(position)?.let { progression ->
-                        viewModel.progression = progression
-                        viewModel.refreshUIAfterProgressionChange()
-                        SongActivity.selectedProgression = progression
-                    }
+                    SongActivity.selectedProgression = songViewModel.selectSongSection(position)
+                    viewModel.refreshUIAfterProgressionChange()
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}

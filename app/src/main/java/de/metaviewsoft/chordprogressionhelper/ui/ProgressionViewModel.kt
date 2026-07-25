@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import de.metaviewsoft.chordprogressionhelper.MyApplication
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionRepository
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
+import de.metaviewsoft.chordprogressionhelper.data.SongSession
 import de.metaviewsoft.chordprogressionhelper.model.*
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
 import de.metaviewsoft.chordprogressionhelper.util.PreviewCoordinator
@@ -24,9 +25,16 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     private val progressionRepository: ProgressionRepository = (application as MyApplication).progressionRepository
     private val settingsRepository: SettingsRepository = (application as MyApplication).settingsRepository
+    private val session: SongSession = (application as MyApplication).songSession
 
-    var progression: ChordProgression
-        internal set  // Allow package-private writes for SongViewModel coordination
+    /**
+     * The progression being edited IS the current section of the shared song — the single source of
+     * truth. It is no longer a separately-loaded/stored copy, so it can never diverge from the song.
+     * To change which progression is edited, change the section via SongViewModel.selectSongSection
+     * (or replace the current section's progression via [loadProgression] / [confirmNewProgression]).
+     */
+    val progression: ChordProgression
+        get() = session.currentProgression
 
     private val previewAudioPlayer = AudioPlayer()
     private var previewJob: Job? = null
@@ -81,15 +89,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     private val TAG = "ProgressionViewModel"
 
     init {
-        progression = progressionRepository.loadLastSession() ?: run {
-            val defaultKey = settingsRepository.defaultKeyName.let { name ->
-                Key.entries.firstOrNull { it.name == name } ?: Key.C
-            }
-            val defaultTempo = settingsRepository.defaultBpm.coerceIn(60, 240)
-            ChordProgression(key = defaultKey, tempo = defaultTempo).apply {
-                shuffleFactor = settingsRepository.shuffleFactor
-            }
-        }
+        // progression is derived from the shared SongSession — no separate load here.
         tempo = MutableLiveData(progression.tempo)
         _key.value = progression.key
         isProgressionLooping.value = settingsRepository.isLoopingProgressionEnabled
@@ -121,7 +121,9 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun saveCurrentSession() {
-        progressionRepository.saveLastSession(progression)
+        // Persist the whole song through the single authoritative store. Because `progression`
+        // is the current section's progression, editing it already mutated the song in place.
+        session.save()
     }
 
     private fun updateAllChords() {
@@ -144,7 +146,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     fun loadProgression(name: String) {
         progressionRepository.loadProgression(name)?.let {
-            progression = it
+            session.replaceCurrentProgression(it)
             tempo.value = it.tempo
             _key.value = it.key
             updateAllChords()
@@ -540,7 +542,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         val selectedKey = newKey ?: (_key.value ?: Key.C)
         val selectedTempo = (newTempo ?: progression.tempo).coerceIn(60, 240)
 
-        progression = if (template != null) {
+        val newProgression = if (template != null) {
             ProgressionTemplates.createProgressionFromTemplate(template, selectedKey).apply {
                 tempo = selectedTempo
             }
@@ -552,6 +554,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
                 shuffleFactor = settingsRepository.shuffleFactor
             }
         }
+        session.replaceCurrentProgression(newProgression)
         tempo.value = progression.tempo
         _key.value = progression.key
         updateAllChords()
