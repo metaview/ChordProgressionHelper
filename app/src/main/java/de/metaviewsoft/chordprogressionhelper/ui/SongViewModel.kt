@@ -8,6 +8,7 @@ import androidx.lifecycle.MutableLiveData
 import de.metaviewsoft.chordprogressionhelper.MyApplication
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionRepository
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
+import de.metaviewsoft.chordprogressionhelper.data.SongSession
 import de.metaviewsoft.chordprogressionhelper.model.*
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.json.Json
@@ -17,9 +18,16 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
 
     private val progressionRepository: ProgressionRepository = (application as MyApplication).progressionRepository
     private val settingsRepository: SettingsRepository = (application as MyApplication).settingsRepository
-    
+    private val session: SongSession = (application as MyApplication).songSession
+
+    // Delegate to the shared session so there is exactly one Song object in memory,
+    // shared with ProgressionViewModel. The rest of this class is unchanged.
     private var song: Song
-    private var currentSectionIndex: Int = 0
+        get() = session.song
+        set(value) { session.song = value }
+    private var currentSectionIndex: Int
+        get() = session.currentSectionIndex
+        set(value) { session.currentSectionIndex = value }
 
     private val _songSectionNames = MutableLiveData<List<String>>()
     val songSectionNames: LiveData<List<String>> = _songSectionNames
@@ -35,14 +43,14 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "SongViewModel"
 
     init {
-        song = progressionRepository.loadLastSongSession().also { it.ensureValid() }
+        // The song is already loaded once by the shared SongSession; do not reload here.
         isSongLooping.value = settingsRepository.isLoopingSongEnabled
         updateSongSectionsState()
     }
 
-    /** Save current song state to repository. */
+    /** Save current song state to the single authoritative store (via the shared session). */
     private fun saveCurrentSession() {
-        progressionRepository.saveLastSongSession(song)
+        session.save()
     }
 
     /** Update all song-related LiveData based on current song state. */
@@ -68,9 +76,6 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
         return song.sections[currentSectionIndex].progression
     }
 
-    /** Get the current section index. */
-    fun getCurrentSectionIndex(): Int = currentSectionIndex
-
     /** Maps a global measure index (as used in createSongPlaybackProgression) back to the section index. */
     fun getSectionIndexForMeasure(measureIndex: Int): Int {
         var offset = 0
@@ -88,6 +93,24 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
         val section = song.sections.getOrNull(sectionIndex)
         val progression = getCurrentProgression()
         return (section?.progression?.tempo ?: progression.tempo).coerceIn(60, 240)
+    }
+
+    /** Returns 0..1 progress through the section containing the given global measure/strum position. */
+    fun getSectionProgress(measureIndex: Int, strumIndex: Int): Float {
+        var offset = 0
+        for (section in song.sections) {
+            val measures = section.progression.measures
+            val count = measures.size.coerceAtLeast(1)
+            if (measureIndex < offset + count) {
+                val localMeasureIndex = (measureIndex - offset).coerceIn(0, count - 1)
+                val totalStrums = measures.getOrNull(localMeasureIndex)
+                    ?.strummingPattern?.strums?.size?.coerceAtLeast(1) ?: 1
+                val strumFraction = strumIndex.coerceIn(0, totalStrums - 1).toFloat() / totalStrums
+                return (localMeasureIndex + strumFraction) / count
+            }
+            offset += count
+        }
+        return 0f
     }
 
     /** Returns distinct progressions used in the song (by identity, preserving order). */
@@ -157,12 +180,22 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Select a section by index (returns the progression of selected section). */
+    /**
+     * Select a section by index and return that section's progression.
+     *
+     * IMPORTANT: this always returns the selected section's progression (only `null` for an
+     * out-of-range index). It previously returned `null` when the index equalled the current one,
+     * which caused every caller's `selectSongSection(i)?.let { progression = it }` sync to be
+     * silently skipped — leaving the editor bound to a stale progression that was then written
+     * back onto the wrong section. Never short-circuit the return again.
+     */
     fun selectSongSection(index: Int): ChordProgression? {
-        if (index !in song.sections.indices || index == currentSectionIndex) return null
-        currentSectionIndex = index
-        updateSongSectionsState()
-        saveCurrentSession()
+        if (index !in song.sections.indices) return null
+        if (index != currentSectionIndex) {
+            currentSectionIndex = index
+            updateSongSectionsState()
+            saveCurrentSession()
+        }
         return song.sections[currentSectionIndex].progression
     }
 

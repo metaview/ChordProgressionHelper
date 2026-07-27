@@ -134,16 +134,6 @@ class ProgressionRepository(context: Context) {
         }
     }
 
-    fun saveLastSession(progression: ChordProgression) {
-        try {
-            if (!dir.exists()) dir.mkdirs()
-            val jsonString = Json.encodeToString(progression)
-            lastSessionFile.writeText(jsonString)
-        } catch (e: Exception) {
-            Log.w(TAG, "saveLastSession failed: ${e.message}")
-        }
-    }
-
     fun loadProgression(name: String): ChordProgression? {
         try {
             val index = readIndex()
@@ -163,7 +153,12 @@ class ProgressionRepository(context: Context) {
         }
     }
 
-    fun loadLastSession(): ChordProgression {
+    /**
+     * LEGACY ONLY: reads the old standalone "last progression" store. The app no longer writes to
+     * it (the Song store is the single source of truth); this exists solely so [loadLastSongSession]
+     * can migrate data from a pre-song version on first launch after upgrade.
+     */
+    private fun loadLastSession(): ChordProgression {
         try {
             if (!lastSessionFile.exists()) return ChordProgression()
             val jsonString = lastSessionFile.readText()

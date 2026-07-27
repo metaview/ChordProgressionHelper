@@ -6,9 +6,7 @@ import android.content.ServiceConnection
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
@@ -31,7 +29,6 @@ import de.metaviewsoft.chordprogressionhelper.databinding.ActivitySongBinding
 import de.metaviewsoft.chordprogressionhelper.SettingsActivity
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
-import de.metaviewsoft.chordprogressionhelper.ui.ProgressionViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.SongViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
@@ -49,7 +46,6 @@ class SongActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySongBinding
     private lateinit var settingsRepository: de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
     private lateinit var songViewModel: SongViewModel
-    private lateinit var progressionViewModel: ProgressionViewModel
     private lateinit var sectionAdapter: SectionAdapter
     private lateinit var sectionTouchHelper: ItemTouchHelper
     private var lastSelectedIndex = -1
@@ -57,28 +53,7 @@ class SongActivity : AppCompatActivity() {
     private var playbackService: PlaybackService? = null
     private var isServiceBound = false
 
-    private val beatHandler = Handler(Looper.getMainLooper())
-    private var beatRunnable: Runnable? = null
     private var currentPlayingSectionIdx: Int = -1
-
-    private fun startBeatTimer(eighthNoteMs: Long) {
-        stopBeatTimer()
-        val r = object : Runnable {
-            override fun run() {
-                if (currentPlayingSectionIdx >= 0) {
-                    sectionAdapter.onBeat()
-                    beatHandler.postDelayed(this, eighthNoteMs)
-                }
-            }
-        }
-        beatRunnable = r
-        beatHandler.post(r)
-    }
-
-    private fun stopBeatTimer() {
-        beatRunnable?.let { beatHandler.removeCallbacks(it) }
-        beatRunnable = null
-    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -103,17 +78,10 @@ class SongActivity : AppCompatActivity() {
             ViewModelProvider.AndroidViewModelFactory(application)
         )[SongViewModel::class.java]
 
-        progressionViewModel = ViewModelProvider(
-            application as MyApplication,
-            ViewModelProvider.AndroidViewModelFactory(application)
-        )[ProgressionViewModel::class.java]
-
         // Select the first section whose progression matches the globally selected one
         val prog = selectedProgression ?: songViewModel.getCurrentProgression()
         val idx = songViewModel.findSectionIndexForProgression(prog)
-        songViewModel.selectSongSection(idx)?.let { progression ->
-            progressionViewModel.progression = progression
-        }
+        songViewModel.selectSongSection(idx)
 
         PlaybackService.stop(this)
         setupRecyclerView()
@@ -146,7 +114,6 @@ class SongActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        stopBeatTimer()
         // Only stop playback when the activity is finishing (switching to another activity),
         // not when the app is just going to background
         if (isFinishing || isChangingConfigurations) {
@@ -168,10 +135,7 @@ class SongActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         sectionAdapter = SectionAdapter(
             onSectionClick = { position ->
-                songViewModel.selectSongSection(position)?.let { progression ->
-                    progressionViewModel.progression = progression
-                    selectedProgression = progression
-                }
+                selectedProgression = songViewModel.selectSongSection(position)
                 startActivity(Intent(this, ProgressionActivity::class.java))
             },
             onMenuClick = { position, anchor ->
@@ -191,9 +155,7 @@ class SongActivity : AppCompatActivity() {
 
         sectionTouchHelper = ItemTouchHelper(
             SectionAdapter.SectionTouchHelperCallback(sectionAdapter) { from, to ->
-                songViewModel.moveSongSection(from, to)?.let { progression ->
-                    progressionViewModel.progression = progression
-                }
+                songViewModel.moveSongSection(from, to)
                 refreshSections()
             }
         )
@@ -268,7 +230,6 @@ class SongActivity : AppCompatActivity() {
                     if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
                 )
                 if (!isPlaying) {
-                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 }
@@ -277,21 +238,18 @@ class SongActivity : AppCompatActivity() {
         lifecycleScope.launch {
             service.currentPlaybackPosition.collect { position ->
                 if (position == null) {
-                    stopBeatTimer()
                     currentPlayingSectionIdx = -1
                     sectionAdapter.setPlayingIndex(-1)
                 } else {
-                    val (measureIndex, _) = position
+                    val (measureIndex, strumIndex) = position
                     val sectionIdx = songViewModel.getSectionIndexForMeasure(measureIndex)
                     val sectionTempo = songViewModel.getTempoForMeasure(measureIndex)
                     playbackService?.setTempo(sectionTempo)
                     if (sectionIdx != currentPlayingSectionIdx) {
                         currentPlayingSectionIdx = sectionIdx
                         sectionAdapter.setPlayingIndex(sectionIdx)
-                        // Derive 8th-note duration from tempo of current section
-                        val eighthNoteMs = (60_000L / sectionTempo) / 2
-                        startBeatTimer(eighthNoteMs)
                     }
+                    sectionAdapter.setProgress(sectionIdx, songViewModel.getSectionProgress(measureIndex, strumIndex))
                 }
             }
         }
@@ -330,7 +288,6 @@ class SongActivity : AppCompatActivity() {
             val currentProgression = songViewModel.getCurrentProgression()
             songViewModel.addSongSection(name, currentProgression.key, currentProgression.mode, currentProgression.tempo)
             selectedProgression = songViewModel.getCurrentProgression()
-            progressionViewModel.progression = selectedProgression!!
             refreshSections()
         }
     }
@@ -355,7 +312,6 @@ class SongActivity : AppCompatActivity() {
             copied.name = name
             songViewModel.addSongSectionWithProgression(name, copied)
             selectedProgression = songViewModel.getCurrentProgression()
-            progressionViewModel.progression = selectedProgression!!
             refreshSections()
         }
     }
@@ -418,25 +374,18 @@ class SongActivity : AppCompatActivity() {
                 }
                 2 -> {
                     val currentProgression = songViewModel.getCurrentProgression()
-                    songViewModel.deleteSongSection(position, currentProgression.key, currentProgression.mode, currentProgression.tempo)?.let { progression ->
-                        progressionViewModel.progression = progression
-                        selectedProgression = progression
-                    }
+                    selectedProgression = songViewModel.deleteSongSection(position, currentProgression.key, currentProgression.mode, currentProgression.tempo)
                     refreshSections()
                     true
                 }
                 3 -> {
-                    songViewModel.moveSongSection(position, (position - 1).coerceAtLeast(0))?.let { progression ->
-                        progressionViewModel.progression = progression
-                    }
+                    songViewModel.moveSongSection(position, (position - 1).coerceAtLeast(0))
                     refreshSections()
                     true
                 }
                 4 -> {
                     val names = songViewModel.songSectionNames.value.orEmpty()
-                    songViewModel.moveSongSection(position, (position + 1).coerceAtMost(names.lastIndex))?.let { progression ->
-                        progressionViewModel.progression = progression
-                    }
+                    songViewModel.moveSongSection(position, (position + 1).coerceAtMost(names.lastIndex))
                     refreshSections()
                     true
                 }
@@ -487,7 +436,6 @@ class SongActivity : AppCompatActivity() {
                 val defaultTempo = settingsRepository.defaultBpm.coerceIn(60, 240)
                 songViewModel.newSong(defaultKey, defaultTempo)
                 selectedProgression = null
-                progressionViewModel.progression = songViewModel.getCurrentProgression()
             }
             .setNegativeButton(getString(R.string.cancel), null)
             .create()
@@ -516,10 +464,7 @@ class SongActivity : AppCompatActivity() {
             .setView(dialogView)
             .setPositiveButton(getString(R.string.ok)) { _, _ ->
                 if (selectedPosition >= 0) {
-                    songViewModel.loadSong(savedNames[selectedPosition])?.let { progression ->
-                        progressionViewModel.progression = progression
-                        selectedProgression = progression
-                    }
+                    selectedProgression = songViewModel.loadSong(savedNames[selectedPosition])
                     refreshSections()
                 }
             }

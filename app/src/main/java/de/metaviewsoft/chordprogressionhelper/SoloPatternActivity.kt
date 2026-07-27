@@ -381,12 +381,21 @@ class SoloPatternActivity : AppCompatActivity() {
         // Keyboard key handlers (pitch classes 0..11 where C=0)
         // Fire on ACTION_DOWN for minimum latency (not on click/up)
         fun android.view.View.setKeyDownListener(pitchClass: Int, octaveOffset: Int = 0) {
+            // Press-and-hold: ACTION_DOWN starts the (sustained) note, ACTION_UP/CANCEL releases it.
             setOnTouchListener { v, event ->
-                if (event.action == android.view.MotionEvent.ACTION_DOWN) {
-                    onKeyPressed(pitchClass, octaveOffset)
-                    v.performClick()
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        onKeyPressed(pitchClass, octaveOffset)
+                        v.performClick()
+                        true
+                    }
+                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        try { previewAudioPlayer.releaseSustainedNote() } catch (_: Exception) {}
+                        true
+                    }
+                    else -> false
                 }
-                false
             }
         }
 
@@ -1043,13 +1052,12 @@ class SoloPatternActivity : AppCompatActivity() {
     private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0) {
         val midi = (currentOctave + octaveOffset + 1) * 12 + pitchClass
         
-        // Always trigger note preview for audio feedback
+        // Always trigger note preview for audio feedback (sustained while the key is held down).
         try {
-            Log.d(TAG, "onKeyPressed: midi=$midi, triggering preview")
-            previewAudioPlayer.triggerSoloNotePreview(midi, 0.3)
-            Log.d(TAG, "triggerSoloNotePreview completed for midi=$midi")
+            Log.d(TAG, "onKeyPressed: midi=$midi, starting sustained note")
+            previewAudioPlayer.startSustainedNote(midi)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to trigger preview note: ${e.message}", e)
+            Log.e(TAG, "Failed to start sustained preview note: ${e.message}", e)
         }
 
         // visual key press effect: elevation change
