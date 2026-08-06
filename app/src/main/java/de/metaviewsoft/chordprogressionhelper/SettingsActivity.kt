@@ -365,7 +365,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun setupListeners() {
         binding.defaultKeySpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                settingsRepository.defaultKeyName = Key.entries[position].name
+                val newKey = Key.entries[position]
+                settingsRepository.defaultKeyName = newKey.name
+                maybeApplyKeyToSong(newKey)
             }
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
@@ -387,5 +389,61 @@ class SettingsActivity : AppCompatActivity() {
         binding.loopByDefaultSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.isLoopingProgressionEnabled = isChecked
         }
+    }
+
+    /**
+     * When the user picks a new key in Settings and the current song already contains chords,
+     * ask whether to transpose the existing song (chords + melody) to the new key or to only
+     * relabel the key. The chosen action is applied to every section of the song.
+     */
+    private fun maybeApplyKeyToSong(newKey: Key) {
+        val session = (application as MyApplication).songSession
+        // Distinct progression instances (a progression may be shared by several sections).
+        val progressions = session.song.sections
+            .map { it.progression }
+            .distinctBy { System.identityHashCode(it) }
+
+        val hasChords = progressions.any { prog ->
+            prog.measures.any { it.chordEvents.isNotEmpty() }
+        }
+        if (!hasChords) {
+            // Nothing worth transposing yet – the new key is just the default for new songs.
+            return
+        }
+
+        val oldKey = session.song.sections.firstOrNull()?.progression?.key ?: newKey
+        if (oldKey == newKey) return
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(
+            this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog
+        )
+            .setTitle(getString(R.string.transpose_title))
+            .setMessage(getString(R.string.transpose_message, oldKey.displayName, newKey.displayName))
+            .setPositiveButton(getString(R.string.transpose_yes)) { _, _ ->
+                applyKeyToSong(progressions, newKey, transpose = true)
+            }
+            .setNegativeButton(getString(R.string.transpose_no)) { _, _ ->
+                applyKeyToSong(progressions, newKey, transpose = false)
+            }
+            .create()
+            .show()
+    }
+
+    private fun applyKeyToSong(
+        progressions: List<de.metaviewsoft.chordprogressionhelper.model.ChordProgression>,
+        newKey: Key,
+        transpose: Boolean
+    ) {
+        val session = (application as MyApplication).songSession
+        progressions.forEach { prog ->
+            if (transpose) {
+                de.metaviewsoft.chordprogressionhelper.util.Transposer.transpose(
+                    prog,
+                    de.metaviewsoft.chordprogressionhelper.util.Transposer.semitoneShift(prog.key, newKey)
+                )
+            }
+            prog.key = newKey
+        }
+        session.save()
     }
 }

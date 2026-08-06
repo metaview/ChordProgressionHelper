@@ -324,6 +324,8 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
             song = loaded
             song.ensureValid()
             currentSectionIndex = 0
+            // Reflect the loaded song's key in Settings so the key spinner shows the song's key.
+            settingsRepository.defaultKeyName = song.sections.first().progression.key.name
             updateSongSectionsState()
             saveCurrentSession()
             return song.sections.first().progression
