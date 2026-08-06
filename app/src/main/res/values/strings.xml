@@ -111,6 +111,8 @@
     <string name="decrease_bpm">Decrease BPM</string>
     <string name="menu_cd">Open menu</string>
     <string name="available_chords">Available Chords</string>
+    <string name="legend_resolution">Resolution</string>
+    <string name="legend_replacement">Replacement</string>
     <string name="expand_related_cd">Toggle related chords</string>
     <string name="secondary_dominants">Secondary dominants</string>
     <string name="parallel_chords">Parallel chords</string>

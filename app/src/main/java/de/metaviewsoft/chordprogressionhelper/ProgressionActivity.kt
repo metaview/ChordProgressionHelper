@@ -14,7 +14,12 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.text.Editable
+import android.text.SpannableStringBuilder
 import android.text.TextWatcher
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import androidx.core.text.inSpans
 import android.util.Log
 import android.util.TypedValue
 import android.content.res.ColorStateList
@@ -1141,6 +1146,33 @@ class ProgressionActivity : AppCompatActivity() {
 
         binding.borrowedMinorChordRecyclerView.layoutManager = borrowedMinorLayoutManager
         binding.borrowedMajorChordRecyclerView.layoutManager = borrowedMajorLayoutManager
+
+        setupChordsLegend()
+    }
+
+    /**
+     * Appends a small colour legend to the "Available Chords" title explaining the highlight
+     * colours used on the chord rows: gold = resolution target, yellow = replacement suggestion.
+     * The legend chips mirror the chord-item styling (white text on gold, black text on yellow).
+     */
+    private fun setupChordsLegend() {
+        val targetColor = ContextCompat.getColor(this, R.color.color_target)
+        val suggestionColor = ContextCompat.getColor(this, R.color.color_suggestion)
+
+        val text = SpannableStringBuilder().apply {
+            append(getString(R.string.available_chords))
+            append("   ")
+            inSpans(RelativeSizeSpan(0.85f)) {
+                inSpans(BackgroundColorSpan(targetColor), ForegroundColorSpan(Color.WHITE)) {
+                    append(" ${getString(R.string.legend_resolution)} ")
+                }
+                append("  ")
+                inSpans(BackgroundColorSpan(suggestionColor), ForegroundColorSpan(Color.BLACK)) {
+                    append(" ${getString(R.string.legend_replacement)} ")
+                }
+            }
+        }
+        binding.chordsLabel.text = text
     }
 
     // Update fade visibility based on RecyclerView scroll state
