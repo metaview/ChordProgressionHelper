@@ -13,7 +13,7 @@ android {
         applicationId "de.metaviewsoft.chordprogressionhelper"
         minSdk 24
         targetSdk 36
-        versionCode Integer.parseInt(APP_VERSION_CODE)
+        versionCode 4
         versionName APP_VERSION_NAME
 
         buildConfigField "String", "VERSION_NAME", "\"${APP_VERSION_NAME}\""
