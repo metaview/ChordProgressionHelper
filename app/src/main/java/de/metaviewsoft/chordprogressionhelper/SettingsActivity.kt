@@ -75,11 +75,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.loopByDefaultSwitch.isChecked = settingsRepository.isLoopingProgressionEnabled
 
         // Default key and BPM for New dialog
-        val keyAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, Key.entries.map { it.displayName })
-        keyAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        binding.defaultKeySpinner.adapter = keyAdapter
+        binding.defaultKeySpinner.adapter = de.metaviewsoft.chordprogressionhelper.ui.KeySpinnerAdapter(this)
         val defaultKey = Key.entries.find { it.name == settingsRepository.defaultKeyName } ?: Key.C
-        binding.defaultKeySpinner.setSelection(Key.entries.indexOf(defaultKey))
+        binding.defaultKeySpinner.setSelection(
+            de.metaviewsoft.chordprogressionhelper.ui.KeySpinnerAdapter.KEY_ORDER.indexOf(defaultKey)
+        )
 
         binding.defaultBpmEditText.setText(settingsRepository.defaultBpm.toString())
         binding.defaultBpmUpButton.setOnClickListener {
@@ -365,7 +365,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun setupListeners() {
         binding.defaultKeySpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                val newKey = Key.entries[position]
+                val newKey = de.metaviewsoft.chordprogressionhelper.ui.KeySpinnerAdapter.KEY_ORDER[position]
                 settingsRepository.defaultKeyName = newKey.name
                 maybeApplyKeyToSong(newKey)
             }

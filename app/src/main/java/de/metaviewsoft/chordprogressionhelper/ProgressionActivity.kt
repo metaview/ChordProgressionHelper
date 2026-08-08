@@ -1585,10 +1585,10 @@ class ProgressionActivity : AppCompatActivity() {
         var selectedKey = Key.entries.find { it.name == settingsRepository.defaultKeyName } ?: Key.C
         var selectedTempo = settingsRepository.defaultBpm
 
-        val keyAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, Key.entries.map { it.displayName })
-        keyAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        keySpinner.adapter = keyAdapter
-        keySpinner.setSelection(Key.entries.indexOf(selectedKey))
+        keySpinner.adapter = de.metaviewsoft.chordprogressionhelper.ui.KeySpinnerAdapter(this)
+        keySpinner.setSelection(
+            de.metaviewsoft.chordprogressionhelper.ui.KeySpinnerAdapter.KEY_ORDER.indexOf(selectedKey)
+        )
 
         bpmEditText.setText(selectedTempo.toString())
         bpmUpButton.setOnClickListener {
@@ -1622,7 +1622,7 @@ class ProgressionActivity : AppCompatActivity() {
 
         keySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                selectedKey = Key.entries[position]
+                selectedKey = de.metaviewsoft.chordprogressionhelper.ui.KeySpinnerAdapter.KEY_ORDER[position]
                 bindTemplateAdapter()
                 if (isPreviewEnabled && selectedTemplate != null) {
                     previewTemplate(selectedTemplate, selectedKey, selectedTempo)

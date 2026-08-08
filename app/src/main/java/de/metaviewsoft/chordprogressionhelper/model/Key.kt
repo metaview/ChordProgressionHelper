@@ -15,5 +15,9 @@ enum class Key(val displayName: String, val rootNote: Note) {
     A_FLAT("Ab / Fm", Note.A_FLAT),
     A("A / F#m", Note.A),
     B_FLAT("Bb / Gm", Note.B_FLAT),
-    B("B / G#m", Note.B)
+    B("B / G#m", Note.B),
+    // Enharmonische Schreibweisen (gleiche Tonhoehe wie C#/F#, aber als B-Tonart notiert).
+    // Bewusst ans Ende gestellt, damit rootNote-basierte Lookups weiterhin die Kreuz-Schreibweise treffen.
+    D_FLAT("Db / Bbm", Note.C_SHARP),
+    G_FLAT("Gb / Ebm", Note.F_SHARP)
 }
