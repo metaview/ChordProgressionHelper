@@ -23,10 +23,15 @@ android {
         // NDK configuration for native audio library
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+            // Reproducible builds: strip native debug symbols so the packaged .so
+            // files don't depend on the build environment.
+            debugSymbolLevel 'none'
         }
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17 -O3 -ffast-math -Wall"
+                // -ffile-prefix-map removes the absolute build path from the binaries
+                // so a build in a different directory (e.g. F-Droid's) stays byte-identical.
+                cppFlags "-std=c++17 -O3 -ffast-math -Wall -ffile-prefix-map=${rootDir}=."
                 arguments "-DANDROID_STL=c++_shared"
             }
         }
