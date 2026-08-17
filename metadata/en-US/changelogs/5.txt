@@ -1,0 +1,2 @@
+- Create whole songs, not just single chord progressions
+- New native audio engine for lower latency and less lag

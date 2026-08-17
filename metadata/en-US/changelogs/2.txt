@@ -1,1 +1,1 @@
-everything for fdroid release?
+First release on F-Droid.
