@@ -113,6 +113,25 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
         return 0f
     }
 
+    /**
+     * Chord labels of a section positioned on the same 0..1 timeline as
+     * [getSectionProgress], so they align pixel-exact with the progress bar.
+     * A chord at quarter-note q in measure m maps to (m + q/4) / measureCount.
+     */
+    fun getSectionChordMarks(index: Int): List<ChordTrackView.ChordMark> {
+        val section = song.sections.getOrNull(index) ?: return emptyList()
+        val measures = section.progression.measures
+        val count = measures.size.coerceAtLeast(1)
+        val marks = mutableListOf<ChordTrackView.ChordMark>()
+        measures.forEachIndexed { m, measure ->
+            measure.chordEvents.forEach { event ->
+                val fraction = (m + event.quarterNote / 4f) / count
+                marks += ChordTrackView.ChordMark(fraction, event.chord.getDisplayName())
+            }
+        }
+        return marks
+    }
+
     /** Returns distinct progressions used in the song (by identity, preserving order). */
     fun getUniqueSongProgressions(): List<ChordProgression> =
         song.sections.map { it.progression }.distinctBy { System.identityHashCode(it) }

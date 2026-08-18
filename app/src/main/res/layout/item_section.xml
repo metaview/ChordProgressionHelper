@@ -27,14 +27,27 @@
         android:text="1"
         android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/sectionNameText"
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:text="Section Name"
-        android:textSize="16sp" />
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/sectionNameText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Section Name"
+            android:textSize="16sp" />
+
+        <de.metaviewsoft.chordprogressionhelper.ui.ChordTrackView
+            android:id="@+id/chordTrackView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp" />
+
+    </LinearLayout>
 
 </LinearLayout>

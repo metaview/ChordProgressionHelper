@@ -258,8 +258,9 @@ class SongActivity : AppCompatActivity() {
     private fun refreshSections() {
         val sectionNames = songViewModel.songSectionNames.value.orEmpty()
         val selectedIndex = songViewModel.selectedSongSectionIndex.value ?: 0
-        val items = sectionNames.map { name -> SectionAdapter.SectionItem(name = name) } +
-            SectionAdapter.SectionItem(name = "", isAddButton = true)
+        val items = sectionNames.mapIndexed { index, name ->
+            SectionAdapter.SectionItem(name = name, chords = songViewModel.getSectionChordMarks(index))
+        } + SectionAdapter.SectionItem(name = "", isAddButton = true)
         sectionAdapter.submitList(items) {
             sectionAdapter.setSelectedIndex(selectedIndex)
         }

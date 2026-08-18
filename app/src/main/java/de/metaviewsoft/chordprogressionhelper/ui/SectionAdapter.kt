@@ -20,6 +20,7 @@ class SectionAdapter(
 
     data class SectionItem(
         val name: String,
+        val chords: List<ChordTrackView.ChordMark> = emptyList(),
         val isAddButton: Boolean = false
     )
 
@@ -91,7 +92,7 @@ class SectionAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: List<Any>) {
         if (payloads.contains(PROGRESS_PAYLOAD) && holder is SectionViewHolder) {
-            holder.applyBackground(position == playingIndex, playProgress)
+            holder.applyProgress(playProgress)
             return
         }
         super.onBindViewHolder(holder, position, payloads)
@@ -99,7 +100,7 @@ class SectionAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (holder) {
-            is SectionViewHolder -> holder.bind(getItem(position).name, position, position == playingIndex)
+            is SectionViewHolder -> holder.bind(getItem(position), position, position == playingIndex)
             is AddViewHolder -> holder.bind()
         }
     }
@@ -107,36 +108,33 @@ class SectionAdapter(
     inner class SectionViewHolder(private val binding: ItemSectionBinding) : RecyclerView.ViewHolder(binding.root) {
 
         private val cornerRadiusPx = 8f * itemView.resources.displayMetrics.density
-        private val baseDrawable = android.graphics.drawable.GradientDrawable().apply {
+        private val playingDrawable = android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
             cornerRadius = cornerRadiusPx
+            setColor(androidx.core.content.ContextCompat.getColor(itemView.context, R.color.section_item_bg))
         }
-        private val fillDrawable = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            cornerRadius = cornerRadiusPx
-        }
-        private val progressDrawable = android.graphics.drawable.ClipDrawable(
-            fillDrawable, android.view.Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL
-        )
-        private val playingDrawable = android.graphics.drawable.LayerDrawable(arrayOf(baseDrawable, progressDrawable))
 
-        fun applyBackground(isPlaying: Boolean, progress: Float = 0f) {
-            if (isPlaying) {
-                val context = itemView.context
-                baseDrawable.setColor(androidx.core.content.ContextCompat.getColor(context, R.color.section_item_bg))
-                fillDrawable.setColor(androidx.core.content.ContextCompat.getColor(context, R.color.section_item_beat_bg))
-                progressDrawable.level = (progress.coerceIn(0f, 1f) * 10000).toInt()
-                itemView.background = playingDrawable
+        /** Highlights the whole row while playing; the moving fill lives in the chord track. */
+        fun applyPlayingState(isPlaying: Boolean) {
+            itemView.background = if (isPlaying) {
+                playingDrawable
             } else {
-                itemView.background = androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background)
+                androidx.core.content.ContextCompat.getDrawable(itemView.context, R.drawable.section_item_background)
             }
+            binding.chordTrackView.setPlaying(isPlaying)
         }
 
-        fun bind(sectionName: String, position: Int, isPlaying: Boolean) {
-            binding.sectionNumberText.text = (position + 1).toString()
-            binding.sectionNameText.text = sectionName.substringAfter(". ", sectionName)
+        fun applyProgress(progress: Float) {
+            binding.chordTrackView.setProgress(progress)
+        }
 
-            applyBackground(isPlaying, playProgress)
+        fun bind(item: SectionItem, position: Int, isPlaying: Boolean) {
+            binding.sectionNumberText.text = (position + 1).toString()
+            binding.sectionNameText.text = item.name.substringAfter(". ", item.name)
+            binding.chordTrackView.setChords(item.chords)
+
+            applyPlayingState(isPlaying)
+            applyProgress(if (isPlaying) playProgress else 0f)
 
             binding.root.setOnClickListener {
                 onSectionClick(position)
