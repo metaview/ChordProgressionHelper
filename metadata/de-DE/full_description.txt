@@ -1,0 +1,15 @@
+Eine Musik-App, um Akkordfolgen zu schreiben, einfache Schlagzeug-Beats und eine
+kleine Melodie hinzuzufügen — zum Spielen, Singen und Mitmachen mit deinem Handy.
+
+Bau einen Song aus Teilen auf. Jeder Teil besteht aus Takten, und für jeden Takt
+wählst du die Akkorde und wie sie klingen.
+
+Funktionen:
+- Akkorde: wähle aus Stufen-, Dominantsept- und Parallelakkorden
+- Schlagmuster: lege pro Takt ein Anschlagsmuster fest
+- Schlagzeug: füge einen einfachen Beat für den Groove hinzu
+- Melodie: ergänze pro Takt eine kleine Melodielinie
+- Spiele deine Akkordfolge ab, um dazu zu singen und mitzuspielen
+- Stelle einen Song aus mehreren Akkordfolgen zusammen
+
+Kein Konto, keine Werbung, kein Tracking.
