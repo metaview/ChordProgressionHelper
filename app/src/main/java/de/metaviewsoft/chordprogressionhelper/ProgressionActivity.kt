@@ -1082,8 +1082,8 @@ class ProgressionActivity : AppCompatActivity() {
                     if (tonicChord != null) {
                         intent.putExtra(SoloPatternActivity.EXTRA_TONIC_CHORD_JSON, Json.encodeToString(Chord.serializer(), tonicChord))
                     }
-                    intent.putExtra(SoloPatternActivity.EXTRA_KEY, viewModel.progression.key)
-                    intent.putExtra(SoloPatternActivity.EXTRA_MODE, viewModel.progression.mode)
+                    intent.putExtra(SoloPatternActivity.EXTRA_KEY, viewModel.key.value?.name ?: viewModel.progression.key.name)
+                    intent.putExtra(SoloPatternActivity.EXTRA_MODE, viewModel.progression.mode.name)
                     intent.putExtra(SoloPatternActivity.EXTRA_TEMPO, viewModel.tempo.value ?: viewModel.progression.tempo)
                 } catch (e: Exception) {
                     Log.w("MainActivity", "Failed to pass preview context to PianoPatternActivity: ${e.message}")

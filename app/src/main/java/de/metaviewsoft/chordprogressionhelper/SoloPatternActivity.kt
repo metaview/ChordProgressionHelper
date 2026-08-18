@@ -54,6 +54,8 @@ class SoloPatternActivity : AppCompatActivity() {
         const val EXTRA_ALL_MEASURES_CHORDS = "extra_all_measures_chords"
         const val EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON = "extra_all_measures_solo_patterns_json"
         private const val TAG = "SoloPatternActivity"
+        // Opacity for keyboard keys outside the current key's scale.
+        private const val OUT_OF_SCALE_KEY_ALPHA = 0.4f
         
         // Clipboard for copy/paste of solo patterns across sections
         private var clipboard: List<Array<Slot>>? = null
@@ -295,6 +297,9 @@ class SoloPatternActivity : AppCompatActivity() {
                 k.invalidate()
             } catch (_: Exception) {}
         }
+
+        // Dim keys outside the current key's scale so the diatonic notes stand out.
+        applyScaleHighlighting()
 
         // Build all measure rows and select first slot of the active row
         buildMeasureRows()
@@ -1047,6 +1052,30 @@ class SoloPatternActivity : AppCompatActivity() {
             }
         }
         return SoloPattern(name = "Custom", elements = elements)
+    }
+
+    /**
+     * Fades keys that are not part of the current key's scale so the diatonic
+     * (tonic-scale) keys visually stand out. Pitch classes are octave-independent,
+     * so this stays correct across octave changes.
+     */
+    private fun applyScaleHighlighting() {
+        val scalePitchClasses = try {
+            val key = Key.valueOf(keyVal)
+            val mode = Mode.valueOf(modeVal.uppercase())
+            mode.getScale(key).map { ((it.noteOffset % 12) + 12) % 12 }.toSet()
+        } catch (_: Exception) {
+            return
+        }
+        val keyPitchClasses = listOf(
+            keyBLow to 11,
+            keyC to 0, keyCs to 1, keyD to 2, keyDs to 3, keyE to 4, keyF to 5,
+            keyFs to 6, keyG to 7, keyGs to 8, keyA to 9, keyAs to 10, keyB to 11,
+            keyCHigh to 0, keyCsHigh to 1, keyDHigh to 2
+        )
+        for ((view, pitchClass) in keyPitchClasses) {
+            view.alpha = if (pitchClass in scalePitchClasses) 1.0f else OUT_OF_SCALE_KEY_ALPHA
+        }
     }
 
     private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0) {
