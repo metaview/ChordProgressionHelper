@@ -63,10 +63,12 @@ Tag="v${Version}"
 Branch="$(git rev-parse --abbrev-ref HEAD)"
 
 printf '\n'
+printf 'aus gradle.properties:\n'
 printf '%sVersion      : %s%s\n' "$C_CYAN" "$Version" "$C_RESET"
 printf '%sVersionscode : %s%s\n' "$C_CYAN" "$AppVersionCode" "$C_RESET"
 printf '%sTag          : %s%s\n' "$C_CYAN" "$Tag" "$C_RESET"
 printf '%sBranch       : %s%s\n' "$C_CYAN" "$Branch" "$C_RESET"
+printf 'Changelog für Versionscode angelegt?\n'
 printf '\n'
 
 # ----- Auf andere, noch nicht committete Aenderungen hinweisen -------------
