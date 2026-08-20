@@ -2229,13 +2229,14 @@ class AudioPlayer {
             }
         }
         
-        // Fallback to Kotlin implementation
-        // Some parts of the app provide only a pitch class (0..11) as midiOffset.
-        // If the midi value looks like an offset (very low), shift it into a usable octave
-        // so we generate audible, correctly pitched tones instead of sub-audio rumble/noise.
+        // Fallback to Kotlin implementation.
+        // Chords are stored as offsets around C=0 (range about -20..+13) and must be
+        // lifted into the C4 register. Real MIDI notes from the solo keyboard start at
+        // B0 = 23, so the threshold must sit between those two ranges - otherwise low
+        // solo notes (octave 1-2) would be wrongly shifted up an extra +60.
         var midi = midiNote
-        if (midi < 36) {
-            midi += 60 // move into mid register (e.g. C4 = 60)
+        if (midi < 18) {
+            midi += 60 // move offset-encoded notes into mid register (e.g. C4 = 60)
         }
         return 440.0 * 2.0.pow((midi - 69) / 12.0)
     }

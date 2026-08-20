@@ -28,6 +28,9 @@
 
     <string name="about_title">About</string>
     <string name="about_message">Developed by MetaViewSoft with assistance from an AI assistant.</string>
+    <string name="about_email_label">Email</string>
+    <string name="about_fdroid_label">F-Droid</string>
+    <string name="about_spotify_label">Spotify</string>
     <string name="ok">OK</string>
 
     <string name="load_title">Load Progression</string>

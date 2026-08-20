@@ -340,14 +340,34 @@ class SongActivity : AppCompatActivity() {
     }
 
     private fun showAboutDialog() {
-        val versionInfo = "Version ${BuildConfig.VERSION_NAME}\n\n"
-        val message = versionInfo + getString(R.string.about_message)
+        val html = buildString {
+            append("Version ${BuildConfig.VERSION_NAME}")
+            append("<br><br>")
+            append(getString(R.string.about_message))
+            append("<br><br>")
+            append("${getString(R.string.about_email_label)}: ")
+            append("<a href=\"mailto:metaview@web.de\">metaview@web.de</a>")
+            append("<br><br>")
+            append("<a href=\"https://f-droid.org/packages/de.metaviewsoft.chordprogressionhelper/\">")
+            append("${getString(R.string.about_fdroid_label)}</a>")
+            append("<br><br>")
+            append("<a href=\"https://open.spotify.com/intl-de/artist/2HpH5zPACfB93Nv2BI5uy4\">")
+            append("${getString(R.string.about_spotify_label)}</a>")
+        }
+        val message = androidx.core.text.HtmlCompat.fromHtml(
+            html, androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY
+        )
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_ChordProgressionHelper_MaterialAlertDialog)
             .setTitle(getString(R.string.about_title))
             .setMessage(message)
             .setPositiveButton(getString(R.string.ok), null)
             .create()
-        dialog.setOnShowListener { styleDialogButtons(dialog) }
+        dialog.setOnShowListener {
+            styleDialogButtons(dialog)
+            // Make the email/F-Droid/Spotify links tappable.
+            dialog.findViewById<android.widget.TextView>(android.R.id.message)?.movementMethod =
+                android.text.method.LinkMovementMethod.getInstance()
+        }
         dialog.show()
     }
 

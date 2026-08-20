@@ -53,9 +53,11 @@ class SoloPatternActivity : AppCompatActivity() {
         const val EXTRA_TEMPO = "extra_tempo"
         const val EXTRA_ALL_MEASURES_CHORDS = "extra_all_measures_chords"
         const val EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON = "extra_all_measures_solo_patterns_json"
+        const val EXTRA_ALL_MEASURES_STRUMMING_PATTERNS_JSON = "extra_all_measures_strumming_patterns_json"
         private const val TAG = "SoloPatternActivity"
-        // Opacity for keyboard keys outside the current key's scale.
-        private const val OUT_OF_SCALE_KEY_ALPHA = 0.4f
+        // Dot colors overlaid on the keyboard keys.
+        private const val SCALE_DOT_COLOR = 0xFFFFC107.toInt() // amber/yellow: keys in the current scale
+        private const val ROOT_DOT_COLOR = 0xFF4CAF50.toInt()  // green: root of the current chord / key tonic
         
         // Clipboard for copy/paste of solo patterns across sections
         private var clipboard: List<Array<Slot>>? = null
@@ -109,7 +111,10 @@ class SoloPatternActivity : AppCompatActivity() {
     private val rowSlotViews = mutableListOf<List<android.widget.Button>>() // slot button views per row
     private val rowCards = mutableListOf<MaterialCardView>()          // card per row for highlighting
     private var activeMeasureIndex = 0
-    private var measureChordNames: List<String> = emptyList()
+    // Per measure: list of (quarterNote 0..3, chord display name) for every chord change in that measure
+    private var measureChords: List<List<Pair<Int, String>>> = emptyList()
+    // Per measure: the real strumming pattern from the song, used for preview accompaniment
+    private var measureStrummingPatterns: List<StrummingPattern> = emptyList()
     
     // Current editing mode
     private var currentMode = EditingMode.PREVIEW  // Start in preview mode by default
@@ -253,7 +258,17 @@ class SoloPatternActivity : AppCompatActivity() {
         if (allPatternsJson != null) {
             // New multi-measure mode: load all measures' patterns
             val chordsStr = intent?.getStringExtra(EXTRA_ALL_MEASURES_CHORDS) ?: ""
-            measureChordNames = if (chordsStr.isEmpty()) emptyList() else chordsStr.split("|")
+            measureChords = if (chordsStr.isEmpty()) emptyList()
+                else chordsStr.split("|").map { parseMeasureChords(it) }
+            // Load the real strumming patterns so the preview plays the correct accompaniment
+            intent?.getStringExtra(EXTRA_ALL_MEASURES_STRUMMING_PATTERNS_JSON)?.let { json ->
+                try {
+                    measureStrummingPatterns =
+                        Json.decodeFromString(ListSerializer(StrummingPattern.serializer()), json)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse strumming patterns: ${e.message}")
+                }
+            }
             try {
                 val patterns = Json.decodeFromString(ListSerializer(SoloPattern.serializer()), allPatternsJson)
                 for (pattern in patterns) {
@@ -278,28 +293,9 @@ class SoloPatternActivity : AppCompatActivity() {
         }
         activeMeasureIndex = (measureIndex.coerceAtLeast(0)).coerceAtMost(allSlotsData.size - 1)
 
-        // Ensure keyboard keys use their own drawables and are not tinted by the app theme
-        val whiteKeyViews = listOf(keyBLow, keyC, keyD, keyE, keyF, keyG, keyA, keyB, keyCHigh, keyDHigh)
-        val whiteDrawable = ContextCompat.getDrawable(this, R.drawable.white_key_selector)
-        for (k in whiteKeyViews) {
-            try {
-                k.background = whiteDrawable
-                ViewCompat.setBackgroundTintList(k, null)
-                k.invalidate()
-            } catch (_: Exception) {}
-        }
-        val blackKeyViews = listOf(keyCs, keyDs, keyFs, keyGs, keyAs, keyCsHigh)
-        val blackDrawable = ContextCompat.getDrawable(this, R.drawable.black_key_selector)
-        for (k in blackKeyViews) {
-            try {
-                k.background = blackDrawable
-                ViewCompat.setBackgroundTintList(k, null)
-                k.invalidate()
-            } catch (_: Exception) {}
-        }
-
-        // Dim keys outside the current key's scale so the diatonic notes stand out.
-        applyScaleHighlighting()
+        // Keyboard key backgrounds (own drawables, no theme tint) plus the scale/root
+        // dots are set here and refreshed as the cursor moves.
+        refreshKeyDots()
 
         // Build all measure rows and select first slot of the active row
         buildMeasureRows()
@@ -390,7 +386,7 @@ class SoloPatternActivity : AppCompatActivity() {
             setOnTouchListener { v, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
-                        onKeyPressed(pitchClass, octaveOffset)
+                        onKeyPressed(pitchClass, octaveOffset, v)
                         v.performClick()
                         true
                     }
@@ -567,16 +563,18 @@ class SoloPatternActivity : AppCompatActivity() {
         for (measureIdx in allSlotsData.indices) {
             val m = Measure(measureIdx + 1)
 
-            // Parse the correct chord for this measure
+            // Parse all chords for this measure and add them at their positions
             try {
-                val chordName = measureChordNames.getOrNull(measureIdx) ?: ""
-                val chord = if (chordName.isNotEmpty()) {
-                    parseChordName(chordName) ?: tonicChord
+                val chordsForMeasure = measureChords.getOrNull(measureIdx) ?: emptyList()
+                if (chordsForMeasure.isEmpty()) {
+                    tonicChord?.let { m.addChord(it, 0) }
                 } else {
-                    tonicChord
+                    for ((q, name) in chordsForMeasure) {
+                        val chord = parseChordName(name) ?: tonicChord
+                        // addChord takes an eighth-note index; quarterNote q -> slot q*2
+                        chord?.let { m.addChord(it, q * 2) }
+                    }
                 }
-                // Add chord at beat 0
-                chord?.let { m.addChord(it, 0) }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse chord for measure $measureIdx: ${e.message}")
                 tonicChord?.let { m.addChord(it, 0) }
@@ -586,13 +584,13 @@ class SoloPatternActivity : AppCompatActivity() {
             val pattern = slotsToPattern(allSlotsData[measureIdx])
             m.soloPattern = pattern
 
-            // FEATURE: Play progression parallel to solo (with light accompaniment)
+            // Play the progression parallel to the solo using the song's real strumming pattern
             try {
-                // Simple strumming pattern on beats 1, 3, 5, 7 for accompaniment
-                m.strummingPattern = StrummingPattern("Accompaniment", 
-                    listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST, 
-                           Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST))
-                           
+                m.strummingPattern = measureStrummingPatterns.getOrNull(measureIdx)
+                    ?: StrummingPattern("Accompaniment",
+                        listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST,
+                               Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST))
+
                 // No drums during preview (keep focus on solo + chords)
                 m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
             } catch (e: Exception) {
@@ -703,15 +701,17 @@ class SoloPatternActivity : AppCompatActivity() {
             for (measureIdx in allSlotsData.indices) {
                 val m = Measure(measureIdx + 1)
 
-                // Parse the correct chord for this measure
+                // Parse all chords for this measure and add them at their positions
                 try {
-                    val chordName = measureChordNames.getOrNull(measureIdx) ?: ""
-                    val chord = if (chordName.isNotEmpty()) {
-                        parseChordName(chordName) ?: tonicChord
+                    val chordsForMeasure = measureChords.getOrNull(measureIdx) ?: emptyList()
+                    if (chordsForMeasure.isEmpty()) {
+                        tonicChord?.let { m.addChord(it, 0) }
                     } else {
-                        tonicChord
+                        for ((q, name) in chordsForMeasure) {
+                            val chord = parseChordName(name) ?: tonicChord
+                            chord?.let { m.addChord(it, q * 2) }
+                        }
                     }
-                    chord?.let { m.addChord(it, 0) }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to parse chord for measure $measureIdx: ${e.message}")
                     tonicChord?.let { m.addChord(it, 0) }
@@ -721,11 +721,12 @@ class SoloPatternActivity : AppCompatActivity() {
                 val pattern = slotsToPattern(allSlotsData[measureIdx])
                 m.soloPattern = pattern
 
-                // Simple strumming pattern on beats 1, 3, 5, 7 for accompaniment
+                // Use the song's real strumming pattern for accompaniment
                 try {
-                    m.strummingPattern = StrummingPattern("Accompaniment", 
-                        listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST, 
-                               Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST))
+                    m.strummingPattern = measureStrummingPatterns.getOrNull(measureIdx)
+                        ?: StrummingPattern("Accompaniment",
+                            listOf(Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST,
+                                   Strum.DOWN, Strum.REST, Strum.DOWN, Strum.REST))
                     m.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to set patterns: ${e.message}")
@@ -743,6 +744,27 @@ class SoloPatternActivity : AppCompatActivity() {
                 Log.w(TAG, "Failed to update progression: ${e.message}")
             }
             return
+        }
+    }
+
+    /**
+     * Parse a single measure's chord string into a list of (quarterNote, chordName).
+     * Format: "<quarterNote>:<name>" events joined by ";". For backward compatibility a
+     * bare chord name (no ":") is treated as a single chord at quarterNote 0.
+     */
+    private fun parseMeasureChords(raw: String): List<Pair<Int, String>> {
+        if (raw.isBlank()) return emptyList()
+        return raw.split(";").mapNotNull { token ->
+            val t = token.trim()
+            if (t.isEmpty()) return@mapNotNull null
+            val colon = t.indexOf(':')
+            if (colon < 0) {
+                0 to t
+            } else {
+                val q = t.substring(0, colon).toIntOrNull() ?: 0
+                val name = t.substring(colon + 1)
+                if (name.isBlank()) null else q.coerceIn(0, 3) to name
+            }
         }
     }
 
@@ -894,6 +916,8 @@ class SoloPatternActivity : AppCompatActivity() {
 
     private fun highlightSelectedSlot() {
         highlightRowSlots(activeMeasureIndex, selectedSlot)
+        // Cursor may have moved onto a different chord -> update the green root dot.
+        refreshKeyDots()
     }
 
     private fun highlightRowSlots(rowIdx: Int, selSlot: Int) {
@@ -925,6 +949,7 @@ class SoloPatternActivity : AppCompatActivity() {
             highlightRowSlots(oldRow, -1)
             highlightRowSlots(rowIdx, selectedSlot)
             updateRowHighlights()
+            refreshKeyDots()
         } else {
             selectSlot(slotIdx)
         }
@@ -952,8 +977,8 @@ class SoloPatternActivity : AppCompatActivity() {
         rowCards.clear()
 
         for (rowIdx in allSlotsData.indices) {
-            val chord = measureChordNames.getOrElse(rowIdx) { "" }
-            val label = if (chord.isNotEmpty()) "${rowIdx + 1}  $chord" else "${rowIdx + 1}"
+            val chordsForRow = measureChords.getOrElse(rowIdx) { emptyList() }
+            val label = "${rowIdx + 1}"
 
             // Card container
             val card = MaterialCardView(this).apply {
@@ -987,6 +1012,32 @@ class SoloPatternActivity : AppCompatActivity() {
                 )
             }
 
+            // Chord row: each chord shown above the slot where it starts
+            // (quarterNote q -> eighth-note slot q*2), aligned with the 8 slots below.
+            val chordBySlot = HashMap<Int, String>()
+            for ((q, name) in chordsForRow) {
+                chordBySlot[(q * 2).coerceIn(0, 7)] = name
+            }
+            val chordRow = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.topMargin = (2 * dp).toInt() }
+                weightSum = 8f
+            }
+            for (slotIdx in 0 until 8) {
+                val cell = TextView(this).apply {
+                    layoutParams = android.widget.LinearLayout.LayoutParams(
+                        0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    )
+                    text = chordBySlot[slotIdx] ?: ""
+                    textSize = 12f
+                    setTextColor(android.graphics.Color.WHITE)
+                }
+                chordRow.addView(cell)
+            }
+
             // Slots row
             val slotsRow = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
@@ -1014,6 +1065,7 @@ class SoloPatternActivity : AppCompatActivity() {
             rowSlotViews.add(slotBtns)
 
             inner.addView(labelTv)
+            inner.addView(chordRow)
             inner.addView(slotsRow)
             card.addView(inner)
             measureListContainer.addView(card)
@@ -1054,33 +1106,105 @@ class SoloPatternActivity : AppCompatActivity() {
         return SoloPattern(name = "Custom", elements = elements)
     }
 
+    /** Piano keys paired with their (octave-independent) pitch class. */
+    private fun keyViewsWithPitchClasses(): List<Pair<Button, Int>> = listOf(
+        keyBLow to 11,
+        keyC to 0, keyCs to 1, keyD to 2, keyDs to 3, keyE to 4, keyF to 5,
+        keyFs to 6, keyG to 7, keyGs to 8, keyA to 9, keyAs to 10, keyB to 11,
+        keyCHigh to 0, keyCsHigh to 1, keyDHigh to 2
+    )
+
+    // Black keys (the rest are white). Used to pick the correct base drawable.
+    private val blackKeyViews by lazy {
+        setOf(keyCs, keyDs, keyFs, keyGs, keyAs, keyCsHigh)
+    }
+
     /**
-     * Fades keys that are not part of the current key's scale so the diatonic
-     * (tonic-scale) keys visually stand out. Pitch classes are octave-independent,
-     * so this stays correct across octave changes.
+     * Sets a key's background to its selector drawable, optionally with a coloured
+     * dot overlaid at the bottom. Using a LayerDrawable background (instead of the
+     * view foreground) guarantees the dot is actually rendered.
      */
-    private fun applyScaleHighlighting() {
+    private fun applyKeyBackground(view: Button, dotColor: Int?) {
+        val baseRes = if (view in blackKeyViews) R.drawable.black_key_selector
+                      else R.drawable.white_key_selector
+        val base = ContextCompat.getDrawable(this, baseRes)
+        if (dotColor == null) {
+            view.background = base
+        } else {
+            val dp = resources.displayMetrics.density
+            val size = (14 * dp).toInt()
+            val bottomInset = (7 * dp).toInt()
+            val dot = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(dotColor)
+                // Dark outline so a light dot stays visible on a white key.
+                setStroke((1 * dp).toInt(), 0x99000000.toInt())
+            }
+            val layers = android.graphics.drawable.LayerDrawable(arrayOf(base, dot))
+            layers.setLayerSize(1, size, size)
+            layers.setLayerGravity(1, android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL)
+            layers.setLayerInset(1, 0, 0, 0, bottomInset)
+            view.background = layers
+        }
+        ViewCompat.setBackgroundTintList(view, null)
+    }
+
+    /**
+     * Pitch class of the root note to highlight green: the root of the chord in
+     * effect at the current cursor position, or the key's tonic if no chord has
+     * been entered up to that point.
+     */
+    private fun currentRootPitchClass(): Int {
+        val cursorQuarter = (if (selectedSlot >= 0) selectedSlot else 0) / 2
+        // Search from the active measure backwards for the last chord at/before the cursor
+        for (mi in activeMeasureIndex downTo 0) {
+            val events = measureChords.getOrNull(mi) ?: continue
+            val candidate = if (mi == activeMeasureIndex) {
+                events.filter { it.first <= cursorQuarter }.maxByOrNull { it.first }
+            } else {
+                events.maxByOrNull { it.first }
+            }
+            if (candidate != null) {
+                parseChordName(candidate.second)?.let { chord ->
+                    return ((chord.root.noteOffset % 12) + 12) % 12
+                }
+            }
+        }
+        // Fallback: the key's tonic
+        val key = try { Key.valueOf(keyVal) } catch (_: Exception) { Key.C }
+        return ((key.rootNote.noteOffset % 12) + 12) % 12
+    }
+
+    /**
+     * Draws a yellow dot on every key belonging to the current key's scale, and a
+     * green dot on the current chord's root (or the key's tonic when no chord
+     * applies). Pitch classes are octave-independent, so this stays correct across
+     * octave changes.
+     */
+    private fun refreshKeyDots() {
         val scalePitchClasses = try {
             val key = Key.valueOf(keyVal)
             val mode = Mode.valueOf(modeVal.uppercase())
             mode.getScale(key).map { ((it.noteOffset % 12) + 12) % 12 }.toSet()
         } catch (_: Exception) {
-            return
+            emptySet<Int>()
         }
-        val keyPitchClasses = listOf(
-            keyBLow to 11,
-            keyC to 0, keyCs to 1, keyD to 2, keyDs to 3, keyE to 4, keyF to 5,
-            keyFs to 6, keyG to 7, keyGs to 8, keyA to 9, keyAs to 10, keyB to 11,
-            keyCHigh to 0, keyCsHigh to 1, keyDHigh to 2
-        )
-        for ((view, pitchClass) in keyPitchClasses) {
-            view.alpha = if (pitchClass in scalePitchClasses) 1.0f else OUT_OF_SCALE_KEY_ALPHA
+        val rootPc = currentRootPitchClass()
+
+        for ((view, pitchClass) in keyViewsWithPitchClasses()) {
+            view.alpha = 1.0f
+            val dotColor = when {
+                pitchClass == rootPc -> ROOT_DOT_COLOR
+                pitchClass in scalePitchClasses -> SCALE_DOT_COLOR
+                else -> null
+            }
+            applyKeyBackground(view, dotColor)
         }
     }
 
-    private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0) {
+    private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0, sourceView: android.view.View? = null) {
         val midi = (currentOctave + octaveOffset + 1) * 12 + pitchClass
-        
+
         // Always trigger note preview for audio feedback (sustained while the key is held down).
         try {
             Log.d(TAG, "onKeyPressed: midi=$midi, starting sustained note")
@@ -1089,9 +1213,11 @@ class SoloPatternActivity : AppCompatActivity() {
             Log.e(TAG, "Failed to start sustained preview note: ${e.message}", e)
         }
 
-        // visual key press effect: elevation change
+        // visual key press effect: elevation change on the exact key that was pressed.
+        // Fall back to a pitch-class lookup only if no source view is supplied (keeps
+        // the low-B and high-C/C#/D keys from animating their octave twins).
         try {
-            val keyView = when (pitchClass) {
+            val keyView = sourceView ?: when (pitchClass) {
                 0 -> keyC
                 1 -> keyCs
                 2 -> keyD

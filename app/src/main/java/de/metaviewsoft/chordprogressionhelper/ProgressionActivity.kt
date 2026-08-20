@@ -1088,10 +1088,13 @@ class ProgressionActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     Log.w("MainActivity", "Failed to pass preview context to PianoPatternActivity: ${e.message}")
                 }
-                // Pass all measures' chord display names (pipe-separated)
+                // Pass all measures' chord display names with their positions.
+                // Per measure: "<quarterNote>:<name>" events joined by ";"; measures joined by "|".
                 try {
                     val chords = viewModel.progression.measures.map { m ->
-                        m.chordEvents.firstOrNull()?.chord?.getDisplayName() ?: ""
+                        m.chordEvents.sortedBy { it.quarterNote }.joinToString(";") { ev ->
+                            "${ev.quarterNote}:${ev.chord.getDisplayName()}"
+                        }
                     }
                     intent.putExtra(SoloPatternActivity.EXTRA_ALL_MEASURES_CHORDS, chords.joinToString("|"))
                 } catch (_: Exception) {}
@@ -1100,6 +1103,12 @@ class ProgressionActivity : AppCompatActivity() {
                     val allMeasuresPatterns = viewModel.progression.measures.map { it.soloPattern }
                     val allMeasuresJson = Json.encodeToString(ListSerializer(SoloPattern.serializer()), allMeasuresPatterns)
                     intent.putExtra(SoloPatternActivity.EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON, allMeasuresJson)
+                } catch (_: Exception) {}
+                // Pass all measures' strumming patterns so the preview uses the real accompaniment
+                try {
+                    val allStrums = viewModel.progression.measures.map { it.strummingPattern }
+                    val allStrumsJson = Json.encodeToString(ListSerializer(StrummingPattern.serializer()), allStrums)
+                    intent.putExtra(SoloPatternActivity.EXTRA_ALL_MEASURES_STRUMMING_PATTERNS_JSON, allStrumsJson)
                 } catch (_: Exception) {}
                 drumPatternLauncher.launch(intent)
             },

@@ -169,8 +169,12 @@ void AudioEngine::generatePianoSample(double* buffer, int numSamples, double fre
 
 double AudioEngine::midiNoteToFrequency(int midiNote) {
     int midi = midiNote;
-    if (midi < 36) {
-        midi += 60;  // Move into mid register (C4 = 60)
+    // Chords are stored as offsets around C=0 (range about -20..+13) and must be
+    // lifted into the C4 register. Real MIDI notes from the solo keyboard start at
+    // B0 = 23, so the threshold must sit between those two ranges - otherwise low
+    // solo notes (octave 1-2) would be wrongly shifted up an extra +60.
+    if (midi < 18) {
+        midi += 60;  // Move offset-encoded notes into mid register (C4 = 60)
     }
     return 440.0 * std::pow(2.0, (midi - 69) / 12.0);
 }
