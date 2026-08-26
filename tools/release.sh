@@ -123,13 +123,30 @@ info "[4/8] Pushe Branch '$Branch' und Tag '$Tag' nach GitLab ..."
 git push origin "$Branch"
 git push origin "$Tag" || warn "Tag-Push meldete einen Fehler (existiert er evtl. schon auf GitLab?) - fahre fort."
 
-# ----- 5. APK bauen --------------------------------------------------------
-info "[5/8] Baue Release-APK ..."
-"$RepoRoot/gradlew" assembleRelease
-ApkPath="$RepoRoot/app/build/outputs/apk/release/app-release.apk"
+# ----- 5. APK aus sauberem Tag-Checkout bauen ------------------------------
+#   F-Droid baut aus einem pristinen Baum (git checkout -f <tag> + git clean -dffx).
+#   Damit die veroeffentlichte Referenz-APK BYTE-genau dem entspricht, was F-Droid
+#   reproduziert, bauen wir NICHT im (moeglicherweise verschmutzten) Arbeits-
+#   verzeichnis, sondern in einem wegwerfbaren git-worktree des Tags.
+info "[5/8] Baue Release-APK aus sauberem Checkout von '$Tag' ..."
+BuildDir="$(mktemp -d)"
+cleanup_worktree() {
+    [[ -n "${BuildDir:-}" && -d "$BuildDir" ]] || return 0
+    git worktree remove --force "$BuildDir" 2>/dev/null || rm -rf "$BuildDir"
+    git worktree prune 2>/dev/null || true
+}
+trap cleanup_worktree EXIT
+git worktree add --detach "$BuildDir" "$Tag"
+# Signing-Konfiguration (gitignored, absolute Keystore-/SDK-Pfade) in den Worktree
+# kopieren, damit assembleRelease dort signieren kann.
+if [[ -f "$RepoRoot/local.properties" ]]; then
+    cp "$RepoRoot/local.properties" "$BuildDir/local.properties"
+fi
+( cd "$BuildDir" && ./gradlew clean assembleRelease )
+ApkPath="$BuildDir/app/build/outputs/apk/release/app-release.apk"
 if [[ ! -f "$ApkPath" ]]; then err "APK nicht gefunden unter: $ApkPath"; exit 1; fi
 apkSize="$(awk "BEGIN { printf \"%.2f\", $(stat -c%s "$ApkPath") / 1048576 }")"
-detail "      APK ok: $ApkPath ($apkSize MB)"
+detail "      APK ok (sauberer Tag-Build): $ApkPath ($apkSize MB)"
 
 # ----- 6. APK hochladen (PUT) ----------------------------------------------
 PackageUrl="${ApiBase}/packages/generic/${PackageName}/${Version}/app-release.apk"
