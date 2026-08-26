@@ -32,6 +32,9 @@ target_link_libraries(
     ${log-lib}
 )
 
-# Export ANativeActivity_onCreate for native activity support (if needed)
-# Not required for JNI-only library, but doesn't hurt
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate")
+# Reproducable builds: keine Build-Pfade, keine Build-ID
+target_compile_options(native-audio PRIVATE
+    -g0
+    -ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
+target_link_options(native-audio PRIVATE
+    -Wl,--build-id=none)
