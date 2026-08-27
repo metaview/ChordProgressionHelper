@@ -2010,21 +2010,7 @@ class AudioPlayer {
         DspSupport.pcmFromDoubles(nativeBridge, this) { msg -> android.util.Log.w("AudioPlayer", msg) }
 
     // Small percussive transient used specifically to add a short 'thud' to palm-muted strums
-    private fun addMutePercussive(buffer: DoubleArray) {
-        val n = buffer.size
-        if (n <= 0) return
-        val attackSamples = (n * 0.1).toInt().coerceAtLeast(6)
-        var last = 0.0
-        for (i in 0 until attackSamples) {
-            val white = Random.nextDouble() * 2 - 1
-            // low-pass-ish smoothing to make it less clicky
-            val band = (white + last) * 0.5
-            last = white
-            val env = (1.0 - i.toDouble() / attackSamples).pow(1.8) * 0.9
-            // smaller magnitude than full drum to keep it subtle
-            buffer[i] += band * env * 0.2 * drumLevel
-        }
-    }
+    private fun addMutePercussive(buffer: DoubleArray) = DrumSynth.addMutePercussive(buffer, drumLevel)
 
     /**
      * addCachedDrumSample: Füge gecachte oder on-demand generierte Drum-Samples zu einem Buffer hinzu
@@ -2064,85 +2050,30 @@ class AudioPlayer {
      * - envelope uses pow(4) to get a fast initial transient and then a quick decay
      * - multiplied by envelopeScale (global) and drumLevel (global)
      */
-    private fun addKick(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
-        // Use native implementation if available
-        if (NativeAudio.isAvailable()) {
-            try {
-                NativeAudio.addKick(buffer, duration, levelScale, envelopeScale, drumLevel)
-                return
-            } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "Native addKick failed, using fallback: ${e.message}")
-            }
+    private fun addKick(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) =
+        DrumSynth.addKick(nativeBridge, buffer, duration, levelScale, envelopeScale, drumLevel, sampleRate) { msg ->
+            android.util.Log.w("AudioPlayer", msg)
         }
-        
-        // Fallback to Kotlin implementation
-        val freq = 60.0
-        val kickDuration = (duration * 0.5).toInt().coerceAtMost(buffer.size)
-        for (i in 0 until kickDuration) {
-            val progress = i.toDouble() / kickDuration
-            val envelope = (1.0 - progress).pow(4) * envelopeScale
-            val angle = 2.0 * PI * i * (freq * (1.0 - progress * 0.5)) / sampleRate
-            // use live drumLevel
-            // 3.6: empirical multiplier to make the synthesized kick audible in the mix
-            // - If the kick is too loud, reduce this (or reduce drumLevel). If too weak, increase.
-            buffer[i] += sin(angle) * envelope * 3.6 * drumLevel * levelScale
-        }
-    }
 
     /**
      * addSnare
      * - creates short noise burst shaped by an envelope
      * - levelScale: multiplicative scale for loudness
      */
-    private fun addSnare(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
-        // Use native implementation if available
-        if (NativeAudio.isAvailable()) {
-            try {
-                NativeAudio.addSnare(buffer, duration, levelScale, envelopeScale, drumLevel)
-                return
-            } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "Native addSnare failed, using fallback: ${e.message}")
-            }
+    private fun addSnare(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) =
+        DrumSynth.addSnare(nativeBridge, buffer, duration, levelScale, envelopeScale, drumLevel) { msg ->
+            android.util.Log.w("AudioPlayer", msg)
         }
-        
-        // Fallback to Kotlin implementation
-        val snareDuration = (duration * 0.2).toInt().coerceAtMost(buffer.size)
-        for (i in 0 until snareDuration) {
-            val noise = (Random.nextDouble() * 2 - 1)
-            val envelope = (1.0 - i.toDouble() / snareDuration).pow(2) * envelopeScale
-            // 1.4: snare noise gain — empirical value to sit snare in the mix
-            buffer[i] += noise * envelope * 1.4 * drumLevel * levelScale
-        }
-    }
 
     /**
      * addHiHat
      * - generates short high-frequency noise bursts, with a simple high-pass effect via `hiHatHighpass`
      * - envelopeScale and levelScale control the perceived length and loudness
      */
-    private fun addHiHat(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) {
-        // Use native implementation if available
-        if (NativeAudio.isAvailable()) {
-            try {
-                NativeAudio.addHiHat(buffer, duration, levelScale, envelopeScale, hiHatHighpass)
-                return
-            } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "Native addHiHat failed, using fallback: ${e.message}")
-            }
+    private fun addHiHat(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) =
+        DrumSynth.addHiHat(nativeBridge, buffer, duration, levelScale, envelopeScale, hiHatHighpass) { msg ->
+            android.util.Log.w("AudioPlayer", msg)
         }
-        
-        // Fallback to Kotlin implementation
-        val hiHatDuration = (duration * 0.25).toInt().coerceAtMost(buffer.size)
-        var lastNoise = 0.0
-        for (i in 0 until hiHatDuration) {
-            val white = Random.nextDouble() * 2 - 1
-            val highPass = (white - lastNoise) * hiHatHighpass
-            lastNoise = white
-            val envelope = (1.0 - i.toDouble() / hiHatDuration).pow(2) * envelopeScale
-            // 1.2: hi-hat gain factor (empirical). hiHatHighpass shapes HF content; envelopeScale controls length
-            buffer[i] += highPass * envelope * 1.2 * levelScale
-        }
-    }
 
     @Suppress("unused")
     // Karplus-Strong string implementation parameters:
