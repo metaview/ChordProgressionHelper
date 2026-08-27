@@ -1,0 +1,1 @@
+- Reproducible builds: the native audio library now builds bit-for-bit identically, so F-Droid can verify the app against its source
