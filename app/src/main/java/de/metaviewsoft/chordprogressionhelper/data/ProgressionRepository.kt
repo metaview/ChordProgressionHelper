@@ -22,7 +22,7 @@ class ProgressionRepository(context: Context) {
     private val TAG = "ProgressionRepository"
     private val dir = File(context.filesDir, "progressions")
 
-    private val storage = ProgressionStorage(
+    val storage = ProgressionStorage(
         fileSystem = FileSystem.SYSTEM,
         dir = dir.absolutePath.toPath(),
         logWarn = { Log.w(TAG, it) }

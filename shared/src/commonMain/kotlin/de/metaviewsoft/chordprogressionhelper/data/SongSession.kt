@@ -14,16 +14,16 @@ import kotlinx.serialization.InternalSerializationApi
  *
  *   Song -> sections -> a progression (measures) -> chords, drum & solo patterns
  *
- * Persistence goes exclusively through the song store ([ProgressionRepository.saveLastSongSession]).
+ * Persistence goes exclusively through the song store ([ProgressionStorage.saveLastSongSession]).
  * The former standalone "last progression" store (`saveLastSession`/`loadLastSession`) is no longer
  * an authoritative location — keeping data in two places is exactly what corrupted sections before.
  */
 @OptIn(InternalSerializationApi::class)
 class SongSession(
-    private val repo: ProgressionRepository
+    private val storage: ProgressionStorage
 ) {
     /** The one authoritative song. Reassigned only on load/new-song. */
-    var song: Song = repo.loadLastSongSession().also { it.ensureValid() }
+    var song: Song = storage.loadLastSongSession().also { it.ensureValid() }
         set(value) {
             field = value.also { it.ensureValid() }
             if (currentSectionIndex !in field.sections.indices) currentSectionIndex = 0
@@ -52,6 +52,6 @@ class SongSession(
 
     /** Persist the whole song to the single authoritative store. */
     fun save() {
-        repo.saveLastSongSession(song)
+        storage.saveLastSongSession(song)
     }
 }

@@ -26,7 +26,7 @@ class MyApplication : Application(), ViewModelStoreOwner {
 
     /** Single in-memory source of truth for the current song, shared by all ViewModels. */
     val songSession: SongSession by lazy {
-        SongSession(progressionRepository)
+        SongSession(progressionRepository.storage)
     }
 
     override fun onCreate() {
