@@ -2457,101 +2457,16 @@ class AudioPlayer {
     }
 
     // Piano synthesis using additive synthesis instead of Karplus-Strong
-    private fun generatePianoSample(frequency: Double, durationSec: Double): DoubleArray {
-        val numSamples = (sampleRate * durationSec).toInt()
-        val samples = DoubleArray(numSamples)
-
-        // Use native implementation if available
-        if (NativeAudio.isAvailable()) {
-            try {
-                NativeAudio.generatePianoSample(samples, frequency)
-                return samples
-            } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "Native generatePianoSample failed, using fallback: ${e.message}")
-            }
+    private fun generatePianoSample(frequency: Double, durationSec: Double): DoubleArray =
+        PianoSynth.generatePianoSample(nativeBridge, frequency, durationSec, sampleRate) { msg ->
+            android.util.Log.w("AudioPlayer", msg)
         }
-
-        // Fallback to Kotlin implementation
-        // Piano has harmonics with specific amplitude ratios
-        // Reduced to 3 harmonics for better performance (was 6)
-        val harmonics = listOf(
-            1.0 to 1.0,      // Fundamental
-            2.0 to 0.6,      // 2nd harmonic (octave)
-            3.0 to 0.3       // 3rd harmonic
-        )
-
-        // Pre-calculate envelope parameters
-        val attackTime = 0.002  // 2ms attack (sehr schnell für sofortige Response)
-        val decayTime = 0.15   // 150ms decay
-        val sustainLevel = 0.3 // 30% sustain level
-
-        val attackSamples = (attackTime * sampleRate).toInt()
-        val decaySamples = (decayTime * sampleRate).toInt()
-        val attackDecaySamples = attackSamples + decaySamples
-
-        for (i in 0 until numSamples) {
-            val t = i.toDouble() / sampleRate
-            var sample = 0.0
-
-            // Add each harmonic
-            for ((harmonic, amplitude) in harmonics) {
-                val freq = frequency * harmonic
-                sample += amplitude * sin(2.0 * PI * freq * t)
-            }
-
-            // ADSR envelope - optimized with pre-calculated boundaries
-            val envelope = when {
-                i < attackSamples -> i.toDouble() / attackSamples
-                i < attackDecaySamples -> {
-                    val decayProgress = (i - attackSamples).toDouble() / decaySamples
-                    1.0 - (1.0 - sustainLevel) * decayProgress
-                }
-
-                else -> {
-                    val releaseProgress =
-                        (i - attackDecaySamples).toDouble() / (numSamples - attackDecaySamples)
-                    sustainLevel * (1.0 - releaseProgress)
-                }
-            }.coerceIn(0.0, 1.0)
-
-            samples[i] = sample * envelope
-        }
-
-        // Normalize
-        val maxVal = samples.maxOfOrNull { kotlin.math.abs(it) } ?: 1.0
-        if (maxVal > 0.0) {
-            for (i in samples.indices) {
-                samples[i] /= maxVal
-            }
-        }
-
-        return samples
-    }
 
     // Mix multiple piano notes together
-    private fun mixPianoNotes(midiNotes: List<Int>, durationSec: Double): DoubleArray {
-        val numSamples = (sampleRate * durationSec).toInt()
-        val mixed = DoubleArray(numSamples)
-
-        for (midiNote in midiNotes) {
-            val freq = midiNoteToFrequency(midiNote)
-            val noteSamples = generatePianoSample(freq, durationSec)
-            for (i in 0 until minOf(numSamples, noteSamples.size)) {
-                mixed[i] += noteSamples[i]
-            }
+    private fun mixPianoNotes(midiNotes: List<Int>, durationSec: Double): DoubleArray =
+        PianoSynth.mixPianoNotes(nativeBridge, midiNotes, durationSec, sampleRate) { msg ->
+            android.util.Log.w("AudioPlayer", msg)
         }
-
-        // Normalize mixed result
-        val maxVal = mixed.maxOfOrNull { kotlin.math.abs(it) } ?: 1.0
-        if (maxVal > 0.0) {
-            val normFactor = 0.8 / maxVal // Leave some headroom
-            for (i in mixed.indices) {
-                mixed[i] *= normFactor
-            }
-        }
-
-        return mixed
-    }
 
     /**
      * Spielt eine einzelne Solo-Note mit verbesserter Synthese ab.
