@@ -4,321 +4,69 @@ import android.content.Context
 import android.util.Log
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.model.Song
-import de.metaviewsoft.chordprogressionhelper.model.SongSection
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okio.FileSystem
+import okio.Path.Companion.toPath
 import java.io.File
 
+/**
+ * Android front-end for saved progressions and songs.
+ *
+ * The portable storage core lives in [ProgressionStorage] (:shared commonMain, okio-based). This
+ * class only keeps the Android-specific glue: the base directory (from [Context.filesDir]), the
+ * one-time SharedPreferences legacy migration, and file-based export/import used by the Storage
+ * Access Framework. All core CRUD is delegated unchanged, so callers keep the same API.
+ */
 class ProgressionRepository(context: Context) {
 
     private val TAG = "ProgressionRepository"
     private val dir = File(context.filesDir, "progressions")
-    private val indexFile = File(dir, "index.json")
-    private val songIndexFile = File(dir, "songs_index.json")
-    private val lastSessionFile = File(dir, "last_session.json")
-    private val lastSongSessionFile = File(dir, "last_song_session.json")
+
+    private val storage = ProgressionStorage(
+        fileSystem = FileSystem.SYSTEM,
+        dir = dir.absolutePath.toPath(),
+        logWarn = { Log.w(TAG, it) }
+    )
 
     init {
         try { if (!dir.exists()) dir.mkdirs() } catch (e: Exception) { Log.w(TAG, "Failed to create progressions dir: ${e.message}") }
-
-        // Migrate existing SharedPreferences-based storage (if present) into files so users don't lose saved progressions.
-        try {
-            val oldPrefs = context.getSharedPreferences("progression_prefs", Context.MODE_PRIVATE)
-            val namesKey = "saved_progression_names"
-            val lastSessionKey = "internal_last_session"
-            val savedNames = oldPrefs.getStringSet(namesKey, null)
-            if (!savedNames.isNullOrEmpty()) {
-                Log.i(TAG, "Migration: found ${savedNames.size} saved progressions in SharedPreferences; migrating to file storage")
-                val index = readIndex()
-                for (name in savedNames) {
-                    try {
-                        val json = oldPrefs.getString(name, null)
-                        if (json.isNullOrEmpty()) continue
-                        // determine filename (reuse existing if index already points to one)
-                        val filename = index[name] ?: makeSafeFilename(name).also { index[name] = it }
-                        val target = File(dir, filename)
-                        target.writeText(json)
-                        // remove old entry
-                        try { oldPrefs.edit().remove(name).apply() } catch (_: Exception) {}
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Migration: failed to migrate $name: ${e.message}")
-                    }
-                }
-                // Migrate last session if present
-                try {
-                    val lastJson = oldPrefs.getString(lastSessionKey, null)
-                    if (!lastJson.isNullOrEmpty()) {
-                        try { lastSessionFile.writeText(lastJson) } catch (e: Exception) { Log.w(TAG, "Migration: failed to write last session: ${e.message}") }
-                        try { oldPrefs.edit().remove(lastSessionKey).apply() } catch (_: Exception) {}
-                    }
-                } catch (_: Exception) {}
-
-                // Persist updated index and remove the names set
-                writeIndex(index)
-                try { oldPrefs.edit().remove(namesKey).apply() } catch (_: Exception) {}
-                Log.i(TAG, "Migration complete")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Migration check failed: ${e.message}")
-        }
+        migrateFromSharedPreferences(context)
     }
 
-    // Index maps user-visible progression name -> backing filename
-    private fun readIndex(): MutableMap<String, String> {
-        return try {
-            if (!indexFile.exists()) return mutableMapOf()
-            val text = indexFile.readText()
-            if (text.isBlank()) return mutableMapOf()
-            try {
-                Json.decodeFromString<Map<String, String>>(text).toMutableMap()
-            } catch (e: Exception) {
-                Log.w(TAG, "readIndex: failed to decode index.json: ${e.message}")
-                mutableMapOf()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "readIndex failed: ${e.message}")
-            mutableMapOf()
-        }
-    }
+    // ---- Delegated core API (signatures unchanged) ----------------------------------------------
+    fun saveNamedProgression(name: String, progression: ChordProgression) = storage.saveNamedProgression(name, progression)
+    fun loadProgression(name: String): ChordProgression? = storage.loadProgression(name)
+    fun saveLastSongSession(song: Song) = storage.saveLastSongSession(song)
+    fun saveNamedSong(name: String, song: Song) = storage.saveNamedSong(name, song)
+    fun loadSong(name: String): Song? = storage.loadSong(name)
+    fun getSavedSongNames(): List<String> = storage.getSavedSongNames()
+    fun deleteSong(name: String) = storage.deleteSong(name)
+    fun loadLastSongSession(): Song = storage.loadLastSongSession()
+    fun getSavedProgressionNames(): List<String> = storage.getSavedProgressionNames()
+    fun deleteProgression(name: String) = storage.deleteProgression(name)
+    fun getPreviewFor(name: String, maxChords: Int = 4): String? = storage.getPreviewFor(name, maxChords)
 
-    private fun writeIndex(index: Map<String, String>) {
-        try {
-            indexFile.writeText(Json.encodeToString(index))
-        } catch (e: Exception) {
-            Log.w(TAG, "writeIndex failed: ${e.message}")
-        }
-    }
-
-    private fun readSongIndex(): MutableMap<String, String> {
-        return try {
-            if (!songIndexFile.exists()) return mutableMapOf()
-            val text = songIndexFile.readText()
-            if (text.isBlank()) return mutableMapOf()
-            try {
-                Json.decodeFromString<Map<String, String>>(text).toMutableMap()
-            } catch (e: Exception) {
-                Log.w(TAG, "readSongIndex: failed to decode songs_index.json: ${e.message}")
-                mutableMapOf()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "readSongIndex failed: ${e.message}")
-            mutableMapOf()
-        }
-    }
-
-    private fun writeSongIndex(index: Map<String, String>) {
-        try {
-            songIndexFile.writeText(Json.encodeToString(index))
-        } catch (e: Exception) {
-            Log.w(TAG, "writeSongIndex failed: ${e.message}")
-        }
-    }
-
-    private fun makeSafeFilename(name: String): String {
-        // Create a mostly human-friendly filename but include hashCode for uniqueness
-        val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
-        return "${name.hashCode()}_$sanitized.json"
-    }
-
-    fun saveNamedProgression(name: String, progression: ChordProgression) {
-        try {
-            if (!dir.exists()) dir.mkdirs()
-            val index = readIndex()
-            val filename = index[name] ?: makeSafeFilename(name).also { index[name] = it }
-            val target = File(dir, filename)
-            val jsonString = Json.encodeToString(progression)
-            target.writeText(jsonString)
-            writeIndex(index)
-        } catch (e: Exception) {
-            Log.w(TAG, "saveNamedProgression failed: ${e.message}")
-        }
-    }
-
-    fun loadProgression(name: String): ChordProgression? {
-        try {
-            val index = readIndex()
-            val filename = index[name] ?: return null
-            val f = File(dir, filename)
-            if (!f.exists()) return null
-            val jsonString = f.readText()
-            return try {
-                Json.decodeFromString<ChordProgression>(jsonString)
-            } catch (e: Exception) {
-                Log.w(TAG, "loadProgression decode failed for $name: ${e.message}")
-                null
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "loadProgression failed: ${e.message}")
-            return null
-        }
-    }
-
-    /**
-     * LEGACY ONLY: reads the old standalone "last progression" store. The app no longer writes to
-     * it (the Song store is the single source of truth); this exists solely so [loadLastSongSession]
-     * can migrate data from a pre-song version on first launch after upgrade.
-     */
-    private fun loadLastSession(): ChordProgression {
-        try {
-            if (!lastSessionFile.exists()) return ChordProgression()
-            val jsonString = lastSessionFile.readText()
-            return try {
-                Json.decodeFromString<ChordProgression>(jsonString)
-            } catch (e: Exception) {
-                Log.w(TAG, "loadLastSession decode failed: ${e.message}")
-                ChordProgression()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "loadLastSession failed: ${e.message}")
-            return ChordProgression()
-        }
-    }
-
-    fun saveLastSongSession(song: Song) {
-        try {
-            if (!dir.exists()) dir.mkdirs()
-            val jsonString = Json.encodeToString(song)
-            lastSongSessionFile.writeText(jsonString)
-        } catch (e: Exception) {
-            Log.w(TAG, "saveLastSongSession failed: ${e.message}")
-        }
-    }
-
-    fun saveNamedSong(name: String, song: Song) {
-        try {
-            if (!dir.exists()) dir.mkdirs()
-            val index = readSongIndex()
-            val filename = index[name] ?: "song_${makeSafeFilename(name)}".also { index[name] = it }
-            val target = File(dir, filename)
-            val normalizedSong = song.copy(name = name)
-            val jsonString = Json.encodeToString(normalizedSong)
-            target.writeText(jsonString)
-            writeSongIndex(index)
-        } catch (e: Exception) {
-            Log.w(TAG, "saveNamedSong failed: ${e.message}")
-        }
-    }
-
-    fun loadSong(name: String): Song? {
-        return try {
-            val index = readSongIndex()
-            val filename = index[name] ?: return null
-            val file = File(dir, filename)
-            if (!file.exists()) return null
-            val jsonString = file.readText()
-            try {
-                Json.decodeFromString<Song>(jsonString).also { it.ensureValid() }
-            } catch (e: Exception) {
-                Log.w(TAG, "loadSong decode failed for $name: ${e.message}")
-                null
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "loadSong failed: ${e.message}")
-            null
-        }
-    }
-
-    fun getSavedSongNames(): List<String> {
-        return try {
-            val index = readSongIndex()
-            index.keys.toList().sorted()
-        } catch (e: Exception) {
-            Log.w(TAG, "getSavedSongNames failed: ${e.message}")
-            emptyList()
-        }
-    }
-
-    fun deleteSong(name: String) {
-        try {
-            val index = readSongIndex()
-            val filename = index.remove(name)
-            if (filename != null) {
-                val file = File(dir, filename)
-                try { if (file.exists()) file.delete() } catch (_: Exception) {}
-                writeSongIndex(index)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "deleteSong failed: ${e.message}")
-        }
-    }
-
-    fun loadLastSongSession(): Song {
-        try {
-            if (lastSongSessionFile.exists()) {
-                val jsonString = lastSongSessionFile.readText()
-                try {
-                    val parsed = Json.decodeFromString<Song>(jsonString)
-                    parsed.ensureValid()
-                    return parsed
-                } catch (e: Exception) {
-                    Log.w(TAG, "loadLastSongSession decode failed: ${e.message}")
-                }
-            }
-
-            val legacy = loadLastSession()
-            return Song(
-                sections = mutableListOf(
-                    SongSection(
-                        name = legacy.name.ifBlank { "Section 1" },
-                        progression = legacy
-                    )
-                )
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "loadLastSongSession failed: ${e.message}")
-            return Song()
-        }
-    }
-
-    fun getSavedProgressionNames(): List<String> {
-        return try {
-            val index = readIndex()
-            index.keys.toList().sorted()
-        } catch (e: Exception) {
-            Log.w(TAG, "getSavedProgressionNames failed: ${e.message}")
-            emptyList()
-        }
-    }
-
-    fun deleteProgression(name: String) {
-        try {
-            val index = readIndex()
-            val filename = index.remove(name)
-            if (filename != null) {
-                val f = File(dir, filename)
-                try { if (f.exists()) f.delete() } catch (_: Exception) {}
-                writeIndex(index)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "deleteProgression failed: ${e.message}")
-        }
-    }
-
-    // Export a named progression to an arbitrary file. Returns true on success.
+    // ---- Android-only: export/import to arbitrary files (SAF) ------------------------------------
     fun exportProgressionToFile(name: String, outFile: File): Boolean {
-        try {
-            val prog = loadProgression(name) ?: return false
+        return try {
+            val json = storage.exportProgressionJson(name) ?: return false
             outFile.parentFile?.let { parent -> if (!parent.exists()) parent.mkdirs() }
-            outFile.writeText(Json.encodeToString(prog))
-            return true
+            outFile.writeText(json)
+            true
         } catch (e: Exception) {
-            Log.w(TAG, "exportProgressionToFile failed: ${e.message}")
-            return false
+            Log.w(TAG, "exportProgressionToFile failed: ${e.message}"); false
         }
     }
 
-    // Export all saved progressions to a directory. Returns list of exported files.
     fun exportAllProgressionsToDir(outDir: File): List<File> {
         val exported = mutableListOf<File>()
         try {
             if (!outDir.exists()) outDir.mkdirs()
-            val index = readIndex()
-            for ((name, filename) in index) {
+            for (name in storage.getSavedProgressionNames()) {
                 try {
-                    val src = File(dir, filename)
-                    if (!src.exists()) continue
-                    val dest = File(outDir, filename)
-                    src.copyTo(dest, overwrite = true)
+                    val json = storage.exportProgressionJson(name) ?: continue
+                    val dest = File(outDir, storage.makeSafeFilename(name))
+                    dest.writeText(json)
                     exported.add(dest)
                 } catch (e: Exception) {
                     Log.w(TAG, "exportAllProgressionsToDir: failed exporting $name: ${e.message}")
@@ -330,32 +78,31 @@ class ProgressionRepository(context: Context) {
         return exported
     }
 
-    // Import a single progression JSON file. If overwrite=false and a progression with the same name exists,
-    // a unique name will be generated ("name (n)"). Returns the name under which the progression was saved or null on failure.
     fun importProgressionFromFile(inFile: File, overwrite: Boolean = false): String? {
         try {
             if (!inFile.exists()) return null
             val json = inFile.readText()
-            val prog = try { Json.decodeFromString<ChordProgression>(json) } catch (e: Exception) { Log.w(TAG, "importProgressionFromFile: decode failed: ${e.message}"); return null }
+            val prog = try {
+                Json.decodeFromString<ChordProgression>(json)
+            } catch (e: Exception) {
+                Log.w(TAG, "importProgressionFromFile: decode failed: ${e.message}"); return null
+            }
             var name = prog.name.ifBlank { "Imported_${System.currentTimeMillis()}" }
-            val existing = getSavedProgressionNames().toMutableSet()
+            val existing = storage.getSavedProgressionNames().toMutableSet()
             if (!overwrite && existing.contains(name)) {
                 var i = 1
                 var candidate = "$name ($i)"
                 while (existing.contains(candidate)) { i++; candidate = "$name ($i)" }
                 name = candidate
             }
-            // ensure the progression object stores the chosen name
             prog.name = name
-            saveNamedProgression(name, prog)
+            storage.saveNamedProgression(name, prog)
             return name
         } catch (e: Exception) {
-            Log.w(TAG, "importProgressionFromFile failed: ${e.message}")
-            return null
+            Log.w(TAG, "importProgressionFromFile failed: ${e.message}"); return null
         }
     }
 
-    // Import all JSON files from a directory. Returns list of imported progression names.
     fun importProgressionsFromDir(inDir: File, overwrite: Boolean = false): List<String> {
         val imported = mutableListOf<String>()
         try {
@@ -373,30 +120,39 @@ class ProgressionRepository(context: Context) {
         return imported
     }
 
-    // Returns a short preview string for the progression name, e.g. "(Am, C, G, F)" or null if not available
-    fun getPreviewFor(name: String, maxChords: Int = 4): String? {
+    // ---- Android-only: one-time legacy SharedPreferences migration -------------------------------
+    // Migrates a pre-file-storage version's SharedPreferences into the file store so users don't
+    // lose saved progressions. No-op once migrated (the prefs keys are removed).
+    private fun migrateFromSharedPreferences(context: Context) {
         try {
-            val prog = loadProgression(name) ?: return null
-            var chords = listOf<String>()
-            var last = ""
-            for (m in prog.measures) {
-                for (ev in m.chordEvents) {
-                    val chord = ev.chord
-                    // Use display name (root + quality suffix) if available
-                    val disp = chord.getDisplayName()
-                    if (last != disp) {
-                        last = disp
-                        chords += disp
-                        if (chords.size >= maxChords) break
-                    }
+            val oldPrefs = context.getSharedPreferences("progression_prefs", Context.MODE_PRIVATE)
+            val namesKey = "saved_progression_names"
+            val lastSessionKey = "internal_last_session"
+            val savedNames = oldPrefs.getStringSet(namesKey, null)
+            if (savedNames.isNullOrEmpty()) return
+
+            Log.i(TAG, "Migration: found ${savedNames.size} saved progressions in SharedPreferences; migrating to file storage")
+            for (name in savedNames) {
+                try {
+                    val json = oldPrefs.getString(name, null)
+                    if (json.isNullOrEmpty()) continue
+                    storage.saveRawProgression(name, json)
+                    try { oldPrefs.edit().remove(name).apply() } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Migration: failed to migrate $name: ${e.message}")
                 }
-                if (chords.size >= maxChords) break
             }
-            if (chords.isEmpty()) return null
-            return "(${chords.joinToString(", ")})"
+            try {
+                val lastJson = oldPrefs.getString(lastSessionKey, null)
+                if (!lastJson.isNullOrEmpty()) {
+                    storage.saveLastSessionRaw(lastJson)
+                    try { oldPrefs.edit().remove(lastSessionKey).apply() } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+            try { oldPrefs.edit().remove(namesKey).apply() } catch (_: Exception) {}
+            Log.i(TAG, "Migration complete")
         } catch (e: Exception) {
-            Log.w(TAG, "getPreviewFor failed for $name: ${e.message}")
-            return null
+            Log.w(TAG, "Migration check failed: ${e.message}")
         }
     }
 }
