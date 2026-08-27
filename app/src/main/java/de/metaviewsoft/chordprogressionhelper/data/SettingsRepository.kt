@@ -4,8 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 
-// Simple sound preset enum for selectable instrument voice
-enum class SoundPreset { CLEAN, OVERDRIVE, PIANO }
+// SoundPreset lives in :shared commonMain (same package) so audio + settings share it.
 
 class SettingsRepository(context: Context) {
 
