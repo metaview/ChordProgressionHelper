@@ -1,0 +1,26 @@
+plugins {
+    id 'org.jetbrains.kotlin.multiplatform'
+    id 'com.android.kotlin.multiplatform.library'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.0'
+}
+
+kotlin {
+    // AGP-9-KMP-Library-Plugin: Android-Konfiguration liegt hier statt im android{}-Block.
+    androidLibrary {
+        namespace = 'de.metaviewsoft.chordprogressionhelper.shared'
+        compileSdk = 36
+        minSdk = 24
+    }
+    // iOS-Targets werden spaeter (auf einem Mac) ergaenzt:
+    //   iosArm64(); iosSimulatorArm64()
+    // Der Code liegt bereits in commonMain und ist dafuer vorbereitet.
+
+    sourceSets {
+        commonMain.dependencies {
+            implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0'
+        }
+        all {
+            languageSettings.optIn('kotlinx.serialization.InternalSerializationApi')
+        }
+    }
+}
