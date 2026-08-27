@@ -37,9 +37,12 @@ class AudioPlayer {
         android.util.Log.i("AudioPlayer", "Native audio library status: $nativeStatus")
     }
 
+    // Shared native-engine access; portable DSP helpers live in :shared (DspSupport).
+    private val nativeBridge: NativeAudioBridge = AndroidNativeAudioBridge
+
     // helper for lowpass update to avoid numeric overload ambiguity in nested lambdas
     private fun lpFilter(prev: Double, alpha: Double, value: Double): Double =
-        prev + alpha * (value - prev)
+        DspSupport.lowpass(prev, alpha, value)
 
     // Dedicated audio thread and handler
     @Volatile
@@ -2003,26 +2006,8 @@ class AudioPlayer {
     }
 
     // Convert a DoubleArray (values roughly in -1..1) to 16-bit PCM ShortArray.
-    private fun DoubleArray.toPcmShortArray(): ShortArray {
-        val shortArray = ShortArray(this.size)
-        
-        // Use native conversion if available for better performance
-        if (NativeAudio.isAvailable()) {
-            try {
-                NativeAudio.doubleToPcmShort(this, shortArray)
-                return shortArray
-            } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "Native doubleToPcmShort failed, using fallback: ${e.message}")
-            }
-        }
-        
-        // Fallback to Kotlin implementation
-        for (i in this.indices) {
-            val sample = this[i].coerceIn(-1.0, 1.0)
-            shortArray[i] = (sample * Short.MAX_VALUE).toInt().toShort()
-        }
-        return shortArray
-    }
+    private fun DoubleArray.toPcmShortArray(): ShortArray =
+        DspSupport.pcmFromDoubles(nativeBridge, this) { msg -> android.util.Log.w("AudioPlayer", msg) }
 
     // Small percussive transient used specifically to add a short 'thud' to palm-muted strums
     private fun addMutePercussive(buffer: DoubleArray) {
@@ -2219,27 +2204,8 @@ class AudioPlayer {
         }
     }
 
-    private fun midiNoteToFrequency(midiNote: Int): Double {
-        // Use native implementation if available
-        if (NativeAudio.isAvailable()) {
-            try {
-                return NativeAudio.midiNoteToFrequency(midiNote)
-            } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "Native midiNoteToFrequency failed, using fallback: ${e.message}")
-            }
-        }
-        
-        // Fallback to Kotlin implementation.
-        // Chords are stored as offsets around C=0 (range about -20..+13) and must be
-        // lifted into the C4 register. Real MIDI notes from the solo keyboard start at
-        // B0 = 23, so the threshold must sit between those two ranges - otherwise low
-        // solo notes (octave 1-2) would be wrongly shifted up an extra +60.
-        var midi = midiNote
-        if (midi < 18) {
-            midi += 60 // move offset-encoded notes into mid register (e.g. C4 = 60)
-        }
-        return 440.0 * 2.0.pow((midi - 69) / 12.0)
-    }
+    private fun midiNoteToFrequency(midiNote: Int): Double =
+        DspSupport.midiNoteToFrequency(nativeBridge, midiNote) { msg -> android.util.Log.w("AudioPlayer", msg) }
 
     fun stop() {
         android.util.Log.d(
