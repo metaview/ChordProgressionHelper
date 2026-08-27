@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import de.metaviewsoft.chordprogressionhelper.MyApplication
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionRepository
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
+import de.metaviewsoft.chordprogressionhelper.data.SettingsStore
+import de.metaviewsoft.chordprogressionhelper.data.SettingsWatch
 import de.metaviewsoft.chordprogressionhelper.data.SongSession
 import de.metaviewsoft.chordprogressionhelper.model.*
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
@@ -39,7 +41,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
 
     private val previewAudioPlayer = AudioPlayer()
     private var previewJob: Job? = null
-    private lateinit var prefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener
+    private var settingsWatch: SettingsWatch? = null
 
     private val _scaleDegreeChords = MutableLiveData<List<Chord>>()
     val scaleDegreeChords: LiveData<List<Chord>> = _scaleDegreeChords
@@ -98,24 +100,23 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
         updateMeasures()
 
         // Listen to settings changes and apply them to previewAudioPlayer in real-time
-        prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        settingsWatch = settingsRepository.registerChangeListener { key ->
             when (key) {
-                SettingsRepository.KEY_DRUM_LEVEL -> previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
-                SettingsRepository.KEY_SOLO_LEVEL -> previewAudioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
-                SettingsRepository.KEY_ENVELOPE_SCALE -> previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
-                SettingsRepository.KEY_HIHAT_HIGHPASS -> previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-                SettingsRepository.KEY_STRUM_PRESET -> previewAudioPlayer.voicePreset = settingsRepository.strumPreset
-                SettingsRepository.KEY_DEFAULT_BPM -> setTempo(settingsRepository.defaultBpm)
-                SettingsRepository.KEY_MASTER_VOLUME -> previewAudioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
+                SettingsStore.KEY_DRUM_LEVEL -> previewAudioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
+                SettingsStore.KEY_SOLO_LEVEL -> previewAudioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
+                SettingsStore.KEY_ENVELOPE_SCALE -> previewAudioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
+                SettingsStore.KEY_HIHAT_HIGHPASS -> previewAudioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
+                SettingsStore.KEY_STRUM_PRESET -> previewAudioPlayer.voicePreset = settingsRepository.strumPreset
+                SettingsStore.KEY_DEFAULT_BPM -> setTempo(settingsRepository.defaultBpm)
+                SettingsStore.KEY_MASTER_VOLUME -> previewAudioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
             }
         }
-        settingsRepository.registerChangeListener(prefsListener)
     }
 
     override fun onCleared() {
         super.onCleared()
         try {
-            settingsRepository.unregisterChangeListener(prefsListener)
+            settingsWatch?.cancel()
         } catch (e: Exception) {
             Log.w(TAG, "onCleared: unregisterChangeListener failed: ${e.message}", e)
         }

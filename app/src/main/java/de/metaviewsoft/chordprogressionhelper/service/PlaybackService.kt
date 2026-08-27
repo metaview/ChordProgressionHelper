@@ -20,6 +20,8 @@ import de.metaviewsoft.chordprogressionhelper.SongActivity
 import de.metaviewsoft.chordprogressionhelper.R
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionStore
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
+import de.metaviewsoft.chordprogressionhelper.data.SettingsStore
+import de.metaviewsoft.chordprogressionhelper.data.SettingsWatch
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.model.StrummingPattern
 import de.metaviewsoft.chordprogressionhelper.model.DrumPattern
@@ -68,7 +70,7 @@ class PlaybackService : Service() {
     private val _currentPlaybackPosition = MutableStateFlow<Pair<Int, Int>?>(null)
     val currentPlaybackPosition = _currentPlaybackPosition.asStateFlow()
 
-    private lateinit var prefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener
+    private var settingsWatch: SettingsWatch? = null
 
     // mediaSession removed for now to avoid dependency issues; keep notification MediaStyle
     private lateinit var mediaSession: MediaSessionCompat
@@ -126,26 +128,25 @@ class PlaybackService : Service() {
         audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
         audioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
 
-        prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        settingsWatch = settingsRepository.registerChangeListener { key ->
             when (key) {
-                SettingsRepository.KEY_DRUM_LEVEL -> audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
-                SettingsRepository.KEY_SOLO_LEVEL -> audioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
-                SettingsRepository.KEY_STRUM_LEVEL -> audioPlayer.strumLevel = settingsRepository.strumLevel.toDouble()
-                SettingsRepository.KEY_ENVELOPE_SCALE -> audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
-                SettingsRepository.KEY_HIHAT_HIGHPASS -> audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
-                SettingsRepository.KEY_STRUM_PRESET -> audioPlayer.voicePreset = settingsRepository.strumPreset
-                SettingsRepository.KEY_SOLO_PRESET -> audioPlayer.soloPreset = settingsRepository.soloPreset
-                SettingsRepository.KEY_STROKE_OFFSET_MS -> audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs
-                SettingsRepository.KEY_STRING_STAGGER_MS -> audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs
-                SettingsRepository.KEY_DOWN_STROKE_OFFSET_MS -> audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs
-                SettingsRepository.KEY_DOWN_STRING_STAGGER_MS -> audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs
-                SettingsRepository.KEY_SHUFFLE_FACTOR -> audioPlayer.shuffleFactor = settingsRepository.shuffleFactor.toFloat()
-                SettingsRepository.KEY_STRUM_CRUNCH_LEVEL -> audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
-                SettingsRepository.KEY_SOLO_CRUNCH_LEVEL -> audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
-                SettingsRepository.KEY_MASTER_VOLUME -> audioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
+                SettingsStore.KEY_DRUM_LEVEL -> audioPlayer.drumLevel = settingsRepository.drumLevel.toDouble()
+                SettingsStore.KEY_SOLO_LEVEL -> audioPlayer.soloLevel = settingsRepository.soloLevel.toDouble()
+                SettingsStore.KEY_STRUM_LEVEL -> audioPlayer.strumLevel = settingsRepository.strumLevel.toDouble()
+                SettingsStore.KEY_ENVELOPE_SCALE -> audioPlayer.envelopeScale = settingsRepository.envelopeScale.toDouble()
+                SettingsStore.KEY_HIHAT_HIGHPASS -> audioPlayer.hiHatHighpass = settingsRepository.hiHatHighpass.toDouble()
+                SettingsStore.KEY_STRUM_PRESET -> audioPlayer.voicePreset = settingsRepository.strumPreset
+                SettingsStore.KEY_SOLO_PRESET -> audioPlayer.soloPreset = settingsRepository.soloPreset
+                SettingsStore.KEY_STROKE_OFFSET_MS -> audioPlayer.upStrokeOffsetMs = settingsRepository.strokeOffsetMs
+                SettingsStore.KEY_STRING_STAGGER_MS -> audioPlayer.upStringStaggerMs = settingsRepository.stringStaggerMs
+                SettingsStore.KEY_DOWN_STROKE_OFFSET_MS -> audioPlayer.downStrokeOffsetMs = settingsRepository.downStrokeOffsetMs
+                SettingsStore.KEY_DOWN_STRING_STAGGER_MS -> audioPlayer.downStringStaggerMs = settingsRepository.downStringStaggerMs
+                SettingsStore.KEY_SHUFFLE_FACTOR -> audioPlayer.shuffleFactor = settingsRepository.shuffleFactor.toFloat()
+                SettingsStore.KEY_STRUM_CRUNCH_LEVEL -> audioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
+                SettingsStore.KEY_SOLO_CRUNCH_LEVEL -> audioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
+                SettingsStore.KEY_MASTER_VOLUME -> audioPlayer.masterVolume = settingsRepository.masterVolume.toDouble()
             }
         }
-        settingsRepository.registerChangeListener(prefsListener)
 
         // Initialize MediaSessionCompat for system integration (lockscreen, car, media buttons)
         mediaSession = MediaSessionCompat(this, "ChordProgressionHelperSession").apply {
@@ -174,7 +175,7 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        settingsRepository.unregisterChangeListener(prefsListener)
+        settingsWatch?.cancel()
         try {
             // Ensure audio and jobs are stopped when service is destroyed
             stopPlayback()
