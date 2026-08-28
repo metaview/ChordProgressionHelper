@@ -28,6 +28,7 @@ import de.metaviewsoft.chordprogressionhelper.model.StrummingPattern
 import de.metaviewsoft.chordprogressionhelper.model.Strum
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
+import de.metaviewsoft.chordprogressionhelper.data.SoundPreset
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -214,6 +215,29 @@ class SoloPatternActivity : AppCompatActivity() {
         // Initialize previewAudioPlayer with solo preset and volume settings
         val settingsRepo = SettingsRepository(this)
         previewAudioPlayer.soloPreset = settingsRepo.soloPreset
+
+        // Quick solo-instrument switch (Clean / Overdrive / Piano) directly in the solo screen.
+        // Changing it persists the setting and applies to the live preview player immediately.
+        val soloPresetToggle =
+            findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.soloPresetToggle)
+        soloPresetToggle.check(
+            when (settingsRepo.soloPreset) {
+                SoundPreset.CLEAN -> R.id.presetCleanBtn
+                SoundPreset.OVERDRIVE -> R.id.presetOverdriveBtn
+                SoundPreset.PIANO -> R.id.presetPianoBtn
+            }
+        )
+        soloPresetToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            val preset = when (checkedId) {
+                R.id.presetCleanBtn -> SoundPreset.CLEAN
+                R.id.presetOverdriveBtn -> SoundPreset.OVERDRIVE
+                R.id.presetPianoBtn -> SoundPreset.PIANO
+                else -> return@addOnButtonCheckedListener
+            }
+            settingsRepo.soloPreset = preset
+            previewAudioPlayer.soloPreset = preset
+        }
         // Apply volume settings (always set them, they have sensible defaults)
         val soloLevel = settingsRepo.soloLevel.toDouble().coerceAtLeast(0.5)  // Minimum 0.5 for keyboard preview
         previewAudioPlayer.soloLevel = soloLevel

@@ -41,6 +41,41 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
+        <!-- Quick solo-instrument switch (Clean / Overdrive / Piano) -->
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/soloPresetToggle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="6dp"
+            app:singleSelection="true"
+            app:selectionRequired="true">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/presetCleanBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="@string/preset_clean" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/presetOverdriveBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="@string/preset_overdrive" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/presetPianoBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="@string/preset_piano" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
         <!-- Keyboard container: white keys with overlayed black keys -->
         <FrameLayout
             android:id="@+id/keyboardFrame"
