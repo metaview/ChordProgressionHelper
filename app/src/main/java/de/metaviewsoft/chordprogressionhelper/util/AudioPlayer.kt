@@ -246,7 +246,7 @@ class AudioPlayer {
         }
     }
 
-    private var audioTrack: AudioTrack? = null
+    private var audioTrack: AudioSink? = null
 
     // Reusable small AudioTrack used for quick previews (chords/drums) to avoid allocating
     // a fresh AudioTrack on every preview call which is expensive and causes audible delay.
@@ -453,19 +453,9 @@ class AudioPlayer {
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT
                 )
-                audioTrack = AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                            .build()
-                    )
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .setBufferSizeInBytes(minBufferSize * 2)
-                    .build()
+                audioTrack = AndroidAudioSinkFactory.create(
+                    AudioSinkConfig(sampleRate, minBufferSize * 2, AudioUsage.MUSIC)
+                )
                 val trackPlayTime = System.currentTimeMillis()
                 audioTrack?.play()
                 audioTrack?.setVolume(masterVolume.toFloat())
@@ -2119,7 +2109,7 @@ class AudioPlayer {
             )
         }
         audioTrack?.let {
-            if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
+            if (it.isPlaying) {
                 try {
                     it.flush()
                     it.stop()
