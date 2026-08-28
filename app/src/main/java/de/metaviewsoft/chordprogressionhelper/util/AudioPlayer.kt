@@ -2688,7 +2688,11 @@ class AudioPlayer {
                         chunkBuf[i] = sample * env
                     }
                 } else {
-                    for (i in 0 until n) chunkBuf[i] = karplusString!!.tick()
+                    val od = soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE
+                    for (i in 0 until n) {
+                        val ks = karplusString!!.tick()
+                        chunkBuf[i] = if (od) DspSupport.overdrive(ks, soloCrunchLevel.toDouble()) else ks
+                    }
                 }
                 
                 // Apply piano gain to samples
@@ -2770,7 +2774,10 @@ class AudioPlayer {
                             val env = if (s < attackSamples) s.toDouble() / attackSamples else 1.0
                             v * env
                         } else {
-                            karplus!!.tick()
+                            val ks = karplus!!.tick()
+                            if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE)
+                                DspSupport.overdrive(ks, soloCrunchLevel.toDouble())
+                            else ks
                         }
                         var vv = raw * gain
                         if (releasing) {

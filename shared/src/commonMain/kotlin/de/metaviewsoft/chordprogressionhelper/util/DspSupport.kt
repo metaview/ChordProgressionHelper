@@ -1,6 +1,7 @@
 package de.metaviewsoft.chordprogressionhelper.util
 
 import kotlin.math.pow
+import kotlin.math.tanh
 
 /**
  * Stateless DSP helpers, shared (KMP). Each native-accelerated helper falls back to a pure-Kotlin
@@ -11,6 +12,17 @@ object DspSupport {
 
     /** One-pole low-pass step: prev + alpha * (value - prev). */
     fun lowpass(prev: Double, alpha: Double, value: Double): Double = prev + alpha * (value - prev)
+
+    /**
+     * tanh soft-clip overdrive, blended with the dry signal. [crunchLevel] ~0 = subtle warmth,
+     * 2.0 = heavy. Matches the saturation used in full playback so live previews sound the same.
+     */
+    fun overdrive(sample: Double, crunchLevel: Double): Double {
+        val gain = 1.2 + (crunchLevel * 2.5)
+        val mix = 0.5 + (crunchLevel * 0.35)
+        val driven = tanh(sample * gain)
+        return mix * driven + (1.0 - mix) * sample
+    }
 
     /** Convert doubles in [-1.0, 1.0] to 16-bit PCM, natively if possible. */
     fun pcmFromDoubles(
