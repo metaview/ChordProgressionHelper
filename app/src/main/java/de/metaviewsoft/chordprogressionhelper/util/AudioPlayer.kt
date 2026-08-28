@@ -2662,6 +2662,9 @@ class AudioPlayer {
                 de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO     -> 0.6
             } * soloLevel
 
+            // Level-match Overdrive to Clean (tanh raises RMS at equal peak). Tune by ear.
+            val overdriveMakeupGain = if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE) 0.7 else 1.0
+
             var samplesWritten = 0
             while (samplesWritten < totalSamples && myPreviewId == currentPreviewId) {
                 val n = minOf(chunkSize, totalSamples - samplesWritten)
@@ -2707,9 +2710,9 @@ class AudioPlayer {
                     if (a > maxAbs) maxAbs = a
                 }
                 val targetPeak = 0.85
-                val scale = if (maxAbs > 0.0) {
+                val scale = (if (maxAbs > 0.0) {
                     if (maxAbs > targetPeak) targetPeak / maxAbs else 1.0
-                } else 1.0
+                } else 1.0) * overdriveMakeupGain
                 
                 // Convert to shorts with normalization applied
                 val shorts = ShortArray(n) { i ->
@@ -2752,6 +2755,9 @@ class AudioPlayer {
                     de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO -> 0.6
                 }) * soloLevel
 
+                // Level-match Overdrive to Clean (tanh raises RMS at equal peak). Tune by ear.
+                val overdriveMakeupGain = if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE) 0.7 else 1.0
+
                 val chunk = (sampleRate / 20).coerceAtLeast(1) // 50ms
                 val buf = DoubleArray(chunk)
                 val pcm = ShortArray(chunk)
@@ -2792,7 +2798,7 @@ class AudioPlayer {
                     // so it never undoes the release fade.
                     var maxAbs = 0.0
                     for (i in 0 until chunk) { val a = kotlin.math.abs(buf[i]); if (a > maxAbs) maxAbs = a }
-                    val scale = if (maxAbs > 0.85) 0.85 / maxAbs else 1.0
+                    val scale = (if (maxAbs > 0.85) 0.85 / maxAbs else 1.0) * overdriveMakeupGain
                     for (i in 0 until chunk) pcm[i] = ((buf[i] * scale).coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
                     if (myPreviewId != currentPreviewId || shouldStopPreview) break
                     at.write(pcm, 0, chunk)
