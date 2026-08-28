@@ -17,8 +17,8 @@ object DspSupport {
      * tanh soft-clip overdrive, blended with the dry signal. [crunchLevel] ~0 = subtle warmth,
      * 2.0 = heavy. Matches the saturation used in full playback so live previews sound the same.
      */
-    fun overdrive(sample: Double, crunchLevel: Double): Double {
-        val gain = 1.2 + (crunchLevel * 2.5)
+    fun overdrive(sample: Double, crunchLevel: Double, driveBoost: Double = 1.0): Double {
+        val gain = (1.2 + (crunchLevel * 2.5)) * driveBoost
         val mix = 0.5 + (crunchLevel * 0.35)
         val driven = tanh(sample * gain)
         return mix * driven + (1.0 - mix) * sample

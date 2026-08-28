@@ -403,6 +403,10 @@ class AudioPlayer {
             field = value.coerceIn(0.0f, 2.0f)
         }
 
+    // Live solo-preview overdrive tuning (preview only; playback tone is untouched). Tune by ear.
+    private val soloPreviewOverdriveDrive = 2.5   // extra tanh drive -> grittier than playback
+    private val soloPreviewOverdriveMakeup = 0.5  // post-normalization level-match to Clean
+
     @OptIn(InternalSerializationApi::class)
     suspend fun playProgression(
         progression: ChordProgression,
@@ -2663,7 +2667,7 @@ class AudioPlayer {
             } * soloLevel
 
             // Level-match Overdrive to Clean (tanh raises RMS at equal peak). Tune by ear.
-            val overdriveMakeupGain = if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE) 0.7 else 1.0
+            val overdriveMakeupGain = if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE) soloPreviewOverdriveMakeup else 1.0
 
             var samplesWritten = 0
             while (samplesWritten < totalSamples && myPreviewId == currentPreviewId) {
@@ -2694,7 +2698,7 @@ class AudioPlayer {
                     val od = soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE
                     for (i in 0 until n) {
                         val ks = karplusString!!.tick()
-                        chunkBuf[i] = if (od) DspSupport.overdrive(ks, soloCrunchLevel.toDouble()) else ks
+                        chunkBuf[i] = if (od) DspSupport.overdrive(ks, soloCrunchLevel.toDouble(), soloPreviewOverdriveDrive) else ks
                     }
                 }
                 
@@ -2756,7 +2760,7 @@ class AudioPlayer {
                 }) * soloLevel
 
                 // Level-match Overdrive to Clean (tanh raises RMS at equal peak). Tune by ear.
-                val overdriveMakeupGain = if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE) 0.7 else 1.0
+                val overdriveMakeupGain = if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE) soloPreviewOverdriveMakeup else 1.0
 
                 val chunk = (sampleRate / 20).coerceAtLeast(1) // 50ms
                 val buf = DoubleArray(chunk)
@@ -2782,7 +2786,7 @@ class AudioPlayer {
                         } else {
                             val ks = karplus!!.tick()
                             if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE)
-                                DspSupport.overdrive(ks, soloCrunchLevel.toDouble())
+                                DspSupport.overdrive(ks, soloCrunchLevel.toDouble(), soloPreviewOverdriveDrive)
                             else ks
                         }
                         var vv = raw * gain
