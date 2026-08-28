@@ -165,6 +165,26 @@ class AudioPlayer {
                         android.util.Log.w("AudioPlayer", "JIT warm-up failed: ${t.message}", t)
                     }
 
+                    // Solo keyboard warm-up: the existing warm-up only covers drums, so the FIRST solo
+                    // key press otherwise pays class-loading + JIT for the solo synthesis path. Exercise
+                    // it here (KarplusStrongString, DspSupport.overdrive, PCM conversion) and warm the
+                    // previewAudioTrack write path with silence (no audible output).
+                    try {
+                        val warm = DoubleArray(256)
+                        val ks = KarplusStrongString(220.0, sampleRate, 3, 0.998).apply { pluck() }
+                        for (i in warm.indices) {
+                            warm[i] = DspSupport.overdrive(ks.tick(), soloCrunchLevel.toDouble(), soloPreviewOverdriveDrive)
+                        }
+                        val warmPcm = warm.toPcmShortArray()
+                        previewAudioTrack?.let { track ->
+                            val silent = ShortArray(warmPcm.size)
+                            track.write(silent, 0, silent.size)
+                            track.flush()
+                        }
+                    } catch (t: Throwable) {
+                        android.util.Log.d("AudioPlayer", "Solo warm-up: ${t.message}")
+                    }
+
                     // Warm up the Handler's playback lambda to prevent JIT compilation delays on first play
                     val handlerWarmupStart = System.currentTimeMillis()
                     try {
