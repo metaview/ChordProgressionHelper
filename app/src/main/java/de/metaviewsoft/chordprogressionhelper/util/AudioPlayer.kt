@@ -975,10 +975,13 @@ class AudioPlayer {
                                 val soloElements = soloElementTimeline[strumIndex]
 
                                 // Calculate gain based on soloPreset and multiply with soloLevel setting
+                                // Solo base gain per preset. Clean (raw Karplus) is the lowest-amplitude
+                                // signal, so it needs the most to sit in the mix next to the chords.
+                                // Post-mix normalization to 0.85 peak keeps this from clipping.
                                 val soloGainBase = when (soloPreset) {
-                                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN -> 1.0
-                                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.9
-                                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO -> 1.5
+                                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN -> 2.2
+                                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 2.0
+                                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO -> 2.0
                                 }
                                 val pianoGain = soloGainBase * soloLevel  // Apply soloLevel setting
 
