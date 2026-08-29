@@ -251,20 +251,29 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <!-- Header row: title + preview button on one line -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/solo_instrument_label"
-                    android:textStyle="bold"
-                    android:textSize="18sp"
-                    android:layout_marginBottom="8dp" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="4dp"
-                    android:text="@string/instrument_label"
-                    android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/solo_instrument_label"
+                        android:textStyle="bold"
+                        android:textSize="18sp" />
+
+                    <Button
+                        android:id="@+id/soloPreviewButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preview_solo_button" />
+
+                </LinearLayout>
 
                 <RadioGroup
                     android:id="@+id/soloPresetRadioGroup"
@@ -325,6 +334,7 @@
                     android:max="200"
                     android:progress="100" />
 
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -343,20 +353,29 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <!-- Header row: title + preview button on one line -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/strumming_instrument_label"
-                    android:textStyle="bold"
-                    android:textSize="18sp"
-                    android:layout_marginBottom="8dp" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="4dp"
-                    android:text="@string/instrument_label"
-                    android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/strumming_instrument_label"
+                        android:textStyle="bold"
+                        android:textSize="18sp" />
+
+                    <Button
+                        android:id="@+id/strumPreviewButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preview_strum_button" />
+
+                </LinearLayout>
 
                 <RadioGroup
                     android:id="@+id/soundPresetRadioGroup"
@@ -424,6 +443,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/timing_settings_button" />
+
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

@@ -161,6 +161,8 @@
     <string name="down_stroke_offset_label">Down stroke offset (ms)</string>
     <string name="down_string_stagger_label">Down-string stagger (ms)</string>
     <string name="reset_sound_label">Reset sound</string>
+    <string name="preview_solo_button">▶ Test</string>
+    <string name="preview_strum_button">▶ Test</string>
     <string name="strumming_instrument_label">Strumming Instrument:</string>
     <string name="solo_instrument_label">Solo Instrument:</string>
     <string name="preset_clean">Clean</string>

@@ -1326,11 +1326,15 @@ class AudioPlayer {
                 val initialSampleCount = minOf((sampleRate * initialBufferMs / 1000), numSamples)
 
                 // Generate initial samples and estimate headroom
+                val previewIsOverdrive = voicePreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE
                 var quickMax = 0.0
                 for (i in 0 until initialSampleCount) {
                     var sample = 0.0
                     for (s in strings) sample += s.tick()
-                    buf[i] = sample * voiceGain
+                    buf[i] = if (previewIsOverdrive)
+                        de.metaviewsoft.chordprogressionhelper.util.DspSupport.overdrive(sample * voiceGain, strumCrunchLevel.toDouble())
+                    else
+                        sample * voiceGain
                     val a = kotlin.math.abs(buf[i])
                     if (a > quickMax) quickMax = a
                 }
@@ -1412,7 +1416,10 @@ class AudioPlayer {
                         for (i in samplesGenerated until chunkEnd) {
                             var sample = 0.0
                             for (s in strings) sample += s.tick()
-                            buf[i] = sample * voiceGain
+                            buf[i] = if (previewIsOverdrive)
+                                de.metaviewsoft.chordprogressionhelper.util.DspSupport.overdrive(sample * voiceGain, strumCrunchLevel.toDouble())
+                            else
+                                sample * voiceGain
                         }
 
                         // Convert to PCM16
@@ -2551,9 +2558,14 @@ class AudioPlayer {
                                     chunkBuf[i] = sample * envelope
                                 }
                             } else {
-                                // Karplus-Strong: Use persistent string instance
+                                // Karplus-Strong: Use persistent string instance, with
+                                // overdrive applied when OVERDRIVE preset is selected.
+                                val od = soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE
                                 for (i in 0 until currentChunkSize) {
-                                    chunkBuf[i] = karplusString!!.tick()
+                                    val ks = karplusString!!.tick()
+                                    chunkBuf[i] = if (od)
+                                        de.metaviewsoft.chordprogressionhelper.util.DspSupport.overdrive(ks, soloCrunchLevel.toDouble(), soloPreviewOverdriveDrive)
+                                    else ks
                                 }
                             }
 

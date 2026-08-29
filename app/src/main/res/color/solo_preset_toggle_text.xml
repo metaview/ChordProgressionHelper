@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text/icon colour for the solo-instrument toggle buttons.
+     Checked = onPrimary (reads on the filled primary background);
+     unchecked = primary (matches the outline). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true" android:color="@color/colorOnPrimary"/>
+    <item android:color="@color/colorPrimary"/>
+</selector>

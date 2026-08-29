@@ -5,17 +5,30 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.widget.SeekBar
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import android.content.Intent
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 import de.metaviewsoft.chordprogressionhelper.data.SoundPreset
 import de.metaviewsoft.chordprogressionhelper.databinding.ActivitySettingsBinding
+import de.metaviewsoft.chordprogressionhelper.model.Chord
+import de.metaviewsoft.chordprogressionhelper.model.ChordType
 import de.metaviewsoft.chordprogressionhelper.model.Key
+import de.metaviewsoft.chordprogressionhelper.model.Note
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
+import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var settingsRepository: SettingsRepository
+
+    // Dedicated player for the in-settings instrument previews. Kept separate from the
+    // PlaybackService so a running song is not disturbed (previews may overlap it).
+    private val previewAudioPlayer = AudioPlayer()
+    private var previewJob: Job? = null
 
     private fun updatePlaybackTempo(newTempo: Int) {
         val intent = Intent(this, PlaybackService::class.java).apply {
@@ -322,6 +335,11 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        // Instrument preview buttons: let the user hear the current solo/strum settings
+        // without having to start a full progression.
+        binding.soloPreviewButton.setOnClickListener { playSoloPreview() }
+        binding.strumPreviewButton.setOnClickListener { playStrumPreview() }
+
         // Reset button - restore defaults (100% => 1.0, Solo 150% => 1.5)
         binding.resetSoundButton.setOnClickListener {
             settingsRepository.drumLevel = 1.0f
@@ -445,5 +463,39 @@ class SettingsActivity : AppCompatActivity() {
             prog.key = newKey
         }
         session.save()
+    }
+
+    /** Play a single solo note (middle A) using the currently-configured solo instrument/levels. */
+    private fun playSoloPreview() {
+        previewJob?.cancel()
+        previewAudioPlayer.soloPreset = settingsRepository.soloPreset
+        // Keep the keyboard-style minimum so the note is clearly audible even at low level settings.
+        previewAudioPlayer.soloLevel = settingsRepository.soloLevel.toDouble().coerceAtLeast(0.5)
+        previewAudioPlayer.soloCrunchLevel = settingsRepository.soloCrunchLevel
+        previewAudioPlayer.masterVolume = 1.0
+        previewAudioPlayer.ensurePreviewTrackReady()
+        // triggerSoloNotePreview already applies overdrive/crunch and runs on the audio handler thread.
+        // 1.8s gives enough ring-out to hear the character of the preset and crunch setting.
+        previewAudioPlayer.triggerSoloNotePreview(midiNote = 69, durationSec = 1.8)
+    }
+
+    /** Strum a C major chord using the currently-configured strumming instrument/levels. */
+    private fun playStrumPreview() {
+        previewJob?.cancel()
+        previewAudioPlayer.voicePreset = settingsRepository.strumPreset
+        previewAudioPlayer.strumLevel = settingsRepository.strumLevel.toDouble()
+        previewAudioPlayer.strumCrunchLevel = settingsRepository.strumCrunchLevel
+        previewAudioPlayer.masterVolume = 1.0
+        previewAudioPlayer.ensurePreviewTrackReady()
+        val chord = Chord(Note.C, ChordType.MAJOR, "I")
+        previewJob = lifecycleScope.launch(Dispatchers.IO) {
+            previewAudioPlayer.previewChord(chord, settingsRepository.pluckStrength)
+        }
+    }
+
+    override fun onDestroy() {
+        try { previewJob?.cancel() } catch (_: Exception) {}
+        try { previewAudioPlayer.stop() } catch (_: Exception) {}
+        super.onDestroy()
     }
 }
