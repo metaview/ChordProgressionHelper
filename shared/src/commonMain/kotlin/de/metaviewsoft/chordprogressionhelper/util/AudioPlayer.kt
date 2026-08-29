@@ -3,6 +3,7 @@
 package de.metaviewsoft.chordprogressionhelper.util
 
 import de.metaviewsoft.chordprogressionhelper.model.Chord
+import kotlin.concurrent.Volatile
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.model.Strum
 import kotlinx.coroutines.Dispatchers
