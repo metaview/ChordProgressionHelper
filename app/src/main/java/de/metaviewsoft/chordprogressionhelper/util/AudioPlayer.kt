@@ -31,7 +31,7 @@ class AudioPlayer {
     init {
         // Log native library availability on AudioPlayer creation
         val nativeStatus = if (NativeAudio.isAvailable()) "LOADED" else "NOT AVAILABLE (using Kotlin fallback)"
-        android.util.Log.i("AudioPlayer", "Native audio library status: $nativeStatus")
+        AppLog.i("AudioPlayer", "Native audio library status: $nativeStatus")
     }
 
     // Shared native-engine access; portable DSP helpers live in :shared (DspSupport).
@@ -69,57 +69,57 @@ class AudioPlayer {
                 audioHandler = Handler(audioHandlerThread!!.looper)
                 // Create a small cached preview AudioTrack on the audio thread to warm-up resources.
                 audioHandler!!.post {
-                    android.util.Log.d("AudioPlayer", "Starting previewAudioTrack creation...")
+                    AppLog.d("AudioPlayer", "Starting previewAudioTrack creation...")
                     try {
                         if (previewAudioTrack == null) {
-                            android.util.Log.d("AudioPlayer", "previewAudioTrack is null, creating new instance...")
+                            AppLog.d("AudioPlayer", "previewAudioTrack is null, creating new instance...")
                             val minBuf = AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
-                            android.util.Log.d("AudioPlayer", "minBufferSize=$minBuf")
+                            AppLog.d("AudioPlayer", "minBufferSize=$minBuf")
                             // LATENCY OPTIMIZATION: Use even smaller buffer for minimal latency
                             // Divide by 2 for keyboard/preview responsiveness
                             val bufferSize = if (minBuf > 0) (minBuf / 2).coerceAtLeast(256) else sampleRate / 20
-                            android.util.Log.d("AudioPlayer", "Using bufferSize=$bufferSize")
-                            android.util.Log.d("AudioPlayer", "Building AudioTrack...")
+                            AppLog.d("AudioPlayer", "Using bufferSize=$bufferSize")
+                            AppLog.d("AudioPlayer", "Building AudioTrack...")
                             previewAudioTrack = AndroidAudioSinkFactory.create(
                                 AudioSinkConfig(sampleRate, bufferSize, AudioUsage.LOW_LATENCY)
                             )
-                            android.util.Log.d("AudioPlayer", "AudioTrack built successfully, initialized=${previewAudioTrack?.isInitialized}")
+                            AppLog.d("AudioPlayer", "AudioTrack built successfully, initialized=${previewAudioTrack?.isInitialized}")
                             try {
                                 previewAudioTrack?.play()
-                                android.util.Log.d("AudioPlayer", "AudioTrack.play() called, playing=${previewAudioTrack?.isPlaying}")
+                                AppLog.d("AudioPlayer", "AudioTrack.play() called, playing=${previewAudioTrack?.isPlaying}")
                                 previewAudioTrack?.setVolume(masterVolume.toFloat())
-                                android.util.Log.d("AudioPlayer", "AudioTrack.setVolume($masterVolume) called")
+                                AppLog.d("AudioPlayer", "AudioTrack.setVolume($masterVolume) called")
                             } catch (e: Exception) {
-                                android.util.Log.w(
+                                AppLog.w(
                                     "AudioPlayer",
                                     "previewAudioTrack.play() failed: ${e.message}",
                                     e
                                 )
                             }
                         } else {
-                            android.util.Log.d("AudioPlayer", "previewAudioTrack already exists, skipping creation")
+                            AppLog.d("AudioPlayer", "previewAudioTrack already exists, skipping creation")
                         }
                     } catch (t: Throwable) {
-                        android.util.Log.e(
+                        AppLog.e(
                             "AudioPlayer",
                             "ensureAudioThreadStarted: FAILED to create previewAudioTrack: ${t.message}",
                             t
                         )
                         previewAudioTrack = null
                     }
-                    android.util.Log.d("AudioPlayer", "previewAudioTrack creation completed, result=${if (previewAudioTrack != null) "SUCCESS" else "FAILED"}")
+                    AppLog.d("AudioPlayer", "previewAudioTrack creation completed, result=${if (previewAudioTrack != null) "SUCCESS" else "FAILED"}")
                     // Pre-generate drum samples for instant drum previews
                     // Run synchronously (blocking) on the audio thread to ensure they're ready before playback
                     val drumGenStartTime = System.currentTimeMillis()
                     try {
                         preGenerateDrumSamples()
                         val drumGenEndTime = System.currentTimeMillis()
-                        android.util.Log.d(
+                        AppLog.d(
                             "AudioPlayer",
                             "preGenerateDrumSamples took ${drumGenEndTime - drumGenStartTime}ms (synchronous)"
                         )
                     } catch (t: Throwable) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "preGenerateDrumSamples failed: ${t.message}",
                             t
@@ -134,12 +134,12 @@ class AudioPlayer {
                         addHiHat(warmupBuf, 100, drumLevel)
                         // Don't actually write to AudioTrack, just trigger code paths
                         val warmupEndTime = System.currentTimeMillis()
-                        android.util.Log.d(
+                        AppLog.d(
                             "AudioPlayer",
                             "JIT warm-up took ${warmupEndTime - warmupStartTime}ms"
                         )
                     } catch (t: Throwable) {
-                        android.util.Log.w("AudioPlayer", "JIT warm-up failed: ${t.message}", t)
+                        AppLog.w("AudioPlayer", "JIT warm-up failed: ${t.message}", t)
                     }
 
                     // Solo keyboard warm-up: the existing warm-up only covers drums, so the FIRST solo
@@ -159,7 +159,7 @@ class AudioPlayer {
                             track.flush()
                         }
                     } catch (t: Throwable) {
-                        android.util.Log.d("AudioPlayer", "Solo warm-up: ${t.message}")
+                        AppLog.d("AudioPlayer", "Solo warm-up: ${t.message}")
                     }
 
                     // Warm up the Handler's playback lambda to prevent JIT compilation delays on first play
@@ -179,23 +179,23 @@ class AudioPlayer {
                                     audioTrack?.playbackHeadPosition
                                 }
                             } catch (e: Exception) {
-                                android.util.Log.d("AudioPlayer", "AudioTrack warmup: ${e.message}")
+                                AppLog.d("AudioPlayer", "AudioTrack warmup: ${e.message}")
                             }
                         }
                         val handlerWarmupEnd = System.currentTimeMillis()
-                        android.util.Log.d(
+                        AppLog.d(
                             "AudioPlayer",
                             "Handler lambda warmup posted (${handlerWarmupEnd - handlerWarmupStart}ms)"
                         )
                     } catch (t: Throwable) {
-                        android.util.Log.w("AudioPlayer", "Handler warmup failed: ${t.message}", t)
+                        AppLog.w("AudioPlayer", "Handler warmup failed: ${t.message}", t)
                     }
 
                     // Callback aufrufen: AudioThread ist bereit
                     try {
                         audioThreadReadyCallback?.onAudioThreadReady()
                     } catch (t: Throwable) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "audioThreadReadyCallback failed: ${t.message}",
                             t
@@ -226,9 +226,9 @@ class AudioPlayer {
         }
         
         if (previewAudioTrack == null) {
-            android.util.Log.w("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack still null after ${attempts * 10}ms")
+            AppLog.w("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack still null after ${attempts * 10}ms")
         } else {
-            android.util.Log.d("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack ready after ${attempts * 10}ms")
+            AppLog.d("AudioPlayer", "ensurePreviewTrackReady: previewAudioTrack ready after ${attempts * 10}ms")
         }
     }
 
@@ -416,20 +416,20 @@ class AudioPlayer {
         isResuming: Boolean = false
     ) {
         val playStartTime = System.currentTimeMillis()
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "playProgression CALLED (isResuming=$isResuming, startMeasure=$startMeasureIndex)"
         )
 
         if (isPlaying) {
-            android.util.Log.w("AudioPlayer", "playProgression REJECTED (already playing)")
+            AppLog.w("AudioPlayer", "playProgression REJECTED (already playing)")
             return
         }
 
         val ensureStartTime = System.currentTimeMillis()
         ensureAudioThreadStarted()
         val ensureEndTime = System.currentTimeMillis()
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "ensureAudioThreadStarted took ${ensureEndTime - ensureStartTime}ms"
         )
@@ -437,11 +437,11 @@ class AudioPlayer {
         val deferred = CompletableDeferred<Unit>()
         // Capture params for posted runnable
         val handlerPostTime = System.currentTimeMillis()
-        android.util.Log.d("AudioPlayer", "CALLING audioHandler.post (time=$handlerPostTime)")
+        AppLog.d("AudioPlayer", "CALLING audioHandler.post (time=$handlerPostTime)")
 
         audioHandler!!.post {
             val handlerStartTime = System.currentTimeMillis()
-            android.util.Log.d(
+            AppLog.d(
                 "AudioPlayer",
                 "audioHandler POST EXECUTING (queueDelay=${handlerStartTime - handlerPostTime}ms, time=$handlerStartTime)"
             )
@@ -457,7 +457,7 @@ class AudioPlayer {
                 audioTrack?.play()
                 audioTrack?.setVolume(masterVolume.toFloat())
                 val trackPlayDoneTime = System.currentTimeMillis()
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "AudioTrack creation took ${trackPlayTime - trackStartTime}ms, play() took ${trackPlayDoneTime - trackPlayTime}ms"
                 )
@@ -469,9 +469,9 @@ class AudioPlayer {
                     audioTrack?.write(warmupSilent, 0, warmupSilent.size)
                     // Flush to clear warmup buffer so it doesn't play back
                     audioTrack?.flush()
-                    android.util.Log.d("AudioPlayer", "AudioTrack warmup write + flush completed")
+                    AppLog.d("AudioPlayer", "AudioTrack warmup write + flush completed")
                 } catch (e: Exception) {
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "AudioTrack warmup write failed: ${e.message}"
                     )
@@ -479,7 +479,7 @@ class AudioPlayer {
 
                 // Ensure any residual audio data from previous runs is cleared before starting playback.
                 val clearStartTime = System.currentTimeMillis()
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "BEFORE buffer clearing (timeSinceTrackPlay=${clearStartTime - trackPlayDoneTime}ms)"
                 )
@@ -490,7 +490,7 @@ class AudioPlayer {
                         0.0
                     )
                 } catch (e: Exception) {
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "failed to clear reusableEighthBuffer: ${e.message}",
                         e
@@ -499,35 +499,35 @@ class AudioPlayer {
                 try {
                     java.util.Arrays.fill(previewBuffer, 0.0)
                 } catch (e: Exception) {
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "failed to clear previewBuffer: ${e.message}",
                         e
                     )
                 }
                 val clearEndTime = System.currentTimeMillis()
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "Buffer clearing took ${clearEndTime - clearStartTime}ms"
                 )
 
                 val isPlayingSetTime = System.currentTimeMillis()
                 isPlaying = true
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "isPlaying set (took ${isPlayingSetTime - clearEndTime}ms)"
                 )
 
                 var activeStrings: List<KarplusStrongString> = emptyList()
                 val activeStringsInitTime = System.currentTimeMillis()
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "activeStrings initialized (took ${activeStringsInitTime - isPlayingSetTime}ms)"
                 )
 
                 if (countInBeats > 0 && !isResuming) {
                     val countInStartTime = System.currentTimeMillis()
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "STARTING countInBeats (${countInBeats} beats)"
                     )
@@ -564,7 +564,7 @@ class AudioPlayer {
                         audioTrack?.write(samples, 0, quarterNoteSamples)
                         val writeEnd = System.currentTimeMillis()
                         val beatEnd = System.currentTimeMillis()
-                        android.util.Log.d(
+                        AppLog.d(
                             "AudioPlayer",
                             "countInBeats[$beatIndex]: gen=${genEnd - genStart}ms, write=${writeEnd - writeStart}ms, total=${beatEnd - beatStart}ms"
                         )
@@ -593,7 +593,7 @@ class AudioPlayer {
                             audioTrack?.write(samples, 0, eighthNoteSamples)
                             val writeEnd = System.currentTimeMillis()
                             val eighthEnd = System.currentTimeMillis()
-                            android.util.Log.d(
+                            AppLog.d(
                                 "AudioPlayer",
                                 "countInEighths[$eighthIndex]: gen=${genEnd - genStart}ms, write=${writeEnd - writeStart}ms, total=${eighthEnd - eighthStart}ms"
                             )
@@ -601,12 +601,12 @@ class AudioPlayer {
                     }
 
                     val countInEndTime = System.currentTimeMillis()
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "countInBeats (${countInBeats} beats) took ${countInEndTime - countInStartTime}ms"
                     )
                 } else {
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "SKIPPING countInBeats (countInBeats=$countInBeats, isResuming=$isResuming)"
                     )
@@ -616,7 +616,7 @@ class AudioPlayer {
                 // Only reuse persisted prevLP if we are resuming playback; otherwise start filter state at 0
                 var prevLPLocal = if (isResuming) this@AudioPlayer.prevLP else 0.0
                 val mainLoopStartTime = System.currentTimeMillis()
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "STARTING MAIN LOOP (loopStartMeasure=${if (isFirstLoopLocal) startMeasureIndex else 0}, timeSinceTrackPlay=${mainLoopStartTime - trackPlayDoneTime}ms"
                 )
@@ -632,7 +632,7 @@ class AudioPlayer {
                             emptyList()
 
                         if (isFirstLoopLocal && measureIndex == startMeasureIndex) {
-                            android.util.Log.d(
+                            AppLog.d(
                                 "AudioPlayer",
                                 "FIRST ITERATION START (measure=$measureIndex, strum=$loopStartStrum)"
                             )
@@ -672,7 +672,7 @@ class AudioPlayer {
                         for (strumIndex in loopStartStrum until measure.strummingPattern.strums.size) {
                             if (!isPlaying) break
                             if (isFirstLoopLocal && measureIndex == startMeasureIndex && strumIndex == loopStartStrum) {
-                                android.util.Log.d(
+                                AppLog.d(
                                     "AudioPlayer",
                                     "FIRST STRUM ITERATION START (measure=$measureIndex, strum=$strumIndex, timeSinceFirstIterationStart=${System.currentTimeMillis() - mainLoopStartTime}ms)"
                                 )
@@ -857,7 +857,7 @@ class AudioPlayer {
                                     try {
                                         activeStrings[j].pluck()
                                     } catch (e: Exception) {
-                                        android.util.Log.w(
+                                        AppLog.w(
                                             "AudioPlayer",
                                             "pluck() failed: ${e.message}",
                                             e
@@ -1138,7 +1138,7 @@ class AudioPlayer {
                                         drumScale
                                     )
                                 }
-                                android.util.Log.w(
+                                AppLog.w(
                                     "AudioPlayer",
                                     "Failed to read drum pattern for progression (using fallback): ${e.message}",
                                     e
@@ -1177,7 +1177,7 @@ class AudioPlayer {
                 } while (shouldLoop() && isPlaying)
 
                 val mainLoopEndTime = System.currentTimeMillis()
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "MAIN LOOP COMPLETED (totalTime=${mainLoopEndTime - mainLoopStartTime}ms)"
                 )
@@ -1187,14 +1187,14 @@ class AudioPlayer {
 
                 // IMPORTANT: Reset isPlaying flag when playback completes normally
                 isPlaying = false
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "playProgression: isPlaying set to false after normal completion"
                 )
 
                 deferred.complete(Unit)
             } catch (t: Throwable) {
-                android.util.Log.e(
+                AppLog.e(
                     "AudioPlayer",
                     "playProgression handler EXCEPTION: ${t.message}",
                     t
@@ -1208,7 +1208,7 @@ class AudioPlayer {
         // wait for audio thread to finish scheduling the run
         deferred.await()
         val playEndTime = System.currentTimeMillis()
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "playProgression COMPLETED (totalTime=${playEndTime - playStartTime}ms)"
         )
@@ -1218,27 +1218,27 @@ class AudioPlayer {
         // Generate and play preview on the audio thread using the cached previewAudioTrack to minimize latency.
         val startTime = System.currentTimeMillis()
         val myPreviewId = ++currentPreviewId
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "previewChord START: $chord (previewId=$myPreviewId, threadId=${Thread.currentThread().id})"
         )
         ensureAudioThreadStarted()
         val deferred = CompletableDeferred<Unit>()
         val postTime = System.currentTimeMillis()
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "previewChord: posting to audioHandler (elapsed=${postTime - startTime}ms, previewId=$myPreviewId)"
         )
         audioHandler!!.post {
             val handlerStartTime = System.currentTimeMillis()
-            android.util.Log.d(
+            AppLog.d(
                 "AudioPlayer",
                 "previewChord: audioHandler.post EXECUTING (queueDelay=${handlerStartTime - postTime}ms, chord=$chord, previewId=$myPreviewId)"
             )
 
             // Check if this preview is still the current one (not superseded by a newer preview)
             if (myPreviewId != currentPreviewId) {
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "previewChord: ABORT - superseded by newer preview (myId=$myPreviewId, currentId=$currentPreviewId, chord=$chord)"
                 )
@@ -1327,14 +1327,14 @@ class AudioPlayer {
                 }
 
                 val initialGenTime = System.currentTimeMillis() - genStartTime
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "previewChord: generated initial ${initialSampleCount} samples (${initialBufferMs}ms) in ${initialGenTime}ms"
                 )
 
                 // Check if this preview was superseded
                 if (myPreviewId != currentPreviewId) {
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "previewChord: ABORT - superseded (myId=$myPreviewId, currentId=$currentPreviewId, chord=$chord)"
                     )
@@ -1348,7 +1348,7 @@ class AudioPlayer {
                     try {
                         at.flush()
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewChord: flush failed: ${e.message}",
                             e
@@ -1360,7 +1360,7 @@ class AudioPlayer {
                     // STEP 1: Write initial buffer immediately for instant sound
                     var totalWritten = at.write(initialSamples, 0, initialSamples.size)
                     val initialWriteTime = System.currentTimeMillis() - writeStartTime
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "previewChord: wrote initial ${totalWritten} samples in ${initialWriteTime}ms - AUDIO STARTS NOW"
                     )
@@ -1375,7 +1375,7 @@ class AudioPlayer {
                     while (samplesGenerated < numSamples && myPreviewId == currentPreviewId) {
                         // Check if we've exceeded time budget
                         if (System.currentTimeMillis() - progressiveStartTime > maxProgressiveGenTime) {
-                            android.util.Log.d(
+                            AppLog.d(
                                 "AudioPlayer",
                                 "previewChord: stopping progressive gen after ${System.currentTimeMillis() - progressiveStartTime}ms (time budget exceeded)"
                             )
@@ -1409,13 +1409,13 @@ class AudioPlayer {
                             totalWritten += written
                             samplesGenerated = chunkEnd
                         } else if (written < 0) {
-                            android.util.Log.w("AudioPlayer", "previewChord: write error $written")
+                            AppLog.w("AudioPlayer", "previewChord: write error $written")
                             break
                         }
                     }
 
                     val totalWriteTime = System.currentTimeMillis() - writeStartTime
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "previewChord: wrote total ${totalWritten} samples in ${totalWriteTime}ms (initial+progressive, generated ${samplesGenerated}/${numSamples})"
                     )
@@ -1425,7 +1425,7 @@ class AudioPlayer {
                     val audioPlaybackMs = (previewDuration * 1000).toLong()
                     val remainingSleepMs = maxOf(0, audioPlaybackMs - totalWriteTime)
 
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "previewChord: entering sleep loop (remaining=${remainingSleepMs}ms after ${totalWriteTime}ms write)"
                     )
@@ -1440,12 +1440,12 @@ class AudioPlayer {
                         val sleepEndTime = System.currentTimeMillis()
                         val actualSleepMs = sleepEndTime - sleepStartTime
                         val wasSuperseded = myPreviewId != currentPreviewId
-                        android.util.Log.d(
+                        AppLog.d(
                             "AudioPlayer",
                             "previewChord: sleep loop DONE (planned=${remainingSleepMs}ms, actual=${actualSleepMs}ms, superseded=$wasSuperseded, previewId=$myPreviewId, chord=$chord)"
                         )
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewChord: sleep interrupted: ${e.message}",
                             e
@@ -1454,7 +1454,7 @@ class AudioPlayer {
                 } else {
                     // Fallback: create a temporary track if cached one is not available
                     // For fallback, just use initial samples (quick preview better than nothing)
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "previewChord: using fallback temporary AudioTrack (initial buffer only)"
                     )
@@ -1481,7 +1481,7 @@ class AudioPlayer {
                                 elapsed += checkIntervalMs
                             }
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewChord temp sleep interrupted: ${e.message}",
                                 e
@@ -1491,7 +1491,7 @@ class AudioPlayer {
                         try {
                             temp?.stop()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewChord temp.stop() failed: ${e.message}",
                                 e
@@ -1500,7 +1500,7 @@ class AudioPlayer {
                         try {
                             temp?.release()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewChord temp.release() failed: ${e.message}",
                                 e
@@ -1510,23 +1510,23 @@ class AudioPlayer {
                 }
 
                 val handlerEndTime = System.currentTimeMillis()
-                android.util.Log.d(
+                AppLog.d(
                     "AudioPlayer",
                     "previewChord: audioHandler.post COMPLETED (totalHandlerTime=${handlerEndTime - handlerStartTime}ms, chord=$chord)"
                 )
                 deferred.complete(Unit)
             } catch (t: Throwable) {
-                android.util.Log.e("AudioPlayer", "previewChord: EXCEPTION in audioHandler.post", t)
+                AppLog.e("AudioPlayer", "previewChord: EXCEPTION in audioHandler.post", t)
                 deferred.completeExceptionally(t)
             }
         }
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "previewChord: waiting for deferred.await() (chord=$chord, previewId=$myPreviewId)"
         )
         deferred.await()
         val endTime = System.currentTimeMillis()
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "previewChord FINISHED: $chord (totalTime=${endTime - startTime}ms, previewId=$myPreviewId)"
         )
@@ -1636,7 +1636,7 @@ class AudioPlayer {
                     if (peak < 0.0005) { if (++silentChunks > 4) break } else silentChunks = 0
                 }
             } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "startSustainedChord failed: ${e.message}", e)
+                AppLog.w("AudioPlayer", "startSustainedChord failed: ${e.message}", e)
             }
         }
     }
@@ -1670,7 +1670,7 @@ class AudioPlayer {
                     try {
                         at.flush()
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewKick flush failed: ${e.message}",
                             e
@@ -1687,7 +1687,7 @@ class AudioPlayer {
                             elapsed += checkIntervalMs
                         }
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewKick sleep interrupted: ${e.message}",
                             e
@@ -1713,7 +1713,7 @@ class AudioPlayer {
                                 elapsed += checkIntervalMs
                             }
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewKick tmp sleep interrupted: ${e.message}",
                                 e
@@ -1723,7 +1723,7 @@ class AudioPlayer {
                         try {
                             tmp?.stop()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewKick tmp.stop failed: ${e.message}",
                                 e
@@ -1732,7 +1732,7 @@ class AudioPlayer {
                         try {
                             tmp?.release()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewKick tmp.release failed: ${e.message}",
                                 e
@@ -1772,7 +1772,7 @@ class AudioPlayer {
                     try {
                         at.flush()
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewSnare flush failed: ${e.message}",
                             e
@@ -1789,7 +1789,7 @@ class AudioPlayer {
                             elapsed += checkIntervalMs
                         }
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewSnare sleep interrupted: ${e.message}",
                             e
@@ -1814,7 +1814,7 @@ class AudioPlayer {
                                 elapsed += checkIntervalMs
                             }
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewSnare tmp sleep interrupted: ${e.message}",
                                 e
@@ -1824,7 +1824,7 @@ class AudioPlayer {
                         try {
                             tmp?.stop()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewSnare tmp.stop failed: ${e.message}",
                                 e
@@ -1833,7 +1833,7 @@ class AudioPlayer {
                         try {
                             tmp?.release()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewSnare tmp.release failed: ${e.message}",
                                 e
@@ -1873,7 +1873,7 @@ class AudioPlayer {
                     try {
                         at.flush()
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewHiHat flush failed: ${e.message}",
                             e
@@ -1890,7 +1890,7 @@ class AudioPlayer {
                             elapsed += checkIntervalMs
                         }
                     } catch (e: Exception) {
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewHiHat sleep interrupted: ${e.message}",
                             e
@@ -1915,7 +1915,7 @@ class AudioPlayer {
                                 elapsed += checkIntervalMs
                             }
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewHiHat tmp sleep interrupted: ${e.message}",
                                 e
@@ -1925,7 +1925,7 @@ class AudioPlayer {
                         try {
                             tmp?.stop()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewHiHat tmp.stop failed: ${e.message}",
                                 e
@@ -1934,7 +1934,7 @@ class AudioPlayer {
                         try {
                             tmp?.release()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewHiHat tmp.release failed: ${e.message}",
                                 e
@@ -1952,7 +1952,7 @@ class AudioPlayer {
 
     // Convert a DoubleArray (values roughly in -1..1) to 16-bit PCM ShortArray.
     private fun DoubleArray.toPcmShortArray(): ShortArray =
-        DspSupport.pcmFromDoubles(nativeBridge, this) { msg -> android.util.Log.w("AudioPlayer", msg) }
+        DspSupport.pcmFromDoubles(nativeBridge, this) { msg -> AppLog.w("AudioPlayer", msg) }
 
     // Small percussive transient used specifically to add a short 'thud' to palm-muted strums
     private fun addMutePercussive(buffer: DoubleArray) = DrumSynth.addMutePercussive(buffer, drumLevel)
@@ -1997,7 +1997,7 @@ class AudioPlayer {
      */
     private fun addKick(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) =
         DrumSynth.addKick(nativeBridge, buffer, duration, levelScale, envelopeScale, drumLevel, sampleRate) { msg ->
-            android.util.Log.w("AudioPlayer", msg)
+            AppLog.w("AudioPlayer", msg)
         }
 
     /**
@@ -2007,7 +2007,7 @@ class AudioPlayer {
      */
     private fun addSnare(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) =
         DrumSynth.addSnare(nativeBridge, buffer, duration, levelScale, envelopeScale, drumLevel) { msg ->
-            android.util.Log.w("AudioPlayer", msg)
+            AppLog.w("AudioPlayer", msg)
         }
 
     /**
@@ -2017,19 +2017,19 @@ class AudioPlayer {
      */
     private fun addHiHat(buffer: DoubleArray, duration: Int, levelScale: Double = 1.0) =
         DrumSynth.addHiHat(nativeBridge, buffer, duration, levelScale, envelopeScale, hiHatHighpass) { msg ->
-            android.util.Log.w("AudioPlayer", msg)
+            AppLog.w("AudioPlayer", msg)
         }
 
     private fun midiNoteToFrequency(midiNote: Int): Double =
-        DspSupport.midiNoteToFrequency(nativeBridge, midiNote) { msg -> android.util.Log.w("AudioPlayer", msg) }
+        DspSupport.midiNoteToFrequency(nativeBridge, midiNote) { msg -> AppLog.w("AudioPlayer", msg) }
 
     fun stop() {
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "stop() CALLED (isPlaying=$isPlaying, shouldStopPreview=$shouldStopPreview, threadId=${Thread.currentThread().id})"
         )
         if (!isPlaying) {
-            android.util.Log.d(
+            AppLog.d(
                 "AudioPlayer",
                 "stop() setting shouldStopPreview=true even though isPlaying=false"
             )
@@ -2037,9 +2037,9 @@ class AudioPlayer {
             // Remove all pending messages even if not playing, to clear preview queue
             try {
                 audioHandler?.removeCallbacksAndMessages(null)
-                android.util.Log.d("AudioPlayer", "stop() removed pending handler messages")
+                AppLog.d("AudioPlayer", "stop() removed pending handler messages")
             } catch (e: Exception) {
-                android.util.Log.w(
+                AppLog.w(
                     "AudioPlayer",
                     "stop: removeCallbacksAndMessages failed: ${e.message}",
                     e
@@ -2052,12 +2052,12 @@ class AudioPlayer {
         // Remove all pending messages from audio handler to ensure immediate stop
         try {
             audioHandler?.removeCallbacksAndMessages(null)
-            android.util.Log.d(
+            AppLog.d(
                 "AudioPlayer",
                 "stop() removed pending handler messages (isPlaying was true)"
             )
         } catch (e: Exception) {
-            android.util.Log.w(
+            AppLog.w(
                 "AudioPlayer",
                 "stop: removeCallbacksAndMessages failed: ${e.message}",
                 e
@@ -2080,7 +2080,7 @@ class AudioPlayer {
                 try {
                     it.flush()
                 } catch (e: Exception) {
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "stop: previewAudioTrack.flush failed: ${e.message}",
                         e
@@ -2089,7 +2089,7 @@ class AudioPlayer {
                 try {
                     it.stop()
                 } catch (e: Exception) {
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "stop: previewAudioTrack.stop failed: ${e.message}",
                         e
@@ -2098,7 +2098,7 @@ class AudioPlayer {
                 try {
                     it.release()
                 } catch (e: Exception) {
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "stop: previewAudioTrack.release failed: ${e.message}",
                         e
@@ -2106,7 +2106,7 @@ class AudioPlayer {
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.w(
+            AppLog.w(
                 "AudioPlayer",
                 "stop: previewAudioTrack teardown failed: ${e.message}",
                 e
@@ -2116,13 +2116,13 @@ class AudioPlayer {
         try {
             this.prevLP = 0.0
         } catch (e: Exception) {
-            android.util.Log.w("AudioPlayer", "stop: resetting prevLP failed: ${e.message}", e)
+            AppLog.w("AudioPlayer", "stop: resetting prevLP failed: ${e.message}", e)
         }
         // Clear reusable buffers so a subsequent start cannot reuse stale sample data
         try {
             if (reusableEighthBuffer.isNotEmpty()) java.util.Arrays.fill(reusableEighthBuffer, 0.0)
         } catch (e: Exception) {
-            android.util.Log.w(
+            AppLog.w(
                 "AudioPlayer",
                 "stop: clearing reusableEighthBuffer failed: ${e.message}",
                 e
@@ -2131,7 +2131,7 @@ class AudioPlayer {
         try {
             java.util.Arrays.fill(previewBuffer, 0.0)
         } catch (e: Exception) {
-            android.util.Log.w(
+            AppLog.w(
                 "AudioPlayer",
                 "stop: clearing previewBuffer failed: ${e.message}",
                 e
@@ -2141,7 +2141,7 @@ class AudioPlayer {
 
     fun resetStopFlag() {
         shouldStopPreview = false
-        android.util.Log.d("AudioPlayer", "resetStopFlag() - shouldStopPreview set to false")
+        AppLog.d("AudioPlayer", "resetStopFlag() - shouldStopPreview set to false")
     }
 
 
@@ -2153,7 +2153,7 @@ class AudioPlayer {
     fun preGenerateDrumSamples() {
         // Try to load from cache first
         if (tryLoadDrumSamplesFromCache()) {
-            android.util.Log.d("AudioPlayer", "preGenerateDrumSamples: loaded from disk cache")
+            AppLog.d("AudioPlayer", "preGenerateDrumSamples: loaded from disk cache")
             return
         }
 
@@ -2183,7 +2183,7 @@ class AudioPlayer {
         drumSamplesCachedForSampleRate = sampleRate
 
         val endTime = System.currentTimeMillis()
-        android.util.Log.d(
+        AppLog.d(
             "AudioPlayer",
             "preGenerateDrumSamples: generated in ${endTime - startTime}ms"
         )
@@ -2193,12 +2193,12 @@ class AudioPlayer {
             Thread {
                 try {
                     saveDrumSamplesToCache()
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "preGenerateDrumSamples: saved to disk cache (async)"
                     )
                 } catch (e: Exception) {
-                    android.util.Log.w(
+                    AppLog.w(
                         "AudioPlayer",
                         "preGenerateDrumSamples: failed to save cache: ${e.message}",
                         e
@@ -2206,7 +2206,7 @@ class AudioPlayer {
                 }
             }.start()
         } catch (e: Exception) {
-            android.util.Log.w(
+            AppLog.w(
                 "AudioPlayer",
                 "preGenerateDrumSamples: failed to start save thread: ${e.message}",
                 e
@@ -2257,7 +2257,7 @@ class AudioPlayer {
             drumSamplesCachedForSampleRate = sampleRate
             true
         } catch (e: Exception) {
-            android.util.Log.w("AudioPlayer", "tryLoadDrumSamplesFromCache failed: ${e.message}", e)
+            AppLog.w("AudioPlayer", "tryLoadDrumSamplesFromCache failed: ${e.message}", e)
             false
         }
     }
@@ -2291,7 +2291,7 @@ class AudioPlayer {
             cachedSnareSamples?.let { saveShortArrayToFile(it, snareFile) }
             cachedHiHatSamples?.let { saveShortArrayToFile(it, hihatFile) }
         } catch (e: Exception) {
-            android.util.Log.w("AudioPlayer", "saveDrumSamplesToCache failed: ${e.message}", e)
+            AppLog.w("AudioPlayer", "saveDrumSamplesToCache failed: ${e.message}", e)
         }
     }
 
@@ -2311,7 +2311,7 @@ class AudioPlayer {
                 shorts
             }
         } catch (e: Exception) {
-            android.util.Log.w(
+            AppLog.w(
                 "AudioPlayer",
                 "loadShortArrayFromFile failed for ${file.name}: ${e.message}",
                 e
@@ -2344,13 +2344,13 @@ class AudioPlayer {
     // Piano synthesis using additive synthesis instead of Karplus-Strong
     private fun generatePianoSample(frequency: Double, durationSec: Double): DoubleArray =
         PianoSynth.generatePianoSample(nativeBridge, frequency, durationSec, sampleRate) { msg ->
-            android.util.Log.w("AudioPlayer", msg)
+            AppLog.w("AudioPlayer", msg)
         }
 
     // Mix multiple piano notes together
     private fun mixPianoNotes(midiNotes: List<Int>, durationSec: Double): DoubleArray =
         PianoSynth.mixPianoNotes(nativeBridge, midiNotes, durationSec, sampleRate) { msg ->
-            android.util.Log.w("AudioPlayer", msg)
+            AppLog.w("AudioPlayer", msg)
         }
 
     /**
@@ -2362,7 +2362,7 @@ class AudioPlayer {
         withContext(Dispatchers.IO) {
             val startTime = System.currentTimeMillis()
             val myPreviewId = ++currentPreviewId
-            android.util.Log.d(
+            AppLog.d(
                 "AudioPlayer",
                 "previewPianoNote START: midiNote=$midiNote (previewId=$myPreviewId, threadId=${Thread.currentThread().id})"
             )
@@ -2374,7 +2374,7 @@ class AudioPlayer {
 
                 // Check if this preview is still the current one
                 if (myPreviewId != currentPreviewId) {
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "previewPianoNote: ABORT - superseded (myId=$myPreviewId, currentId=$currentPreviewId)"
                     )
@@ -2392,7 +2392,7 @@ class AudioPlayer {
                         try {
                             at.flush()
                         } catch (e: Exception) {
-                            android.util.Log.w(
+                            AppLog.w(
                                 "AudioPlayer",
                                 "previewPianoNote flush failed: ${e.message}",
                                 e
@@ -2503,7 +2503,7 @@ class AudioPlayer {
                             at.write(chunkShorts, 0, chunkShorts.size)
 
                             if (isFirstChunk) {
-                                android.util.Log.d(
+                                AppLog.d(
                                     "AudioPlayer",
                                     "previewPianoNote: wrote initial ${currentChunkSize} samples - AUDIO STARTS NOW"
                                 )
@@ -2513,7 +2513,7 @@ class AudioPlayer {
                             samplesWritten += currentChunkSize
                         }
 
-                        android.util.Log.d(
+                        AppLog.d(
                             "AudioPlayer",
                             "previewPianoNote: wrote total ${samplesWritten} samples"
                         )
@@ -2532,7 +2532,7 @@ class AudioPlayer {
                                     elapsed += checkIntervalMs
                                 }
                             } catch (e: Exception) {
-                                android.util.Log.w(
+                                AppLog.w(
                                     "AudioPlayer",
                                     "previewPianoNote sleep interrupted: ${e.message}",
                                     e
@@ -2541,25 +2541,25 @@ class AudioPlayer {
                         }
                     } else {
                         // Fallback
-                        android.util.Log.w(
+                        AppLog.w(
                             "AudioPlayer",
                             "previewPianoNote: no previewAudioTrack available"
                         )
                     }
 
-                    android.util.Log.d(
+                    AppLog.d(
                         "AudioPlayer",
                         "previewPianoNote: COMPLETED (handlerTime=${System.currentTimeMillis() - handlerStartTime}ms)"
                     )
                     deferred.complete(Unit)
                 } catch (t: Throwable) {
-                    android.util.Log.e("AudioPlayer", "previewPianoNote: EXCEPTION", t)
+                    AppLog.e("AudioPlayer", "previewPianoNote: EXCEPTION", t)
                     deferred.completeExceptionally(t)
                 }
             }
 
             deferred.await()
-            android.util.Log.d(
+            AppLog.d(
                 "AudioPlayer",
                 "previewPianoNote FINISHED: midiNote=$midiNote (totalTime=${System.currentTimeMillis() - startTime}ms, previewId=$myPreviewId)"
             )
@@ -2572,31 +2572,31 @@ class AudioPlayer {
      * so a superseded note exits its write loop within at most 10ms.
      */
     fun triggerSoloNotePreview(midiNote: Int, durationSec: Double = 0.3) {
-        android.util.Log.d("AudioPlayer", "triggerSoloNotePreview called: midiNote=$midiNote, soloLevel=$soloLevel, masterVolume=$masterVolume")
+        AppLog.d("AudioPlayer", "triggerSoloNotePreview called: midiNote=$midiNote, soloLevel=$soloLevel, masterVolume=$masterVolume")
         ensureAudioThreadStarted()
         val myPreviewId = ++currentPreviewId
         shouldStopPreview = false
         audioHandler?.removeCallbacksAndMessages(null)
-        android.util.Log.d("AudioPlayer", "Posting to audioHandler, previewId=$myPreviewId")
+        AppLog.d("AudioPlayer", "Posting to audioHandler, previewId=$myPreviewId")
         audioHandler?.post {
-            android.util.Log.d("AudioPlayer", "audioHandler.post executed, previewId=$myPreviewId, currentPreviewId=$currentPreviewId")
+            AppLog.d("AudioPlayer", "audioHandler.post executed, previewId=$myPreviewId, currentPreviewId=$currentPreviewId")
             if (myPreviewId != currentPreviewId) {
-                android.util.Log.w("AudioPlayer", "Preview ID mismatch, aborting")
+                AppLog.w("AudioPlayer", "Preview ID mismatch, aborting")
                 return@post
             }
             val at = previewAudioTrack
             if (at == null) {
-                android.util.Log.e("AudioPlayer", "previewAudioTrack is NULL! Cannot play sound.")
+                AppLog.e("AudioPlayer", "previewAudioTrack is NULL! Cannot play sound.")
                 return@post
             }
-            android.util.Log.d("AudioPlayer", "previewAudioTrack found, playing=${at.isPlaying}, initialized=${at.isInitialized}")
+            AppLog.d("AudioPlayer", "previewAudioTrack found, playing=${at.isPlaying}, initialized=${at.isInitialized}")
 
             // Clear any buffered audio for an immediate clean start
             try { at.pause() } catch (_: Exception) {}
             try { at.flush() } catch (_: Exception) {}
             try { at.play()  } catch (_: Exception) {}
             try { at.setVolume(masterVolume.toFloat()) } catch (_: Exception) {}
-            android.util.Log.d("AudioPlayer", "AudioTrack prepared: play() called, volume set to $masterVolume")
+            AppLog.d("AudioPlayer", "AudioTrack prepared: play() called, volume set to $masterVolume")
 
             val freq = midiNoteToFrequency(midiNote)
             val totalSamples = (sampleRate * durationSec).toInt()
@@ -2767,7 +2767,7 @@ class AudioPlayer {
                     if (peak < 0.0005) { if (++silentChunks > 4) break } else silentChunks = 0
                 }
             } catch (e: Exception) {
-                android.util.Log.w("AudioPlayer", "startSustainedNote failed: ${e.message}", e)
+                AppLog.w("AudioPlayer", "startSustainedNote failed: ${e.message}", e)
             }
         }
     }

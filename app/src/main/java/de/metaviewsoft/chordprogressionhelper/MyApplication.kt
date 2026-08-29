@@ -31,6 +31,9 @@ class MyApplication : Application(), ViewModelStoreOwner {
 
     override fun onCreate() {
         super.onCreate()
+        // Route the shared module's AppLog facade to android.util.Log before any audio code runs.
+        de.metaviewsoft.chordprogressionhelper.util.AppLog.backend =
+            de.metaviewsoft.chordprogressionhelper.util.AndroidAppLogger
         // Register a global ActivityLifecycleCallbacks that enforces orientation rules:
         // - on phones: force portrait
         // - on tablets: allow rotation (unspecified)
