@@ -1446,17 +1446,18 @@ class SoloPatternActivity : AppCompatActivity() {
                     buf[i] = sin(2.0 * PI * freq * t) * env * 0.6
                 }
                 val shorts = buf.toPcmShortArray()
-                var at: android.media.AudioTrack? = null
+                var at: de.metaviewsoft.chordprogressionhelper.util.AudioSink? = null
                 try {
-                    val minBuf = android.media.AudioTrack.getMinBufferSize(sampleRate, android.media.AudioFormat.CHANNEL_OUT_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT)
-                    at = android.media.AudioTrack.Builder()
-                        .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                        .setAudioFormat(android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sampleRate).setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
-                        .setTransferMode(android.media.AudioTrack.MODE_STREAM)
-                        .setBufferSizeInBytes(maxOf(minBuf, shorts.size * 2))
-                        .build()
-                    at.play()
-                    at.write(shorts, 0, shorts.size)
+                    val minBuf = de.metaviewsoft.chordprogressionhelper.util.AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
+                    at = de.metaviewsoft.chordprogressionhelper.util.AndroidAudioSinkFactory.create(
+                        de.metaviewsoft.chordprogressionhelper.util.AudioSinkConfig(
+                            sampleRate,
+                            maxOf(minBuf, shorts.size * 2),
+                            de.metaviewsoft.chordprogressionhelper.util.AudioUsage.MUSIC
+                        )
+                    )
+                    at?.play()
+                    at?.write(shorts, 0, shorts.size)
                     // stream mode: wait briefly while data plays
                     Thread.sleep((durationSec * 1000).toLong())
                  } finally {

@@ -2,9 +2,6 @@
 
 package de.metaviewsoft.chordprogressionhelper.util
 
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import android.os.Process
 import de.metaviewsoft.chordprogressionhelper.model.Chord
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
@@ -76,40 +73,20 @@ class AudioPlayer {
                     try {
                         if (previewAudioTrack == null) {
                             android.util.Log.d("AudioPlayer", "previewAudioTrack is null, creating new instance...")
-                            val minBuf = AudioTrack.getMinBufferSize(
-                                sampleRate,
-                                AudioFormat.CHANNEL_OUT_MONO,
-                                AudioFormat.ENCODING_PCM_16BIT
-                            )
+                            val minBuf = AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
                             android.util.Log.d("AudioPlayer", "minBufferSize=$minBuf")
                             // LATENCY OPTIMIZATION: Use even smaller buffer for minimal latency
                             // Divide by 2 for keyboard/preview responsiveness
                             val bufferSize = if (minBuf > 0) (minBuf / 2).coerceAtLeast(256) else sampleRate / 20
                             android.util.Log.d("AudioPlayer", "Using bufferSize=$bufferSize")
-                            val builder = AudioTrack.Builder()
-                                .setAudioAttributes(
-                                    AudioAttributes.Builder()
-                                        .setUsage(AudioAttributes.USAGE_GAME)
-                                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                        .build()
-                                )
-                                .setAudioFormat(
-                                    AudioFormat.Builder()
-                                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                        .setSampleRate(sampleRate)
-                                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
-                                )
-                                .setTransferMode(AudioTrack.MODE_STREAM)
-                                .setBufferSizeInBytes(bufferSize)
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                            }
                             android.util.Log.d("AudioPlayer", "Building AudioTrack...")
-                            previewAudioTrack = builder.build()
-                            android.util.Log.d("AudioPlayer", "AudioTrack built successfully, state=${previewAudioTrack?.state}")
+                            previewAudioTrack = AndroidAudioSinkFactory.create(
+                                AudioSinkConfig(sampleRate, bufferSize, AudioUsage.LOW_LATENCY)
+                            )
+                            android.util.Log.d("AudioPlayer", "AudioTrack built successfully, initialized=${previewAudioTrack?.isInitialized}")
                             try {
                                 previewAudioTrack?.play()
-                                android.util.Log.d("AudioPlayer", "AudioTrack.play() called, playState=${previewAudioTrack?.playState}")
+                                android.util.Log.d("AudioPlayer", "AudioTrack.play() called, playing=${previewAudioTrack?.isPlaying}")
                                 previewAudioTrack?.setVolume(masterVolume.toFloat())
                                 android.util.Log.d("AudioPlayer", "AudioTrack.setVolume($masterVolume) called")
                             } catch (e: Exception) {
@@ -268,10 +245,10 @@ class AudioPlayer {
 
     private var audioTrack: AudioSink? = null
 
-    // Reusable small AudioTrack used for quick previews (chords/drums) to avoid allocating
+    // Reusable small low-latency sink used for quick previews (chords/drums) to avoid allocating
     // a fresh AudioTrack on every preview call which is expensive and causes audible delay.
     @Volatile
-    private var previewAudioTrack: AudioTrack? = null
+    private var previewAudioTrack: AudioSink? = null
     @Volatile
     private var isPlaying = false
     @Volatile
@@ -472,11 +449,7 @@ class AudioPlayer {
             try {
                 val trackStartTime = System.currentTimeMillis()
                 // Create fresh AudioTrack for each playback session
-                val minBufferSize = AudioTrack.getMinBufferSize(
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
+                val minBufferSize = AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
                 audioTrack = AndroidAudioSinkFactory.create(
                     AudioSinkConfig(sampleRate, minBufferSize * 2, AudioUsage.MUSIC)
                 )
@@ -1485,29 +1458,19 @@ class AudioPlayer {
                         "AudioPlayer",
                         "previewChord: using fallback temporary AudioTrack (initial buffer only)"
                     )
-                    var temp: AudioTrack? = null
+                    var temp: AudioSink? = null
                     try {
-                        val previewMinBuffer = AudioTrack.getMinBufferSize(
-                            sampleRate,
-                            AudioFormat.CHANNEL_OUT_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT
+                        val previewMinBuffer = AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
+                        temp = AndroidAudioSinkFactory.create(
+                            AudioSinkConfig(
+                                sampleRate,
+                                maxOf(previewMinBuffer, initialSamples.size * 2),
+                                AudioUsage.MUSIC
+                            )
                         )
-                        temp = AudioTrack.Builder()
-                            .setAudioAttributes(
-                                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
-                            )
-                            .setAudioFormat(
-                                AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                    .setSampleRate(sampleRate)
-                                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
-                            )
-                            .setTransferMode(AudioTrack.MODE_STREAM)
-                            .setBufferSizeInBytes(maxOf(previewMinBuffer, initialSamples.size * 2))
-                            .build()
 
-                        temp.play()
-                        temp.write(initialSamples, 0, initialSamples.size)
+                        temp?.play()
+                        temp?.write(initialSamples, 0, initialSamples.size)
                         shouldStopPreview = false
                         try {
                             val sleepMs = (previewDuration * 1000).toLong()
@@ -1732,28 +1695,14 @@ class AudioPlayer {
                     }
                 } else {
                     // fallback to temporary track
-                    var tmp: AudioTrack? = null
+                    var tmp: AudioSink? = null
                     try {
-                        val minBuf = AudioTrack.getMinBufferSize(
-                            sampleRate,
-                            AudioFormat.CHANNEL_OUT_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT
+                        val minBuf = AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
+                        tmp = AndroidAudioSinkFactory.create(
+                            AudioSinkConfig(sampleRate, maxOf(minBuf, samples.size * 2), AudioUsage.MUSIC)
                         )
-                        tmp = AudioTrack.Builder()
-                            .setAudioAttributes(
-                                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
-                            )
-                            .setAudioFormat(
-                                AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                    .setSampleRate(sampleRate)
-                                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
-                            )
-                            .setTransferMode(AudioTrack.MODE_STREAM)
-                            .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
-                            .build()
-                        tmp.play()
-                        tmp.write(samples, 0, samples.size)
+                        tmp?.play()
+                        tmp?.write(samples, 0, samples.size)
                         shouldStopPreview = false
                         try {
                             val sleepMs = (previewDuration * 1000).toLong()
@@ -1847,28 +1796,14 @@ class AudioPlayer {
                         )
                     }
                 } else {
-                    var tmp: AudioTrack? = null
+                    var tmp: AudioSink? = null
                     try {
-                        val minBuf = AudioTrack.getMinBufferSize(
-                            sampleRate,
-                            AudioFormat.CHANNEL_OUT_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT
+                        val minBuf = AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
+                        tmp = AndroidAudioSinkFactory.create(
+                            AudioSinkConfig(sampleRate, maxOf(minBuf, samples.size * 2), AudioUsage.MUSIC)
                         )
-                        tmp = AudioTrack.Builder()
-                            .setAudioAttributes(
-                                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
-                            )
-                            .setAudioFormat(
-                                AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                    .setSampleRate(sampleRate)
-                                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
-                            )
-                            .setTransferMode(AudioTrack.MODE_STREAM)
-                            .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
-                            .build()
-                        tmp.play()
-                        tmp.write(samples, 0, samples.size)
+                        tmp?.play()
+                        tmp?.write(samples, 0, samples.size)
                         shouldStopPreview = false
                         try {
                             val sleepMs = (previewDuration * 1000).toLong()
@@ -1962,28 +1897,14 @@ class AudioPlayer {
                         )
                     }
                 } else {
-                    var tmp: AudioTrack? = null
+                    var tmp: AudioSink? = null
                     try {
-                        val minBuf = AudioTrack.getMinBufferSize(
-                            sampleRate,
-                            AudioFormat.CHANNEL_OUT_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT
+                        val minBuf = AndroidAudioSinkFactory.minBufferSizeBytes(sampleRate)
+                        tmp = AndroidAudioSinkFactory.create(
+                            AudioSinkConfig(sampleRate, maxOf(minBuf, samples.size * 2), AudioUsage.MUSIC)
                         )
-                        tmp = AudioTrack.Builder()
-                            .setAudioAttributes(
-                                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
-                            )
-                            .setAudioFormat(
-                                AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                    .setSampleRate(sampleRate)
-                                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
-                            )
-                            .setTransferMode(AudioTrack.MODE_STREAM)
-                            .setBufferSizeInBytes(maxOf(minBuf, samples.size * 2))
-                            .build()
-                        tmp.play()
-                        tmp.write(samples, 0, samples.size)
+                        tmp?.play()
+                        tmp?.write(samples, 0, samples.size)
                         shouldStopPreview = false
                         try {
                             val sleepMs = (previewDuration * 1000).toLong()
@@ -2668,7 +2589,7 @@ class AudioPlayer {
                 android.util.Log.e("AudioPlayer", "previewAudioTrack is NULL! Cannot play sound.")
                 return@post
             }
-            android.util.Log.d("AudioPlayer", "previewAudioTrack found, playState=${at.playState}, state=${at.state}")
+            android.util.Log.d("AudioPlayer", "previewAudioTrack found, playing=${at.isPlaying}, initialized=${at.isInitialized}")
 
             // Clear any buffered audio for an immediate clean start
             try { at.pause() } catch (_: Exception) {}

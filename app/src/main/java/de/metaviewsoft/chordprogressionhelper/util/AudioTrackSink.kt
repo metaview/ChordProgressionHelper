@@ -19,6 +19,7 @@ class AudioTrackSink internal constructor(private val track: AudioTrack) : Audio
         track.setVolume(volume)
     }
 
+    override fun pause() = track.pause()
     override fun flush() = track.flush()
     override fun stop() = track.stop()
     override fun release() = track.release()

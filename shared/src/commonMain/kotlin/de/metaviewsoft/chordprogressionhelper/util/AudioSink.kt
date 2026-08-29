@@ -24,6 +24,10 @@ interface AudioSink {
     fun write(data: ShortArray, offsetInShorts: Int, sizeInShorts: Int): Int
 
     fun setVolume(volume: Float)
+
+    /** Pause playback without discarding buffered data (like `AudioTrack.pause`). */
+    fun pause()
+
     fun flush()
     fun stop()
     fun release()
