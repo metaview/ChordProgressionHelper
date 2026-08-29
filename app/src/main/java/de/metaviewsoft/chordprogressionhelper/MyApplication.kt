@@ -9,6 +9,11 @@ import androidx.lifecycle.ViewModelStoreOwner
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionRepository
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 import de.metaviewsoft.chordprogressionhelper.data.SongSession
+import de.metaviewsoft.chordprogressionhelper.util.AndroidAppLogger
+import de.metaviewsoft.chordprogressionhelper.util.AndroidAudioPlatform
+import de.metaviewsoft.chordprogressionhelper.util.AppLog
+import de.metaviewsoft.chordprogressionhelper.util.AudioPlatform
+import okio.Path.Companion.toPath
 
 class MyApplication : Application(), ViewModelStoreOwner {
 
@@ -32,8 +37,10 @@ class MyApplication : Application(), ViewModelStoreOwner {
     override fun onCreate() {
         super.onCreate()
         // Route the shared module's AppLog facade to android.util.Log before any audio code runs.
-        de.metaviewsoft.chordprogressionhelper.util.AppLog.backend =
-            de.metaviewsoft.chordprogressionhelper.util.AndroidAppLogger
+        AppLog.backend = AndroidAppLogger
+        // Install the audio platform backend (sink factory, audio thread, native bridge, drum cache).
+        AndroidAudioPlatform.drumSampleCacheDir = cacheDir.absolutePath.toPath()
+        AudioPlatform.support = AndroidAudioPlatform
         // Register a global ActivityLifecycleCallbacks that enforces orientation rules:
         // - on phones: force portrait
         // - on tablets: allow rotation (unspecified)
