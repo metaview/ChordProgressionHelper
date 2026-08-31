@@ -179,6 +179,15 @@ class PlaybackService : Service() {
                     playbackPositionMs = pos
                 }
             })
+            // Session activity: lets the system media card (quick panel / lockscreen) open the app.
+            // OneUI hides cards without one from some surfaces.
+            setSessionActivity(
+                PendingIntent.getActivity(
+                    this@PlaybackService, 0,
+                    Intent(this@PlaybackService, SongActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE
+                )
+            )
             // No explicit flags set; default behavior is sufficient and avoids deprecated constants
             isActive = true
         }
@@ -418,15 +427,21 @@ class PlaybackService : Service() {
 
         requestAudioFocus()
 
-        // Update media session playback state & metadata
-        val metadata = MediaMetadataCompat.Builder()
+        // Update media session playback state & metadata. Artwork matters: some launchers/
+        // lockscreen media surfaces (OneUI) skip cards without any art.
+        val metadataBuilder = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, progression.name.ifBlank { "Untitled" })
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, progression.key.displayName)
-            .build()
-        mediaSession.setMetadata(metadata)
+        try {
+            val art = android.graphics.BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
+            if (art != null) metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art)
+        } catch (e: Exception) {
+            Log.w(TAG, "album art decode failed: ${e.message}")
+        }
+        mediaSession.setMetadata(metadataBuilder.build())
         mediaSession.setPlaybackState(PlaybackStateCompat.Builder()
             .setState(PlaybackStateCompat.STATE_PLAYING, playbackPositionMs, 1.0f)
-            .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP or PlaybackStateCompat.ACTION_SEEK_TO)
+            .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_STOP or PlaybackStateCompat.ACTION_SEEK_TO)
             .build())
 
         val startPos = pausedPosition
@@ -526,7 +541,7 @@ class PlaybackService : Service() {
         playbackPositionMs = 0L
         mediaSession.setPlaybackState(PlaybackStateCompat.Builder()
             .setState(PlaybackStateCompat.STATE_PAUSED, playbackPositionMs, 0f)
-            .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_STOP or PlaybackStateCompat.ACTION_SEEK_TO)
+            .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_STOP or PlaybackStateCompat.ACTION_SEEK_TO)
             .build())
         currentProgression?.let { notificationManager.notify(NOTIFICATION_ID, createNotification(it, false)) }
         @Suppress("DEPRECATION")
