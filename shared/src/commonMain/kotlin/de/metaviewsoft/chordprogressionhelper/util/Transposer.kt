@@ -1,6 +1,5 @@
 package de.metaviewsoft.chordprogressionhelper.util
 
-import android.util.Log
 import de.metaviewsoft.chordprogressionhelper.model.Chord
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.model.Key
@@ -50,7 +49,7 @@ object Transposer {
                     measure.soloPattern = SoloPattern(soloPattern.name, transposedElements)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to transpose solo pattern: ${e.message}")
+                AppLog.w(TAG, "Failed to transpose solo pattern: ${e.message}")
             }
         }
     }

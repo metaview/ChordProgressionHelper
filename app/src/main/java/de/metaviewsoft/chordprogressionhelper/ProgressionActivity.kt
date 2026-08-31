@@ -1397,96 +1397,120 @@ class ProgressionActivity : AppCompatActivity() {
                 }
             }
         }
-        viewModel.scaleDegreeChords.observe(this) { chordAdapter.submitList(it) }
-        viewModel.primaryChords.observe(this) { chordAdapter.setPrimaryChords(it) }
-        viewModel.relatedChords.observe(this) { chords ->
-            relatedChordAdapter.submitList(chords)
-            val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
-            binding.relatedChordsLabel.visibility = visibility
-            binding.relatedChordContainer.visibility = visibility
-            binding.relatedChordRecyclerView.visibility = visibility
-            updateRecyclerFade(binding.relatedChordRecyclerView, binding.relatedFadeLeft, binding.relatedFadeRight)
-        }
-        viewModel.borrowedMinorChords.observe(this) { chords ->
-            borrowedMinorChordAdapter.submitList(chords)
-            val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
-            binding.borrowedChordsLabel.visibility = visibility
-            binding.borrowedMinorContainer.visibility = visibility
-            updateRecyclerFade(binding.borrowedMinorChordRecyclerView, binding.borrowedMinorFadeLeft, binding.borrowedMinorFadeRight)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { viewModel.scaleDegreeChords.collect { chordAdapter.submitList(it) } }
+                launch { viewModel.primaryChords.collect { chordAdapter.setPrimaryChords(it) } }
+                launch {
+                    viewModel.relatedChords.collect { chords ->
+                        relatedChordAdapter.submitList(chords)
+                        val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
+                        binding.relatedChordsLabel.visibility = visibility
+                        binding.relatedChordContainer.visibility = visibility
+                        binding.relatedChordRecyclerView.visibility = visibility
+                        updateRecyclerFade(binding.relatedChordRecyclerView, binding.relatedFadeLeft, binding.relatedFadeRight)
+                    }
+                }
+                launch {
+                    viewModel.borrowedMinorChords.collect { chords ->
+                        borrowedMinorChordAdapter.submitList(chords)
+                        val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
+                        binding.borrowedChordsLabel.visibility = visibility
+                        binding.borrowedMinorContainer.visibility = visibility
+                        updateRecyclerFade(binding.borrowedMinorChordRecyclerView, binding.borrowedMinorFadeLeft, binding.borrowedMinorFadeRight)
 
-            // Set label text to current key root note (e.g., "C" instead of "C / Am")
-            binding.borrowedMinorLabel.text = viewModel.progression.key.rootNote.displayName
-        }
-        viewModel.borrowedMajorChords.observe(this) { chords ->
-            borrowedMajorChordAdapter.submitList(chords)
-            val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
-            binding.borrowedMajorContainer.visibility = visibility
-            updateRecyclerFade(binding.borrowedMajorChordRecyclerView, binding.borrowedMajorFadeLeft, binding.borrowedMajorFadeRight)
+                        // Set label text to current key root note (e.g., "C" instead of "C / Am")
+                        binding.borrowedMinorLabel.text = viewModel.progression.key.rootNote.displayName
+                    }
+                }
+                launch {
+                    viewModel.borrowedMajorChords.collect { chords ->
+                        borrowedMajorChordAdapter.submitList(chords)
+                        val visibility = if (!areExtraChordsExpanded) View.GONE else View.VISIBLE
+                        binding.borrowedMajorContainer.visibility = visibility
+                        updateRecyclerFade(binding.borrowedMajorChordRecyclerView, binding.borrowedMajorFadeLeft, binding.borrowedMajorFadeRight)
 
-            // Set label text to relative minor key (e.g., "Am" for key C - 3 semitones down)
-            val relativeMinorMidiOffset = (viewModel.progression.key.rootNote.noteOffset - 3 + 12) % 12
-            val relativeMinorRootNote = Note.entries.first { it.noteOffset == relativeMinorMidiOffset }
-            binding.borrowedMajorLabel.text = relativeMinorRootNote.displayName + "m"
-        }
-        viewModel.measures.observe(this) { measures ->
-            val oldFirstId = (measureAdapter.currentList.firstOrNull() as? MeasureAdapter.DisplayableItem.MeasureItem)?.measure?.id
-            val newFirstId = measures.firstOrNull()?.id
-            val progressionChanged = oldFirstId != newFirstId
-            val items = measures.map { MeasureAdapter.DisplayableItem.MeasureItem(it) } + MeasureAdapter.DisplayableItem.AddMeasureItem
-            measureAdapter.submitList(items) {
-                if (progressionChanged) binding.measureRecyclerView.scrollToPosition(0)
+                        // Set label text to relative minor key (e.g., "Am" for key C - 3 semitones down)
+                        val relativeMinorMidiOffset = (viewModel.progression.key.rootNote.noteOffset - 3 + 12) % 12
+                        val relativeMinorRootNote = Note.entries.first { it.noteOffset == relativeMinorMidiOffset }
+                        binding.borrowedMajorLabel.text = relativeMinorRootNote.displayName + "m"
+                    }
+                }
+                launch {
+                    viewModel.measures.collect { measures ->
+                        val oldFirstId = (measureAdapter.currentList.firstOrNull() as? MeasureAdapter.DisplayableItem.MeasureItem)?.measure?.id
+                        val newFirstId = measures.firstOrNull()?.id
+                        val progressionChanged = oldFirstId != newFirstId
+                        val items = measures.map { MeasureAdapter.DisplayableItem.MeasureItem(it) } + MeasureAdapter.DisplayableItem.AddMeasureItem
+                        measureAdapter.submitList(items) {
+                            if (progressionChanged) binding.measureRecyclerView.scrollToPosition(0)
+                        }
+                    }
+                }
+                launch {
+                    viewModel.selectedChord.collect { chord ->
+                        chordAdapter.setSelectedChord(chord)
+                        relatedChordAdapter.setSelectedChord(chord)
+                        borrowedMinorChordAdapter.setSelectedChord(chord)
+                        borrowedMajorChordAdapter.setSelectedChord(chord)
+                    }
+                }
+                launch {
+                    viewModel.targetChord.collect { chord ->
+                        chordAdapter.setTargetChord(chord)
+                        relatedChordAdapter.setTargetChord(chord)
+                        borrowedMinorChordAdapter.setTargetChord(chord)
+                        borrowedMajorChordAdapter.setTargetChord(chord)
+                    }
+                }
+                launch {
+                    viewModel.suggestedChord.collect { chord ->
+                        chordAdapter.setSuggestedChord(chord)
+                        relatedChordAdapter.setSuggestedChord(chord)
+                        borrowedMinorChordAdapter.setSuggestedChord(chord)
+                        borrowedMajorChordAdapter.setSuggestedChord(chord)
+                    }
+                }
+                launch {
+                    viewModel.isProgressionLooping.collect { isToggled ->
+                        val typedValue = TypedValue()
+                        if (isToggled) {
+                            theme.resolveAttribute(android.R.attr.colorPrimary, typedValue, true)
+                            val primaryColor = typedValue.data
+                            binding.repeatButton.backgroundTintList = ColorStateList.valueOf(primaryColor)
+                            // Calculate on-primary color based on luminance
+                            val onPrimary = if (Color.luminance(primaryColor) > 0.5f) Color.BLACK else Color.WHITE
+                            binding.repeatButton.setColorFilter(onPrimary)
+                            binding.repeatButton.alpha = 1.0f
+                        } else {
+                            // Use surface color for untoggled state
+                            theme.resolveAttribute(android.R.attr.colorBackground, typedValue, true)
+                            binding.repeatButton.backgroundTintList = ColorStateList.valueOf(typedValue.data)
+                            binding.repeatButton.clearColorFilter()
+                            binding.repeatButton.alpha = 0.9f
+                        }
+                    }
+                }
+                launch {
+                    viewModel.tempo.collect { newTempo ->
+                        val tempoText = newTempo.toString()
+                        if (binding.defaultBpmEditText.text?.toString() != tempoText) {
+                            isUpdatingTempoField = true
+                            binding.defaultBpmEditText.setText(tempoText)
+                            binding.defaultBpmEditText.setSelection(binding.defaultBpmEditText.text?.length ?: 0)
+                            isUpdatingTempoField = false
+                        }
+                        playbackService?.setTempo(newTempo)
+                    }
+                }
+                launch { viewModel.showDeleteConfirmation.collect { it?.let { showDeleteConfirmationDialog(it) } } }
+                launch { viewModel.showNewProgressionConfirmation.collect { if (it) showNewProgressionConfirmationDialog() } }
+                launch {
+                    viewModel.showTransposeConfirmation.collect { newKey ->
+                        newKey?.let { showTransposeConfirmationDialog(it) }
+                    }
+                }
             }
-        }
-        viewModel.selectedChord.observe(this) { chord ->
-            chordAdapter.setSelectedChord(chord)
-            relatedChordAdapter.setSelectedChord(chord)
-            borrowedMinorChordAdapter.setSelectedChord(chord)
-            borrowedMajorChordAdapter.setSelectedChord(chord)
-        }
-        viewModel.targetChord.observe(this) { chord ->
-            chordAdapter.setTargetChord(chord)
-            relatedChordAdapter.setTargetChord(chord)
-            borrowedMinorChordAdapter.setTargetChord(chord)
-            borrowedMajorChordAdapter.setTargetChord(chord)
-        }
-        viewModel.suggestedChord.observe(this) { chord ->
-            chordAdapter.setSuggestedChord(chord)
-            relatedChordAdapter.setSuggestedChord(chord)
-            borrowedMinorChordAdapter.setSuggestedChord(chord)
-            borrowedMajorChordAdapter.setSuggestedChord(chord)
-        }
-        viewModel.isProgressionLooping.observe(this) { isToggled ->
-            val typedValue = TypedValue()
-            if (isToggled) {
-                theme.resolveAttribute(android.R.attr.colorPrimary, typedValue, true)
-                val primaryColor = typedValue.data
-                binding.repeatButton.backgroundTintList = ColorStateList.valueOf(primaryColor)
-                // Calculate on-primary color based on luminance
-                val onPrimary = if (Color.luminance(primaryColor) > 0.5f) Color.BLACK else Color.WHITE
-                binding.repeatButton.setColorFilter(onPrimary)
-                binding.repeatButton.alpha = 1.0f
-            } else {
-                // Use surface color for untoggled state
-                theme.resolveAttribute(android.R.attr.colorBackground, typedValue, true)
-                binding.repeatButton.backgroundTintList = ColorStateList.valueOf(typedValue.data)
-                binding.repeatButton.clearColorFilter()
-                binding.repeatButton.alpha = 0.9f
-            }
-        }
-        viewModel.tempo.observe(this) { newTempo ->
-            val tempoText = newTempo.toString()
-            if (binding.defaultBpmEditText.text?.toString() != tempoText) {
-                isUpdatingTempoField = true
-                binding.defaultBpmEditText.setText(tempoText)
-                binding.defaultBpmEditText.setSelection(binding.defaultBpmEditText.text?.length ?: 0)
-                isUpdatingTempoField = false
-            }
-            playbackService?.setTempo(newTempo)
-        }
-        viewModel.showDeleteConfirmation.observe(this) { it?.let { showDeleteConfirmationDialog(it) } }
-        viewModel.showNewProgressionConfirmation.observe(this) { if (it == true) showNewProgressionConfirmationDialog() }
-        viewModel.showTransposeConfirmation.observe(this) { newKey ->
-            newKey?.let { showTransposeConfirmationDialog(it) }
         }
     }
 
