@@ -1,0 +1,27 @@
+# XcodeGen project definition — run `xcodegen generate` in this directory (CI does this).
+# Keeping the .xcodeproj out of git avoids merge noise; this file is the source of truth.
+name: ChordProgressionHelper
+options:
+  bundleIdPrefix: de.metaviewsoft
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  ChordProgressionHelper:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.metaviewsoft.chordprogressionhelper
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS: $(inherited) -framework Shared
+        SWIFT_VERSION: "5.9"
+    preBuildScripts:
+      - name: Build Shared Framework
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :shared:embedAndSignAppleFrameworkForXcode -PenableIosTargets=true
+        basedOnDependencyAnalysis: false

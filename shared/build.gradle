@@ -11,9 +11,27 @@ kotlin {
         compileSdk = 36
         minSdk = 24
     }
-    // iOS-Targets werden spaeter (auf einem Mac) ergaenzt:
-    //   iosArm64(); iosSimulatorArm64()
-    // Der Code liegt bereits in commonMain und ist dafuer vorbereitet.
+    // iOS-Targets nur auf macOS-Hosts (CI / Mac) via -PenableIosTargets=true.
+    // Ohne das Property bleibt der Linux-/F-Droid-Build byte-identisch unberuehrt;
+    // die Sourcen unter src/iosMain/ werden dann gar nicht kompiliert.
+    if (providers.gradleProperty('enableIosTargets').present) {
+        iosArm64 {
+            binaries {
+                framework {
+                    baseName = 'Shared'
+                    isStatic = true
+                }
+            }
+        }
+        iosSimulatorArm64 {
+            binaries {
+                framework {
+                    baseName = 'Shared'
+                    isStatic = true
+                }
+            }
+        }
+    }
 
     sourceSets {
         commonMain.dependencies {

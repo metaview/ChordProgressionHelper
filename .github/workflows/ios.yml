@@ -1,0 +1,52 @@
+# iOS build on GitHub's macOS runners — the primary iOS build path while no Mac is at hand.
+# The Linux/F-Droid Android build is completely independent of this (iOS targets are only
+# activated via -PenableIosTargets=true, which nothing on Linux sets).
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shared/**'
+      - 'iosApp/**'
+      - '.github/workflows/ios.yml'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Fail fast with readable Kotlin errors before involving Xcode.
+      - name: Build shared framework (iOS simulator)
+        run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 -PenableIosTargets=true
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: iosApp
+        run: xcodegen generate
+
+      - name: Build iOS app (simulator, unsigned)
+        working-directory: iosApp
+        run: |
+          xcodebuild \
+            -project ChordProgressionHelper.xcodeproj \
+            -scheme ChordProgressionHelper \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
