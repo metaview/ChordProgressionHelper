@@ -34,6 +34,7 @@ import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.ui.SongViewModel
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
+import de.metaviewsoft.chordprogressionhelper.util.setAutoRepeatOnClickListener
 import kotlinx.coroutines.launch
 
 class SongActivity : AppCompatActivity() {
@@ -56,6 +57,8 @@ class SongActivity : AppCompatActivity() {
     private var isServiceBound = false
 
     private var currentPlayingSectionIdx: Int = -1
+    private var lastPlaybackMeasureIndex: Int = -1
+    private var lastSentPlaybackTempo: Int = -1
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -201,6 +204,9 @@ class SongActivity : AppCompatActivity() {
         binding.songRepeatButton.setOnClickListener {
             songViewModel.onSongRepeatToggle(!(songViewModel.isSongLooping.value ?: false))
         }
+
+        binding.songTempoUpButton.setAutoRepeatOnClickListener { songViewModel.incrementTempoPercent() }
+        binding.songTempoDownButton.setAutoRepeatOnClickListener { songViewModel.decrementTempoPercent() }
     }
 
     private fun observeViewModel() {
@@ -227,6 +233,16 @@ class SongActivity : AppCompatActivity() {
                         updateRepeatButton(isLooping)
                     }
                 }
+                launch {
+                    songViewModel.tempoPercent.collect { percent ->
+                        binding.songTempoPercentText.text = "$percent%"
+                        // Apply immediately to a running playback instead of waiting for the
+                        // next position callback.
+                        if (playbackService?.isPlaying?.value == true && lastPlaybackMeasureIndex >= 0) {
+                            pushPlaybackTempo(lastPlaybackMeasureIndex)
+                        }
+                    }
+                }
             }
         }
     }
@@ -250,12 +266,14 @@ class SongActivity : AppCompatActivity() {
             service.currentPlaybackPosition.collect { position ->
                 if (position == null) {
                     currentPlayingSectionIdx = -1
+                    lastPlaybackMeasureIndex = -1
+                    lastSentPlaybackTempo = -1
                     sectionAdapter.setPlayingIndex(-1)
                 } else {
                     val (measureIndex, strumIndex) = position
                     val sectionIdx = songViewModel.getSectionIndexForMeasure(measureIndex)
-                    val sectionTempo = songViewModel.getTempoForMeasure(measureIndex)
-                    playbackService?.setTempo(sectionTempo)
+                    lastPlaybackMeasureIndex = measureIndex
+                    pushPlaybackTempo(measureIndex)
                     if (sectionIdx != currentPlayingSectionIdx) {
                         currentPlayingSectionIdx = sectionIdx
                         sectionAdapter.setPlayingIndex(sectionIdx)
@@ -263,6 +281,15 @@ class SongActivity : AppCompatActivity() {
                     sectionAdapter.setProgress(sectionIdx, songViewModel.getSectionProgress(measureIndex, strumIndex))
                 }
             }
+        }
+    }
+
+    /** Sends the section tempo scaled by the practice-speed percent, skipping redundant updates. */
+    private fun pushPlaybackTempo(measureIndex: Int) {
+        val tempo = songViewModel.getPlaybackTempoForMeasure(measureIndex)
+        if (tempo != lastSentPlaybackTempo) {
+            lastSentPlaybackTempo = tempo
+            playbackService?.setTempo(tempo)
         }
     }
 

@@ -66,6 +66,7 @@ import de.metaviewsoft.chordprogressionhelper.model.ProgressionTemplates
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.util.PreviewCoordinator
 import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
+import de.metaviewsoft.chordprogressionhelper.util.setAutoRepeatOnClickListener
 import de.metaviewsoft.chordprogressionhelper.ui.ChordAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.SectionAdapter
 import de.metaviewsoft.chordprogressionhelper.ui.MeasureAdapter
@@ -602,8 +603,8 @@ class ProgressionActivity : AppCompatActivity() {
                 viewModel.setTempo(typedTempo)
             }
         })
-        binding.defaultBpmUpButton.setOnClickListener { viewModel.incrementTempo() }
-        binding.defaultBpmDownButton.setOnClickListener { viewModel.decrementTempo() }
+        binding.defaultBpmUpButton.setAutoRepeatOnClickListener { viewModel.incrementTempo() }
+        binding.defaultBpmDownButton.setAutoRepeatOnClickListener { viewModel.decrementTempo() }
 
         // Initialwert aus aktuell selektierter Progression/Section anzeigen.
         val currentTempo = viewModel.tempo.value ?: viewModel.progression.tempo
@@ -1632,11 +1633,11 @@ class ProgressionActivity : AppCompatActivity() {
         )
 
         bpmEditText.setText(selectedTempo.toString())
-        bpmUpButton.setOnClickListener {
+        bpmUpButton.setAutoRepeatOnClickListener {
             selectedTempo = (selectedTempo + 1).coerceIn(60, 240)
             bpmEditText.setText(selectedTempo.toString())
         }
-        bpmDownButton.setOnClickListener {
+        bpmDownButton.setAutoRepeatOnClickListener {
             selectedTempo = (selectedTempo - 1).coerceIn(60, 240)
             bpmEditText.setText(selectedTempo.toString())
         }

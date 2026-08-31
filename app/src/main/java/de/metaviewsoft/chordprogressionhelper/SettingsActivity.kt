@@ -16,6 +16,7 @@ import de.metaviewsoft.chordprogressionhelper.model.Key
 import de.metaviewsoft.chordprogressionhelper.model.Note
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
+import de.metaviewsoft.chordprogressionhelper.util.setAutoRepeatOnClickListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -95,12 +96,12 @@ class SettingsActivity : AppCompatActivity() {
         )
 
         binding.defaultBpmEditText.setText(settingsRepository.defaultBpm.toString())
-        binding.defaultBpmUpButton.setOnClickListener {
+        binding.defaultBpmUpButton.setAutoRepeatOnClickListener {
             val next = (binding.defaultBpmEditText.text?.toString()?.toIntOrNull() ?: settingsRepository.defaultBpm) + 1
             val clamped = next.coerceIn(60, 240)
             binding.defaultBpmEditText.setText(clamped.toString())
         }
-        binding.defaultBpmDownButton.setOnClickListener {
+        binding.defaultBpmDownButton.setAutoRepeatOnClickListener {
             val next = (binding.defaultBpmEditText.text?.toString()?.toIntOrNull() ?: settingsRepository.defaultBpm) - 1
             val clamped = next.coerceIn(60, 240)
             binding.defaultBpmEditText.setText(clamped.toString())

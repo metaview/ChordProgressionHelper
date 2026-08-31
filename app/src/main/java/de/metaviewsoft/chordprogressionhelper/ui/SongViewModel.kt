@@ -25,10 +25,15 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
     val selectedSongSectionIndex: StateFlow<Int> get() = core.selectedSongSectionIndex
     val songName: StateFlow<String> get() = core.songName
     val isSongLooping: StateFlow<Boolean> get() = core.isSongLooping
+    val tempoPercent: StateFlow<Int> get() = core.tempoPercent
 
     fun getCurrentProgression(): ChordProgression = core.getCurrentProgression()
     fun getSectionIndexForMeasure(measureIndex: Int): Int = core.getSectionIndexForMeasure(measureIndex)
     fun getTempoForMeasure(measureIndex: Int): Int = core.getTempoForMeasure(measureIndex)
+    fun getPlaybackTempoForMeasure(measureIndex: Int): Int = core.getPlaybackTempoForMeasure(measureIndex)
+    fun setTempoPercent(percent: Int) = core.setTempoPercent(percent)
+    fun incrementTempoPercent() = core.incrementTempoPercent()
+    fun decrementTempoPercent() = core.decrementTempoPercent()
     fun getSectionProgress(measureIndex: Int, strumIndex: Int): Float = core.getSectionProgress(measureIndex, strumIndex)
     fun getSectionChordMarks(index: Int): List<ChordMark> = core.getSectionChordMarks(index)
     fun getUniqueSongProgressions(): List<ChordProgression> = core.getUniqueSongProgressions()

@@ -211,4 +211,7 @@
     <string name="copied_solo_pattern">Solo pattern copied</string>
     <string name="pasted_solo_pattern">Solo pattern pasted</string>
     <string name="no_solo_pattern_to_paste">No solo pattern to paste</string>
+    <string name="increase_tempo_percent">Increase playback speed</string>
+    <string name="decrease_tempo_percent">Decrease playback speed</string>
+    <string name="tempo_percent_default">100%</string>
 </resources>

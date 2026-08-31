@@ -50,6 +50,13 @@ class SongViewModelCore(
     private val _isSongLooping = MutableStateFlow(false)
     val isSongLooping: StateFlow<Boolean> = _isSongLooping.asStateFlow()
 
+    /**
+     * Playback speed as a percentage of each section's own BPM (100 = original speed).
+     * Session-only practice aid, not persisted with the song.
+     */
+    private val _tempoPercent = MutableStateFlow(100)
+    val tempoPercent: StateFlow<Int> = _tempoPercent.asStateFlow()
+
     init {
         // The song is already loaded once by the shared SongSession; do not reload here.
         _isSongLooping.value = settings.isLoopingSongEnabled
@@ -102,6 +109,20 @@ class SongViewModelCore(
         val progression = getCurrentProgression()
         return (section?.progression?.tempo ?: progression.tempo).coerceIn(60, 240)
     }
+
+    fun setTempoPercent(percent: Int) {
+        _tempoPercent.value = percent.coerceIn(TEMPO_PERCENT_MIN, TEMPO_PERCENT_MAX)
+    }
+
+    fun incrementTempoPercent() = setTempoPercent(_tempoPercent.value + 1)
+
+    fun decrementTempoPercent() = setTempoPercent(_tempoPercent.value - 1)
+
+    /** Applies [tempoPercent] to a BPM value, clamped to a range the audio engine handles well. */
+    private fun scaleTempo(bpm: Int): Int = (bpm * _tempoPercent.value / 100).coerceIn(30, 400)
+
+    /** Effective playback tempo for a global measure index: section BPM scaled by [tempoPercent]. */
+    fun getPlaybackTempoForMeasure(measureIndex: Int): Int = scaleTempo(getTempoForMeasure(measureIndex))
 
     /** Returns 0..1 progress through the section containing the given global measure/strum position. */
     fun getSectionProgress(measureIndex: Int, strumIndex: Int): Float {
@@ -324,7 +345,9 @@ class SongViewModelCore(
             name = song.name.ifBlank { "New Song" },
             key = firstProgression.key,
             mode = firstProgression.mode,
-            tempo = firstProgression.tempo,
+            // Scaled so count-in and the first strums already run at the practice speed; during
+            // playback the per-section tempo is re-applied via getPlaybackTempoForMeasure.
+            tempo = scaleTempo(firstProgression.tempo),
             shuffleFactor = firstProgression.shuffleFactor,
             measures = combinedMeasures
         )
@@ -398,5 +421,10 @@ class SongViewModelCore(
     fun onSongRepeatToggle(isToggled: Boolean) {
         _isSongLooping.value = isToggled
         settings.isLoopingSongEnabled = isToggled
+    }
+
+    companion object {
+        const val TEMPO_PERCENT_MIN = 50
+        const val TEMPO_PERCENT_MAX = 200
     }
 }

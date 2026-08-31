@@ -137,6 +137,39 @@
                 android:layout_height="1dp"
                 android:layout_weight="1" />
 
+            <!-- Practice speed: scales every section's own BPM by a percentage -->
+            <ImageButton
+                android:id="@+id/songTempoDownButton"
+                android:layout_width="40dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/decrease_tempo_percent"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/arrow_down_float" />
+
+            <TextView
+                android:id="@+id/songTempoPercentText"
+                android:layout_width="52dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/tempo_percent_default"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="14sp" />
+
+            <ImageButton
+                android:id="@+id/songTempoUpButton"
+                android:layout_width="40dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/increase_tempo_percent"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/arrow_up_float" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
             <ImageButton
                 android:id="@+id/songRepeatButton"
                 android:layout_width="48dp"
