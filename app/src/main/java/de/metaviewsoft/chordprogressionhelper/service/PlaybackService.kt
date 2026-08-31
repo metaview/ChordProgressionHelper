@@ -6,10 +6,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Build
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.media.AudioAttributesCompat
+import androidx.media.AudioFocusRequestCompat
+import androidx.media.AudioManagerCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import androidx.media.session.MediaButtonReceiver
 import android.support.v4.media.session.MediaSessionCompat
@@ -50,6 +54,12 @@ class PlaybackService : Service() {
     private lateinit var audioPlayer: AudioPlayer
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var notificationManager: NotificationManager
+    private lateinit var audioManager: AudioManager
+
+    // Held while we are the active media app; abandoned in stopPlayback. Without a focus
+    // request Android/OneUI does not treat us as the current media player (no lockscreen /
+    // shade media card) and we'd play over other apps' audio.
+    private var audioFocusRequest: AudioFocusRequestCompat? = null
 
     private var playbackJob: Job? = null
     private var currentProgression: ChordProgression? = null
@@ -84,6 +94,7 @@ class PlaybackService : Service() {
         audioPlayer = AudioPlayer()
         settingsRepository = SettingsRepository(this)
         notificationManager = getSystemService(NotificationManager::class.java)
+        audioManager = getSystemService(AudioManager::class.java)
         createNotificationChannel()
         // Ensure we register as a foreground service quickly to satisfy platform timing rules.
         try {
@@ -405,6 +416,8 @@ class PlaybackService : Service() {
         if (_isPlaying.value) return
         _isPlaying.value = true
 
+        requestAudioFocus()
+
         // Update media session playback state & metadata
         val metadata = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, progression.name.ifBlank { "Untitled" })
@@ -462,6 +475,43 @@ class PlaybackService : Service() {
             }
             if (isLastService()) stopPlayback()
         }
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        if (audioFocusRequest != null) return true
+        val attrs = AudioAttributesCompat.Builder()
+            .setUsage(AudioAttributesCompat.USAGE_MEDIA)
+            .setContentType(AudioAttributesCompat.CONTENT_TYPE_MUSIC)
+            .build()
+        val request = AudioFocusRequestCompat.Builder(AudioManagerCompat.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(attrs)
+            .setOnAudioFocusChangeListener { change ->
+                Log.i(TAG, "audio focus change: $change")
+                when (change) {
+                    AudioManager.AUDIOFOCUS_LOSS,
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ->
+                        serviceScope.launch { pausePlayback() }
+                    // AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK: keep playing, system ducks us
+                }
+            }
+            .build()
+        val result = AudioManagerCompat.requestAudioFocus(audioManager, request)
+        return if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            audioFocusRequest = request
+            true
+        } else {
+            Log.w(TAG, "audio focus request denied ($result); playing anyway")
+            false
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        audioFocusRequest?.let {
+            try { AudioManagerCompat.abandonAudioFocusRequest(audioManager, it) } catch (e: Exception) {
+                Log.w(TAG, "abandonAudioFocusRequest failed: ${e.message}")
+            }
+        }
+        audioFocusRequest = null
     }
 
     fun pausePlayback() {
@@ -532,6 +582,8 @@ class PlaybackService : Service() {
                 mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setState(PlaybackStateCompat.STATE_STOPPED, 0L, 0f).build())
             } catch (_: Exception) {}
             try { currentProgression?.let { notificationManager.notify(NOTIFICATION_ID, createNotification(it, false)) } } catch (_: Exception) {}
+
+            abandonAudioFocus()
 
             @Suppress("DEPRECATION")
             try { stopForeground(true) } catch (_: Exception) {}
@@ -623,6 +675,8 @@ class PlaybackService : Service() {
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1))
             .setOngoing(isPlaying)
 
