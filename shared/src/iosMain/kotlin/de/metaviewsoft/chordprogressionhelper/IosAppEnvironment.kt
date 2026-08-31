@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, com.russhwolf.settings.ExperimentalSettingsImplementation::class)
+
 package de.metaviewsoft.chordprogressionhelper
 
 import com.russhwolf.settings.NSUserDefaultsSettings

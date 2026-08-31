@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package de.metaviewsoft.chordprogressionhelper.util
 
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -22,7 +24,6 @@ import platform.darwin.dispatch_semaphore_wait
  * `AudioTrack.write`. `flush`/`stop` discard scheduled buffers (their completion handlers fire
  * and re-signal the semaphore, so writers never deadlock).
  */
-@OptIn(ExperimentalForeignApi::class)
 class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
 
     private val engine = AVAudioEngine()

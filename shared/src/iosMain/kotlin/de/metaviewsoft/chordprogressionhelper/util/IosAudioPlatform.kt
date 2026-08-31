@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package de.metaviewsoft.chordprogressionhelper.util
 
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -9,8 +11,7 @@ import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
 import platform.posix.usleep
 
-/** [AudioPlatformSupport] backend for iOS. Installed by [initIosPlatform]. */
-@OptIn(ExperimentalForeignApi::class)
+/** [AudioPlatformSupport] backend for iOS. Installed by [IosAppEnvironment]. */
 object IosAudioPlatform : AudioPlatformSupport {
     override val sinkFactory: AudioSinkFactory = IosAudioSinkFactory
     override val nativeBridge: NativeAudioBridge = UnavailableNativeAudioBridge

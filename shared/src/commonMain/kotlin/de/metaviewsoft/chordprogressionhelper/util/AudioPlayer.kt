@@ -6,7 +6,6 @@ import de.metaviewsoft.chordprogressionhelper.model.Chord
 import kotlin.concurrent.Volatile
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.model.Strum
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.InternalSerializationApi
 import kotlin.math.PI
@@ -29,6 +28,9 @@ class AudioPlayer {
 
     // Platform seam: sink factory, audio task queue, native bridge, sleep, drum-cache files.
     private val platform: AudioPlatformSupport = AudioPlatform.requireSupport
+
+    // Reentrant lock guarding audio-thread lifecycle (replaces JVM-only synchronized(this)).
+    private val threadLock = PlatformLock()
 
     // Shared native-engine access; portable DSP helpers live in :shared (DspSupport).
     private val nativeBridge: NativeAudioBridge = platform.nativeBridge
@@ -63,7 +65,7 @@ class AudioPlayer {
     private var reusableEighthBuffer = DoubleArray(0)
 
     private fun ensureAudioThreadStarted() {
-        synchronized(this) {
+        threadLock.withLock {
             if (audioHandler?.isAlive != true) {
                 audioHandler = platform.newAudioTaskQueue("AudioThread")
                 // Create a small cached preview AudioTrack on the audio thread to warm-up resources.
@@ -219,7 +221,7 @@ class AudioPlayer {
             try {
                 sleepMillis(10)
                 attempts++
-            } catch (e: InterruptedException) {
+            } catch (e: Exception) {
                 break
             }
         }
@@ -232,7 +234,7 @@ class AudioPlayer {
     }
 
     private fun shutdownAudioThread() {
-        synchronized(this) {
+        threadLock.withLock {
             try {
                 audioHandler?.quit()
                 audioHandler = null
@@ -1209,7 +1211,7 @@ class AudioPlayer {
         )
     }
 
-    suspend fun previewChord(chord: Chord, pluckStrength: Int) = withContext(Dispatchers.IO) {
+    suspend fun previewChord(chord: Chord, pluckStrength: Int) = withContext(audioIoDispatcher) {
         // Generate and play preview on the audio thread using the cached previewAudioTrack to minimize latency.
         val startTime = TimeSupport.nowMillis()
         val myPreviewId = ++currentPreviewId
@@ -1536,7 +1538,7 @@ class AudioPlayer {
      * held; call [releaseSustainedChord] on key-up to fade it out over ~1.2s. A new call supersedes
      * the previous one; the note also stops on [stop] or once it has decayed to silence.
      */
-    suspend fun startSustainedChord(chord: Chord, pluckStrength: Int) = withContext(Dispatchers.IO) {
+    suspend fun startSustainedChord(chord: Chord, pluckStrength: Int) = withContext(audioIoDispatcher) {
         val myPreviewId = ++currentPreviewId
         sustainReleasing = false
         shouldStopPreview = false
@@ -1641,7 +1643,7 @@ class AudioPlayer {
         sustainReleasing = true
     }
 
-    suspend fun previewKick(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
+    suspend fun previewKick(levelScale: Double = 1.0) = withContext(audioIoDispatcher) {
         ensureAudioThreadStarted()
         val deferred = CompletableDeferred<Unit>()
         audioHandler!!.post {
@@ -1743,7 +1745,7 @@ class AudioPlayer {
         deferred.await()
     }
 
-    suspend fun previewSnare(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
+    suspend fun previewSnare(levelScale: Double = 1.0) = withContext(audioIoDispatcher) {
         ensureAudioThreadStarted()
         val deferred = CompletableDeferred<Unit>()
         audioHandler!!.post {
@@ -1844,7 +1846,7 @@ class AudioPlayer {
         deferred.await()
     }
 
-    suspend fun previewHiHat(levelScale: Double = 1.0) = withContext(Dispatchers.IO) {
+    suspend fun previewHiHat(levelScale: Double = 1.0) = withContext(audioIoDispatcher) {
         ensureAudioThreadStarted()
         val deferred = CompletableDeferred<Unit>()
         audioHandler!!.post {
@@ -2185,7 +2187,7 @@ class AudioPlayer {
 
         // Save to disk cache for future sessions (asynchronously to avoid blocking audio thread)
         @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        kotlinx.coroutines.GlobalScope.launch(audioIoDispatcher) {
             try {
                 saveDrumSamplesToCache()
                 AppLog.d(
@@ -2296,7 +2298,7 @@ class AudioPlayer {
      * Spielt einen einzelnen Akkord-Strum für Template-Previews ab.
      * Blockierende Methode, wartet bis der Strum abgespielt wurde.
      */
-    suspend fun playChordStrum(chord: Chord) = withContext(Dispatchers.IO) {
+    suspend fun playChordStrum(chord: Chord) = withContext(audioIoDispatcher) {
         // Verwende die bestehende previewChord Methode mit Soft Pluck
         previewChord(chord, 3)
     }
@@ -2319,7 +2321,7 @@ class AudioPlayer {
      * Optimiert für minimale Latenz durch progressive Generierung mit kontinuierlicher Phase.
      */
     suspend fun previewSoloNote(midiNote: Int, durationSec: Double = 0.6) =
-        withContext(Dispatchers.IO) {
+        withContext(audioIoDispatcher) {
             val startTime = TimeSupport.nowMillis()
             val myPreviewId = ++currentPreviewId
             AppLog.d(

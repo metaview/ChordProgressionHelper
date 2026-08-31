@@ -11,7 +11,7 @@ data class Measure(
     var strummingPattern: StrummingPattern = StrummingPattern.DEFAULT,
     var drumPattern: DrumPattern = DrumPattern.DEFAULT,
     var soloPattern: SoloPattern = SoloPattern.DEFAULT,
-    val id: Long = java.util.UUID.randomUUID().mostSignificantBits
+    val id: Long = kotlin.random.Random.nextLong()
 ) {
     @Serializable
     data class ChordEvent(

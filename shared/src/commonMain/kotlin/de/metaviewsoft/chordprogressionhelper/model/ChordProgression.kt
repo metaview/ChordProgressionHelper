@@ -2,6 +2,7 @@
 
 package de.metaviewsoft.chordprogressionhelper.model
 
+import kotlin.concurrent.Volatile
 import kotlinx.serialization.Serializable
 
 @Serializable
