@@ -1373,20 +1373,28 @@ class ProgressionActivity : AppCompatActivity() {
 
     @OptIn(InternalSerializationApi::class)
     private fun observeViewModel() {
-        songViewModel.songSectionNames.observe(this) { names ->
-            songSectionSpinnerAdapter.clear()
-            songSectionSpinnerAdapter.addAll(names)
-            songSectionSpinnerAdapter.notifyDataSetChanged()
-            val currentIndex = songViewModel.selectedSongSectionIndex.value ?: 0
-            if (currentIndex in 0 until songSectionSpinnerAdapter.count) {
-                lastProgrammaticSpinnerPosition = currentIndex
-                binding.songSectionSpinner.setSelection(currentIndex)
-            }
-        }
-        songViewModel.selectedSongSectionIndex.observe(this) { index ->
-            if (index in 0 until songSectionSpinnerAdapter.count && binding.songSectionSpinner.selectedItemPosition != index) {
-                lastProgrammaticSpinnerPosition = index
-                binding.songSectionSpinner.setSelection(index)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    songViewModel.songSectionNames.collect { names ->
+                        songSectionSpinnerAdapter.clear()
+                        songSectionSpinnerAdapter.addAll(names)
+                        songSectionSpinnerAdapter.notifyDataSetChanged()
+                        val currentIndex = songViewModel.selectedSongSectionIndex.value
+                        if (currentIndex in 0 until songSectionSpinnerAdapter.count) {
+                            lastProgrammaticSpinnerPosition = currentIndex
+                            binding.songSectionSpinner.setSelection(currentIndex)
+                        }
+                    }
+                }
+                launch {
+                    songViewModel.selectedSongSectionIndex.collect { index ->
+                        if (index in 0 until songSectionSpinnerAdapter.count && binding.songSectionSpinner.selectedItemPosition != index) {
+                            lastProgrammaticSpinnerPosition = index
+                            binding.songSectionSpinner.setSelection(index)
+                        }
+                    }
+                }
             }
         }
         viewModel.scaleDegreeChords.observe(this) { chordAdapter.submitList(it) }

@@ -23,8 +23,7 @@ class ChordTrackView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    /** A chord at a normalized position within the section (0 = start, 1 = end). */
-    data class ChordMark(val fraction: Float, val label: String)
+    // ChordMark moved to :shared commonMain (same package) so the view model core can produce it.
 
     private val density = resources.displayMetrics.density
     private val cornerRadius = 6f * density

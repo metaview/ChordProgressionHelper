@@ -19,8 +19,10 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -202,21 +204,30 @@ class SongActivity : AppCompatActivity() {
     }
 
     private fun observeViewModel() {
-        songViewModel.songName.observe(this) { name ->
-            binding.songNameEditText.text = name ?: getString(R.string.song_name_default)
-        }
-
-        songViewModel.songSectionNames.observe(this) {
-            refreshSections()
-        }
-
-        songViewModel.selectedSongSectionIndex.observe(this) { index ->
-            lastSelectedIndex = index
-            sectionAdapter.setSelectedIndex(index)
-        }
-
-        songViewModel.isSongLooping.observe(this) { isLooping ->
-            updateRepeatButton(isLooping)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    songViewModel.songName.collect { name ->
+                        binding.songNameEditText.text = name.ifBlank { getString(R.string.song_name_default) }
+                    }
+                }
+                launch {
+                    songViewModel.songSectionNames.collect {
+                        refreshSections()
+                    }
+                }
+                launch {
+                    songViewModel.selectedSongSectionIndex.collect { index ->
+                        lastSelectedIndex = index
+                        sectionAdapter.setSelectedIndex(index)
+                    }
+                }
+                launch {
+                    songViewModel.isSongLooping.collect { isLooping ->
+                        updateRepeatButton(isLooping)
+                    }
+                }
+            }
         }
     }
 

@@ -20,7 +20,7 @@ class SectionAdapter(
 
     data class SectionItem(
         val name: String,
-        val chords: List<ChordTrackView.ChordMark> = emptyList(),
+        val chords: List<ChordMark> = emptyList(),
         val isAddButton: Boolean = false
     )
 
