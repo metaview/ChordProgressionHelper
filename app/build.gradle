@@ -76,6 +76,13 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Reproducible builds: AGP 9 embeds the git commit hash into
+            // META-INF/version-control-info.textproto by default. F-Droid builds
+            // outside a git checkout (NO_VALID_GIT_FOUND), so this file can never
+            // match our reference APK. Exclude it entirely.
+            vcsInfo {
+                include false
+            }
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.release
             } else {
