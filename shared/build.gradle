@@ -10,6 +10,13 @@ kotlin {
         namespace = 'de.metaviewsoft.chordprogressionhelper.shared'
         compileSdk = 36
         minSdk = 24
+        // The KMP Android library plugin creates no test compilation by default. On the
+        // Linux/F-Droid build the iOS targets (which would otherwise bring test compilations)
+        // are absent, leaving the default commonTest source set orphaned -> "Unused Kotlin
+        // Source Sets" warning. A host (JVM unit) test compilation gives commonTest something
+        // to attach to. Test compilations are separate from the release AAR, so the
+        // reproducible release output is unaffected.
+        withHostTest {}
     }
     // iOS-Targets nur auf macOS-Hosts (CI / Mac) via -PenableIosTargets=true.
     // Ohne das Property bleibt der Linux-/F-Droid-Build byte-identisch unberuehrt;
