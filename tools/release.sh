@@ -185,7 +185,7 @@ linkBody="$(curl --fail-with-body -sS -X POST \
 if printf '%s' "$linkBody" | grep -q 'direct_asset_url'; then
     assetUrl="$(printf '%s' "$linkBody" | sed -n 's/.*"direct_asset_url":"\([^"]*\)".*/\1/p')"
     detail "      Verlinkt: ${assetUrl}"
-elif printf '%s' "$linkBody" | grep -q 'already exists'; then
+elif printf '%s' "$linkBody" | grep -qE 'already exists|has already been taken'; then
     detail "      Link existiert bereits - ok."
 else
     err "Verlinken fehlgeschlagen: $linkBody"; exit 1
