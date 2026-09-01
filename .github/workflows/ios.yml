@@ -80,30 +80,31 @@ jobs:
 
           xcrun simctl install "$DEVICE" "$APP"
 
-          # Clear stale crash reports so we only see ones from this launch.
           rm -f ~/Library/Logs/DiagnosticReports/ChordProgressionHelper* 2>/dev/null || true
 
-          echo "Launching $BUNDLE_ID ..."
-          if ! xcrun simctl launch "$DEVICE" "$BUNDLE_ID"; then
-            echo "::error::simctl launch failed"
-            exit 1
-          fi
+          # Launch attached to the app's console so we capture its stdout/stderr. Kotlin/Native
+          # prints an uncaught-exception stacktrace to stderr, which is exactly what we need.
+          # If the app stays alive, `timeout` kills the console read after 20s (rc 124 = healthy);
+          # if it exits/crashes earlier, launch returns first and the log tells us why.
+          echo "Launching $BUNDLE_ID (console attached, 20s) ..."
+          set +e
+          timeout 20 xcrun simctl launch --console-pty "$DEVICE" "$BUNDLE_ID" > app-console.log 2>&1
+          RC=$?
+          set -e
 
-          # Give the app time to initialize IosAppEnvironment (seams, storage) and render.
-          sleep 10
+          echo "----- app console output -----"
+          cat app-console.log 2>/dev/null || echo "(no console output captured)"
+          echo "------------------------------"
 
           CRASHES=$(find ~/Library/Logs/DiagnosticReports -name 'ChordProgressionHelper*' 2>/dev/null || true)
           if [ -n "$CRASHES" ]; then
-            echo "::error::App crashed on launch"
+            echo "----- crash report(s) -----"
             for f in $CRASHES; do echo "===== $f ====="; cat "$f"; done
-            exit 1
           fi
 
-          if xcrun simctl spawn "$DEVICE" launchctl list 2>/dev/null | grep -q "$BUNDLE_ID"; then
-            echo "✅ Smoke test passed: app is running, no crash report."
+          if [ "$RC" -eq 124 ]; then
+            echo "✅ Smoke test passed: app stayed alive for 20s with no crash."
           else
-            echo "::error::App is not running after launch and produced no crash report (unexpected early exit)."
-            echo "Recent simulator log:"
-            xcrun simctl spawn "$DEVICE" log show --last 30s --predicate "processImagePath CONTAINS 'ChordProgressionHelper'" 2>/dev/null | tail -50 || true
+            echo "::error::App exited early (rc=$RC) — startup crash. See console output / crash report above."
             exit 1
           fi
