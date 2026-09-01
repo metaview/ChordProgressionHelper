@@ -27,11 +27,6 @@ final class SmokeSelfTest {
     /// yield to the run loop. Steps are chained with small delays rather than read synchronously,
     /// precisely so the async bridge (not a direct `.value` read) is what we verify.
     func run() {
-        // CI captures this process's stdout via `simctl` and then *kills* the app at the end of the
-        // smoke window rather than letting it exit — so a block-buffered stdout would strand the tail
-        // (including the PASS sentinel) in the buffer, unflushed, and lost. Force unbuffered output so
-        // every line reaches CI the moment it is printed.
-        setbuf(stdout, nil)
         step("starting")
         startWatchdog()
         after(0.6) { self.checkInitialState() }
@@ -44,9 +39,9 @@ final class SmokeSelfTest {
         let progress = self.progress
         DispatchQueue.global().asyncAfter(deadline: .now() + 14.0) {
             guard !progress.done else { return }
-            print("SMOKE-SELFTEST: FAIL — watchdog fired after 14s, stuck in step \"\(progress.step)\" "
-                  + "(no PASS/FAIL reached; main thread likely blocked here)")
-            print("SMOKE-SELFTEST: FAIL (watchdog)")
+            emit("SMOKE-SELFTEST: FAIL — watchdog fired after 14s, stuck in step \"\(progress.step)\" "
+                 + "(no PASS/FAIL reached; main thread likely blocked here)")
+            emit("SMOKE-SELFTEST: FAIL (watchdog)")
         }
     }
 
@@ -110,10 +105,10 @@ final class SmokeSelfTest {
     private func finish() {
         progress.done = true
         if failures.isEmpty {
-            print("SMOKE-SELFTEST: PASS")
+            emit("SMOKE-SELFTEST: PASS")
         } else {
-            for f in failures { print("SMOKE-SELFTEST: FAILED — \(f)") }
-            print("SMOKE-SELFTEST: FAIL (\(failures.count) failure(s))")
+            for f in failures { emit("SMOKE-SELFTEST: FAILED — \(f)") }
+            emit("SMOKE-SELFTEST: FAIL (\(failures.count) failure(s))")
         }
     }
 
@@ -136,7 +131,19 @@ final class SmokeSelfTest {
         log(name)
     }
 
-    private func log(_ msg: String) { print("SMOKE-SELFTEST: \(msg)") }
+    private func log(_ msg: String) { emit("SMOKE-SELFTEST: \(msg)") }
+}
+
+/// Prints one line and flushes immediately. CI *kills* the app at the end of the smoke window rather
+/// than letting it exit, so we can't rely on an implicit flush-at-exit — a buffered tail (including
+/// the PASS sentinel) would be lost. Note: `setbuf(stdout, nil)` is NOT a valid alternative here —
+/// it is undefined behavior once the stream has been written to, and the Kotlin runtime already logs
+/// to stdout during startup, so forcing it unbuffered from `run()` corrupted the stream (empty CI
+/// output). A plain per-line `fflush` is well-defined and thread-safe (stdio locks internally), so it
+/// also works from the background watchdog.
+private func emit(_ line: String) {
+    print(line)
+    fflush(stdout)
 }
 
 /// Lock-guarded, non-isolated progress shared between the `@MainActor` self-test (writer, on main)
