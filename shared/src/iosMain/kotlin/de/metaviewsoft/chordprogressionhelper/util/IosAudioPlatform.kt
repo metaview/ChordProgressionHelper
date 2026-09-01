@@ -16,7 +16,7 @@ object IosAudioPlatform : AudioPlatformSupport {
     override val sinkFactory: AudioSinkFactory = IosAudioSinkFactory
     override val nativeBridge: NativeAudioBridge = UnavailableNativeAudioBridge
 
-    override fun newAudioTaskQueue(name: String): AudioTaskQueue = GcdAudioTaskQueue(name)
+    override fun newAudioTaskQueue(name: String): AudioTaskQueue = IosAudioTaskQueue(name)
 
     override fun sleepMillis(ms: Long) {
         if (ms > 0) usleep((ms * 1000).toUInt())

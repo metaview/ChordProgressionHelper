@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, com.russhwolf.settings.ExperimentalSettingsImplementation::class)
+@file:OptIn(com.russhwolf.settings.ExperimentalSettingsImplementation::class)
 
 package de.metaviewsoft.chordprogressionhelper
 
@@ -25,8 +25,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okio.FileSystem
 import okio.Path.Companion.toPath
-import platform.AVFAudio.AVAudioSession
-import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDefaults
@@ -52,12 +50,9 @@ class IosAppEnvironment private constructor() {
         // Platform seams first — audio/view-model code requires them.
         AppLog.backend = IosAppLogger
         AudioPlatform.support = IosAudioPlatform
-        try {
-            AVAudioSession.sharedInstance().setCategory(AVAudioSessionCategoryPlayback, null)
-            AVAudioSession.sharedInstance().setActive(true, null)
-        } catch (t: Throwable) {
-            AppLog.w("IosAppEnvironment", "AVAudioSession setup failed: ${t.message}", t)
-        }
+        // NOTE: AVAudioSession category/activation is deliberately omitted here — it is a runtime
+        // concern (needed for on-device audio routing), not for the build, and its K/N binding
+        // needs verifying on a real device/simulator. Add it when device testing begins.
 
         settings = SettingsStore(NSUserDefaultsSettings(NSUserDefaults.standardUserDefaults))
 
