@@ -87,8 +87,15 @@ jobs:
           # macOS has no GNU `timeout`, so we background the console-attached launch and check
           # whether it survives 20s: --console-pty streams until the app terminates, so the
           # background process staying alive == the app is alive; it dying early == startup crash.
+          #
+          # SIMCTL_CHILD_CPH_SMOKE=1 is forwarded into the app's environment, which enables the
+          # in-app SmokeSelfTest: it drives the shared core through the SongModel and asserts each
+          # change round-trips back through the StateFlow -> @Published bridge, printing
+          # "SMOKE-SELFTEST: PASS" on success. That proves the Kotlin<->SwiftUI binding actually
+          # WORKS at runtime, not just that the app stays alive.
           echo "Launching $BUNDLE_ID (console attached, 20s) ..."
-          xcrun simctl launch --console-pty "$DEVICE" "$BUNDLE_ID" > app-console.log 2>&1 &
+          SIMCTL_CHILD_CPH_SMOKE=1 \
+            xcrun simctl launch --console-pty "$DEVICE" "$BUNDLE_ID" > app-console.log 2>&1 &
           LAUNCH_PID=$!
           sleep 20
 
@@ -111,9 +118,16 @@ jobs:
             for f in $CRASHES; do echo "===== $f ====="; cat "$f"; done
           fi
 
-          if [ "$HEALTHY" -eq 1 ]; then
-            echo "✅ Smoke test passed: app stayed alive for 20s with no crash."
-          else
+          if [ "$HEALTHY" -ne 1 ]; then
             echo "::error::App exited early — startup crash. See console output / crash report above."
             exit 1
           fi
+          if grep -q 'SMOKE-SELFTEST: FAIL' app-console.log; then
+            echo "::error::In-app self-test reported failures (StateFlow<->SwiftUI binding). See console above."
+            exit 1
+          fi
+          if ! grep -q 'SMOKE-SELFTEST: PASS' app-console.log; then
+            echo "::error::In-app self-test did not reach PASS (no sentinel). See console above."
+            exit 1
+          fi
+          echo "✅ Smoke test passed: app stayed alive 20s AND the StateFlow<->SwiftUI self-test passed."
