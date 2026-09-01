@@ -53,6 +53,28 @@ final class SmokeSelfTest {
         after(0.4) {
             self.expect(self.model.isLooping == !before,
                         "loop toggle round-trips \(before) -> \(!before) (was \(self.model.isLooping))")
+            self.checkPlaybackStarts()
+        }
+    }
+
+    /// Drives the actual playback path: play() creates the audio sink + AVAudioEngine and starts the
+    /// background render loop, and flips isPlaying (which must reach @Published through the bridge).
+    /// We don't assert sound came out — just that the control path runs without crashing and the
+    /// state propagates. Playback runs on the background audio queue, so the main run loop (and these
+    /// steps) keep ticking even if rendering stalls.
+    private func checkPlaybackStarts() {
+        log("starting playback ...")
+        model.togglePlayback()
+        after(1.5) {
+            self.expect(self.model.isPlaying, "playback started: isPlaying == true (was \(self.model.isPlaying))")
+            self.checkPlaybackStops()
+        }
+    }
+
+    private func checkPlaybackStops() {
+        model.stop()
+        after(1.0) {
+            self.expect(!self.model.isPlaying, "playback stopped: isPlaying == false (was \(self.model.isPlaying))")
             self.finish()
         }
     }

@@ -15,6 +15,7 @@ import de.metaviewsoft.chordprogressionhelper.util.AudioPlatform
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
 import de.metaviewsoft.chordprogressionhelper.util.IosAppLogger
 import de.metaviewsoft.chordprogressionhelper.util.IosAudioPlatform
+import de.metaviewsoft.chordprogressionhelper.util.configureIosAudioSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,9 +51,8 @@ class IosAppEnvironment private constructor() {
         // Platform seams first — audio/view-model code requires them.
         AppLog.backend = IosAppLogger
         AudioPlatform.support = IosAudioPlatform
-        // NOTE: AVAudioSession category/activation is deliberately omitted here — it is a runtime
-        // concern (needed for on-device audio routing), not for the build, and its K/N binding
-        // needs verifying on a real device/simulator. Add it when device testing begins.
+        // Route audio to the speaker (category Playback + activate). Defensive: never throws.
+        configureIosAudioSession()
 
         settings = SettingsStore(NSUserDefaultsSettings(NSUserDefaults.standardUserDefaults))
 
