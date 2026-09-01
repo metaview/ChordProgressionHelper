@@ -84,13 +84,22 @@ jobs:
 
           # Launch attached to the app's console so we capture its stdout/stderr. Kotlin/Native
           # prints an uncaught-exception stacktrace to stderr, which is exactly what we need.
-          # If the app stays alive, `timeout` kills the console read after 20s (rc 124 = healthy);
-          # if it exits/crashes earlier, launch returns first and the log tells us why.
+          # macOS has no GNU `timeout`, so we background the console-attached launch and check
+          # whether it survives 20s: --console-pty streams until the app terminates, so the
+          # background process staying alive == the app is alive; it dying early == startup crash.
           echo "Launching $BUNDLE_ID (console attached, 20s) ..."
-          set +e
-          timeout 20 xcrun simctl launch --console-pty "$DEVICE" "$BUNDLE_ID" > app-console.log 2>&1
-          RC=$?
-          set -e
+          xcrun simctl launch --console-pty "$DEVICE" "$BUNDLE_ID" > app-console.log 2>&1 &
+          LAUNCH_PID=$!
+          sleep 20
+
+          if kill -0 "$LAUNCH_PID" 2>/dev/null; then
+            HEALTHY=1
+            kill "$LAUNCH_PID" 2>/dev/null || true
+            wait "$LAUNCH_PID" 2>/dev/null || true
+          else
+            HEALTHY=0
+            wait "$LAUNCH_PID" 2>/dev/null || true
+          fi
 
           echo "----- app console output -----"
           cat app-console.log 2>/dev/null || echo "(no console output captured)"
@@ -102,9 +111,9 @@ jobs:
             for f in $CRASHES; do echo "===== $f ====="; cat "$f"; done
           fi
 
-          if [ "$RC" -eq 124 ]; then
+          if [ "$HEALTHY" -eq 1 ]; then
             echo "✅ Smoke test passed: app stayed alive for 20s with no crash."
           else
-            echo "::error::App exited early (rc=$RC) — startup crash. See console output / crash report above."
+            echo "::error::App exited early — startup crash. See console output / crash report above."
             exit 1
           fi
