@@ -31,6 +31,18 @@ kotlin {
                 }
             }
         }
+        // x86_64 simulator: GitHub's macOS runners are still Intel, so Xcode builds the app for
+        // the x86_64 simulator. Without this target the framework is arm64-only and the linker
+        // drops it ("missing arch x86_64"). embedAndSignAppleFrameworkForXcode picks the slice
+        // matching Xcode's $ARCHS, so declaring all three covers both runner architectures.
+        iosX64 {
+            binaries {
+                framework {
+                    baseName = 'Shared'
+                    isStatic = true
+                }
+            }
+        }
     }
 
     sourceSets {
