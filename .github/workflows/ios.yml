@@ -48,5 +48,62 @@ jobs:
             -scheme ChordProgressionHelper \
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
+            -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      # Runtime smoke test: boot a simulator, install and launch the app, and fail if it
+      # crashes on startup. This is the first proof the shared framework actually RUNS
+      # (platform seams install, SwiftUI builds views off the StateFlow bridge), not just links.
+      - name: Smoke test (boot, launch, crash check)
+        working-directory: iosApp
+        run: |
+          set -uo pipefail
+          BUNDLE_ID=de.metaviewsoft.chordprogressionhelper
+
+          APP=$(find build/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' | head -1)
+          if [ -z "$APP" ]; then echo "::error::built .app not found"; exit 1; fi
+          echo "App bundle: $APP"
+
+          # Pick any available iPhone simulator; create one if the runner has none.
+          UDID_RE='[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}'
+          DEVICE=$(xcrun simctl list devices available | grep 'iPhone' | grep -oE "$UDID_RE" | head -1 || true)
+          if [ -z "$DEVICE" ]; then
+            echo "No iPhone simulator preinstalled; creating one."
+            RUNTIME=$(xcrun simctl list runtimes available | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS[^ ]*' | head -1)
+            DEVICE=$(xcrun simctl create smoke "iPhone 16" "$RUNTIME")
+          fi
+          echo "Device UDID: $DEVICE"
+
+          xcrun simctl boot "$DEVICE" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE" -b
+
+          xcrun simctl install "$DEVICE" "$APP"
+
+          # Clear stale crash reports so we only see ones from this launch.
+          rm -f ~/Library/Logs/DiagnosticReports/ChordProgressionHelper* 2>/dev/null || true
+
+          echo "Launching $BUNDLE_ID ..."
+          if ! xcrun simctl launch "$DEVICE" "$BUNDLE_ID"; then
+            echo "::error::simctl launch failed"
+            exit 1
+          fi
+
+          # Give the app time to initialize IosAppEnvironment (seams, storage) and render.
+          sleep 10
+
+          CRASHES=$(find ~/Library/Logs/DiagnosticReports -name 'ChordProgressionHelper*' 2>/dev/null || true)
+          if [ -n "$CRASHES" ]; then
+            echo "::error::App crashed on launch"
+            for f in $CRASHES; do echo "===== $f ====="; cat "$f"; done
+            exit 1
+          fi
+
+          if xcrun simctl spawn "$DEVICE" launchctl list 2>/dev/null | grep -q "$BUNDLE_ID"; then
+            echo "✅ Smoke test passed: app is running, no crash report."
+          else
+            echo "::error::App is not running after launch and produced no crash report (unexpected early exit)."
+            echo "Recent simulator log:"
+            xcrun simctl spawn "$DEVICE" log show --last 30s --predicate "processImagePath CONTAINS 'ChordProgressionHelper'" 2>/dev/null | tail -50 || true
+            exit 1
+          fi
