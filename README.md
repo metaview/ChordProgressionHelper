@@ -44,3 +44,4 @@ To run on an emulator or device:
 
 - Android SDK 24 (Android 7.0) or higher
 - Android Studio for development
+- test
