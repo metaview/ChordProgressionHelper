@@ -70,4 +70,26 @@ final class SongModel: ObservableObject {
     func decrementTempoPercent() {
         core.decrementTempoPercent()
     }
+
+    /// Suggested base filename (without extension) for the exported MIDI file.
+    var songFilenameBase: String {
+        let trimmed = songName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? "song" : trimmed
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " _-"))
+        let sanitized = String(base.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
+        return sanitized.isEmpty ? "song" : sanitized
+    }
+
+    /// Render the current song to a multi-track MIDI file. Mirrors Android's export:
+    /// the whole song (all sections) with the selected instrument tracks.
+    func exportMidiData(tracks: Set<MidiTrackType>) -> Data {
+        let song = core.getCurrentSong()
+        let kb = MidiExporter.shared.exportSong(song: song, tracks: tracks)
+        let count = Int(kb.size)
+        var bytes = [UInt8](repeating: 0, count: count)
+        for i in 0..<count {
+            bytes[i] = UInt8(bitPattern: kb.get(index: Int32(i)))
+        }
+        return Data(bytes)
+    }
 }

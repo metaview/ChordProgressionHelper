@@ -27,6 +27,7 @@ class SongViewModel(application: Application) : AndroidViewModel(application) {
     val isSongLooping: StateFlow<Boolean> get() = core.isSongLooping
     val tempoPercent: StateFlow<Int> get() = core.tempoPercent
 
+    fun getCurrentSong(): de.metaviewsoft.chordprogressionhelper.model.Song = core.getCurrentSong()
     fun getCurrentProgression(): ChordProgression = core.getCurrentProgression()
     fun getSectionIndexForMeasure(measureIndex: Int): Int = core.getSectionIndexForMeasure(measureIndex)
     fun getTempoForMeasure(measureIndex: Int): Int = core.getTempoForMeasure(measureIndex)

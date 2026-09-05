@@ -82,6 +82,12 @@ class SongViewModelCore(
         _selectedSongSectionIndex.value = currentSectionIndex
     }
 
+    /** Get the current song (all sections, in order). Used e.g. for MIDI export. */
+    fun getCurrentSong(): Song {
+        song.ensureValid()
+        return song
+    }
+
     /** Get the current progression (from current section). */
     fun getCurrentProgression(): ChordProgression {
         song.ensureValid()

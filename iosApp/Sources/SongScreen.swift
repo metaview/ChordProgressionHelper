@@ -6,6 +6,11 @@ import Shared
 struct SongScreen: View {
     @ObservedObject var model: SongModel
 
+    @State private var showTrackSelection = false
+    @State private var showExporter = false
+    @State private var exportDocument: MidiDocument?
+    @State private var exportFilename = "song"
+
     var body: some View {
         NavigationStack {
             List {
@@ -25,8 +30,40 @@ struct SongScreen: View {
                 }
             }
             .navigationTitle(model.songName)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button {
+                            showTrackSelection = true
+                        } label: {
+                            Label("Export as MIDI", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 playbackBar
+            }
+            .sheet(isPresented: $showTrackSelection) {
+                MidiTrackSelectionSheet { tracks in
+                    exportFilename = model.songFilenameBase
+                    exportDocument = MidiDocument(data: model.exportMidiData(tracks: tracks))
+                    // Let the selection sheet finish dismissing before presenting the file
+                    // exporter, otherwise SwiftUI can drop the second presentation.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showExporter = true
+                    }
+                }
+            }
+            .fileExporter(
+                isPresented: $showExporter,
+                document: exportDocument,
+                contentType: .midi,
+                defaultFilename: exportFilename
+            ) { _ in
+                exportDocument = nil
             }
         }
     }

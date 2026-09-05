@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import android.util.TypedValue
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -60,6 +62,10 @@ class SongActivity : AppCompatActivity() {
     private var lastPlaybackMeasureIndex: Int = -1
     private var lastSentPlaybackTempo: Int = -1
 
+    private lateinit var midiExportLauncher: ActivityResultLauncher<String>
+    private var pendingMidiBytes: ByteArray? = null
+    private var pendingMidiExportName: String = "song"
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             playbackService = (binder as? PlaybackService.LocalBinder)?.getService()
@@ -87,6 +93,18 @@ class SongActivity : AppCompatActivity() {
         val prog = selectedProgression ?: songViewModel.getCurrentProgression()
         val idx = songViewModel.findSectionIndexForProgression(prog)
         songViewModel.selectSongSection(idx)
+
+        midiExportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("audio/midi")) { uri ->
+            val bytes = pendingMidiBytes
+            pendingMidiBytes = null
+            if (uri == null || bytes == null) return@registerForActivityResult
+            val ok = de.metaviewsoft.chordprogressionhelper.util.MidiExportHelper.writeToUri(this, uri, bytes)
+            Toast.makeText(
+                this,
+                if (ok) getString(R.string.exported_x, pendingMidiExportName) else getString(R.string.midi_export_failed),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
 
         PlaybackService.stop(this)
         setupRecyclerView()
@@ -361,20 +379,39 @@ class SongActivity : AppCompatActivity() {
         popup.menu.add(0, 1, 1, getString(R.string.load_song_title))
         popup.menu.add(0, 2, 2, getString(R.string.save_song_title))
         popup.menu.add(0, 3, 3, getString(R.string.delete_song_title))
-        popup.menu.add(0, 4, 4, getString(R.string.settings_title))
-        popup.menu.add(0, 5, 5, getString(R.string.about_title))
+        popup.menu.add(0, 6, 4, getString(R.string.export_midi_title))
+        popup.menu.add(0, 4, 5, getString(R.string.settings_title))
+        popup.menu.add(0, 5, 6, getString(R.string.about_title))
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 0 -> { showNewSongDialog(); true }
                 1 -> { showLoadSongDialog(); true }
                 2 -> { showSaveSongDialog(); true }
                 3 -> { showDeleteSongDialog(); true }
+                6 -> { promptExportMidi(); true }
                 4 -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
                 5 -> { showAboutDialog(); true }
                 else -> false
             }
         }
         popup.show()
+    }
+
+    private fun promptExportMidi() {
+        de.metaviewsoft.chordprogressionhelper.util.MidiExportHelper.showTrackSelectionDialog(this) { tracks ->
+            try {
+                val song = songViewModel.getCurrentSong()
+                pendingMidiExportName = song.name.ifBlank { getString(R.string.song_name_default) }
+                pendingMidiBytes = de.metaviewsoft.chordprogressionhelper.util.MidiExporter
+                    .exportSong(song, tracks)
+                val suggested = de.metaviewsoft.chordprogressionhelper.util.MidiExportHelper
+                    .suggestedFileName(pendingMidiExportName)
+                midiExportLauncher.launch(suggested)
+            } catch (e: Exception) {
+                Log.w(TAG, "promptExportMidi failed: ${e.message}")
+                Toast.makeText(this, getString(R.string.midi_export_failed), Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun showAboutDialog() {

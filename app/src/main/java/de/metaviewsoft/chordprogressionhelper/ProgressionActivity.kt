@@ -170,8 +170,10 @@ class ProgressionActivity : AppCompatActivity() {
     private lateinit var exportCreateLauncher: ActivityResultLauncher<String>
     private lateinit var importOpenLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var exportDirLauncher: ActivityResultLauncher<android.net.Uri?>
+    private lateinit var midiExportLauncher: ActivityResultLauncher<String>
 
     private var pendingExportName: String? = null
+    private var pendingMidiBytes: ByteArray? = null
 
     private fun shareExportedProgression(name: String) {
         try {
@@ -195,6 +197,21 @@ class ProgressionActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.w(TAG, "shareExportedProgression failed: ${e.message}")
             Toast.makeText(this, getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun promptExportMidi() {
+        de.metaviewsoft.chordprogressionhelper.util.MidiExportHelper.showTrackSelectionDialog(this) { tracks ->
+            try {
+                pendingMidiBytes = de.metaviewsoft.chordprogressionhelper.util.MidiExporter
+                    .exportProgression(viewModel.progression, tracks)
+                val suggested = de.metaviewsoft.chordprogressionhelper.util.MidiExportHelper
+                    .suggestedFileName(viewModel.progression.name.ifBlank { "progression" })
+                midiExportLauncher.launch(suggested)
+            } catch (e: Exception) {
+                Log.w(TAG, "promptExportMidi failed: ${e.message}")
+                Toast.makeText(this, getString(R.string.midi_export_failed), Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -360,6 +377,18 @@ class ProgressionActivity : AppCompatActivity() {
             } finally {
                 pendingExportName = null
             }
+        }
+
+        midiExportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("audio/midi")) { uri ->
+            val bytes = pendingMidiBytes
+            pendingMidiBytes = null
+            if (uri == null || bytes == null) return@registerForActivityResult
+            val ok = de.metaviewsoft.chordprogressionhelper.util.MidiExportHelper.writeToUri(this, uri, bytes)
+            Toast.makeText(
+                this,
+                if (ok) getString(R.string.exported_x, viewModel.progression.name) else getString(R.string.midi_export_failed),
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         importOpenLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -620,7 +649,8 @@ class ProgressionActivity : AppCompatActivity() {
         popup.menu.add(0, 4, 4, getString(R.string.export_progression_title))
         popup.menu.add(0, 5, 5, getString(R.string.import_progression_title))
         popup.menu.add(0, 6, 6, getString(R.string.share_progression_title))
-        popup.menu.add(0, 7, 7, getString(R.string.settings_title))
+        popup.menu.add(0, 8, 7, getString(R.string.export_midi_title))
+        popup.menu.add(0, 7, 8, getString(R.string.settings_title))
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 0 -> { viewModel.requestNewProgression(); true }
@@ -630,6 +660,7 @@ class ProgressionActivity : AppCompatActivity() {
                 4 -> { promptChooseAndExport(); true }
                 5 -> { importOpenLauncher.launch(arrayOf("application/json")); true }
                 6 -> { promptChooseAndShare(); true }
+                8 -> { promptExportMidi(); true }
                 7 -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
                 else -> false
             }

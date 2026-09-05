@@ -26,6 +26,14 @@
     <string name="imported_x">Imported %1$s</string>
     <string name="exported_n_files">Exported %1$d files</string>
 
+    <string name="export_midi_title">Export as MIDI</string>
+    <string name="midi_select_tracks_title">Select tracks to export</string>
+    <string name="midi_track_chords">Chords</string>
+    <string name="midi_track_drums">Drums</string>
+    <string name="midi_track_solo">Solo</string>
+    <string name="midi_no_tracks_selected">Please select at least one track.</string>
+    <string name="midi_export_failed">MIDI export failed</string>
+
     <string name="about_title">About</string>
     <string name="about_message">Developed by MetaViewSoft with assistance from an AI assistant.</string>
     <string name="about_email_label">Email</string>
