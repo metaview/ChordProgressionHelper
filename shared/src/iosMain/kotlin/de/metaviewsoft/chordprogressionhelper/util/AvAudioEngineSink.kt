@@ -23,6 +23,11 @@ import platform.darwin.dispatch_semaphore_wait
  * are in flight — that backpressure is what paces the portable playback loop, exactly like
  * `AudioTrack.write`. `flush`/`stop` discard scheduled buffers (their completion handlers fire
  * and re-signal the semaphore, so writers never deadlock).
+ *
+ * `AVAudioPlayerNode` stops itself the moment it runs dry, and there is always a gap between
+ * [play] and the first [write] (count-in generation, sample pre-warm, …). So [play] alone is
+ * not enough — [write] re-`play()`s the node whenever it finds it stopped, which is what makes
+ * playback actually audible after that initial gap.
  */
 class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
 
@@ -31,11 +36,16 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
     private val format = AVAudioFormat(AVAudioPCMFormatFloat32, config.sampleRate.toDouble(), 1u, false)
     private val queueSlots = dispatch_semaphore_create(MAX_QUEUED_BUFFERS)
     private var initialized = false
-    private var framesWritten = 0L
+    private var started = false
+    private var restartCount = 0L
 
     init {
         try {
             engine.attachNode(player)
+            // Realize the output IO unit against the (already active) audio session before wiring
+            // the graph — on the simulator the mixer-only path can otherwise leave the output at 0 Hz.
+            val output = engine.outputNode
+            engine.connect(engine.mainMixerNode, output, output.inputFormatForBus(0u))
             engine.connect(player, engine.mainMixerNode, format)
             engine.prepare()
             initialized = engine.startAndReturnError(null)
@@ -48,6 +58,7 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
     override fun play() {
         if (!engine.running) engine.startAndReturnError(null)
         player.play()
+        started = true
     }
 
     override fun pause() {
@@ -68,7 +79,15 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
         player.scheduleBuffer(buffer) {
             dispatch_semaphore_signal(queueSlots)
         }
-        framesWritten += sizeInShorts
+
+        // The node stops itself whenever it drains; restart it now that there is data again.
+        if (started && !player.playing) {
+            if (!engine.running) engine.startAndReturnError(null)
+            player.play()
+            if (restartCount++ == 0L) {
+                AppLog.d("AvAudioEngineSink", "player node restarted after draining")
+            }
+        }
         return sizeInShorts
     }
 
@@ -79,11 +98,11 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
     override fun flush() {
         // Stopping the node discards scheduled buffers; completion handlers fire and free slots.
         player.stop()
-        framesWritten = 0
     }
 
     override fun stop() {
         player.stop()
+        started = false
     }
 
     override fun release() {
@@ -93,6 +112,7 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
         } catch (t: Throwable) {
             AppLog.w("AvAudioEngineSink", "release failed: ${t.message}", t)
         }
+        started = false
         initialized = false
     }
 
@@ -103,7 +123,7 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
             return playerTime.sampleTime.toInt().coerceAtLeast(0)
         }
 
-    override val isPlaying: Boolean get() = player.playing
+    override val isPlaying: Boolean get() = player.playing || (started && engine.running)
 
     override val isInitialized: Boolean get() = initialized
 
