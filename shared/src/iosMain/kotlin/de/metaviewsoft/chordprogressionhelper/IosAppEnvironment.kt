@@ -1,4 +1,7 @@
-@file:OptIn(com.russhwolf.settings.ExperimentalSettingsImplementation::class)
+@file:OptIn(
+    com.russhwolf.settings.ExperimentalSettingsImplementation::class,
+    kotlinx.serialization.InternalSerializationApi::class,
+)
 
 package de.metaviewsoft.chordprogressionhelper
 
@@ -7,9 +10,21 @@ import de.metaviewsoft.chordprogressionhelper.data.ProgressionStorage
 import de.metaviewsoft.chordprogressionhelper.data.SettingsStore
 import de.metaviewsoft.chordprogressionhelper.data.SongSession
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
+import de.metaviewsoft.chordprogressionhelper.model.DrumPattern
+import de.metaviewsoft.chordprogressionhelper.model.DrumStep
+import de.metaviewsoft.chordprogressionhelper.model.Key
+import de.metaviewsoft.chordprogressionhelper.model.Measure
+import de.metaviewsoft.chordprogressionhelper.model.Mode
+import de.metaviewsoft.chordprogressionhelper.model.SoloPattern
+import de.metaviewsoft.chordprogressionhelper.model.Strum
+import de.metaviewsoft.chordprogressionhelper.model.StrummingPattern
+import de.metaviewsoft.chordprogressionhelper.ui.DrumPatternEditor
 import de.metaviewsoft.chordprogressionhelper.ui.PreviewGate
 import de.metaviewsoft.chordprogressionhelper.ui.ProgressionViewModelCore
+import de.metaviewsoft.chordprogressionhelper.ui.SoloChordRoot
+import de.metaviewsoft.chordprogressionhelper.ui.SoloPatternEditor
 import de.metaviewsoft.chordprogressionhelper.ui.SongViewModelCore
+import de.metaviewsoft.chordprogressionhelper.ui.StrummingPatternEditor
 import de.metaviewsoft.chordprogressionhelper.util.AppLog
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlatform
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
@@ -45,6 +60,7 @@ class IosAppEnvironment private constructor() {
     val progressionViewModel: ProgressionViewModelCore
     val playback: IosPlaybackController
     val progressionPlayback: IosProgressionPlaybackController
+    val patternPreview: IosPatternPreviewController
 
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -83,10 +99,167 @@ class IosAppEnvironment private constructor() {
             progressionProvider = { progressionViewModel.progression },
             shouldLoop = { progressionViewModel.isProgressionLooping.value },
         )
+        patternPreview = IosPatternPreviewController(settings)
+    }
+
+    // ---- Per-measure pattern editors (drums / strumming / solo) ----------------
+    // Each `make…Editor` snapshots the current section so the editor holds a working copy;
+    // the Swift sheet writes the result back via ProgressionViewModelCore.set…Pattern.
+
+    fun makeDrumEditor(measureIndex: Int): DrumPatternEditor {
+        val measures = session.currentProgression.measures
+        val current = measures.getOrNull(measureIndex)?.drumPattern ?: DrumPattern.DEFAULT
+        val used = measures.map { it.drumPattern }
+            .distinctBy { p -> p.steps.joinToString(";") { "${it.kick}:${it.snare}:${it.hiHat}" } }
+        return DrumPatternEditor(current, used)
+    }
+
+    fun makeStrummingEditor(measureIndex: Int): StrummingPatternEditor {
+        val measures = session.currentProgression.measures
+        val current = measures.getOrNull(measureIndex)?.strummingPattern ?: StrummingPattern.DEFAULT
+        val used = measures.map { it.strummingPattern }
+            .distinctBy { p -> p.strums.joinToString(",") { it.name } }
+        return StrummingPatternEditor(current, used)
+    }
+
+    fun makeSoloEditor(measureIndex: Int): SoloPatternEditor {
+        val progression = session.currentProgression
+        val patterns = progression.measures.map { it.soloPattern }
+        val chordRoots = progression.measures.map { measure ->
+            measure.chordEvents.sortedBy { it.quarterNote }.map { event ->
+                SoloChordRoot(event.quarterNote, ((event.chord.root.noteOffset % 12) + 12) % 12)
+            }
+        }
+        return SoloPatternEditor(patterns, measureIndex, progression.key, progression.mode, chordRoots)
     }
 
     companion object {
         val shared: IosAppEnvironment by lazy { IosAppEnvironment() }
+    }
+}
+
+/**
+ * Loops a single measure so the pattern editors can be auditioned in isolation. Builds a
+ * one-measure [ChordProgression] from the given prototype and drives the shared [AudioPlayer]
+ * directly (iOS has no PlaybackService). Lanes can be silenced individually so e.g. the drum
+ * editor is heard without strumming/solo on top.
+ */
+class IosPatternPreviewController(private val settings: SettingsStore) {
+    private val audioPlayer = AudioPlayer()
+    /** Separate player for one-shot key/drum taps so they don't fight the loop. */
+    private val tapPlayer = AudioPlayer()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var playbackJob: Job? = null
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private fun applyLiveSoundSettings() {
+        applySoundSettings(audioPlayer)
+    }
+
+    private fun applySoundSettings(player: AudioPlayer) {
+        player.drumLevel = settings.drumLevel.toDouble()
+        player.soloLevel = settings.soloLevel.toDouble()
+        player.strumLevel = settings.strumLevel.toDouble()
+        player.envelopeScale = settings.envelopeScale.toDouble()
+        player.hiHatHighpass = settings.hiHatHighpass.toDouble()
+        player.voicePreset = settings.strumPreset
+        player.soloPreset = settings.soloPreset
+        player.shuffleFactor = settings.shuffleFactor
+        player.strumCrunchLevel = settings.strumCrunchLevel
+        player.soloCrunchLevel = settings.soloCrunchLevel
+        player.masterVolume = settings.masterVolume.toDouble()
+    }
+
+    /** Warm the tap player's audio track so the first key press is not delayed. */
+    fun warmUp() {
+        applySoundSettings(tapPlayer)
+        tapPlayer.ensurePreviewTrackReady()
+    }
+
+    /** Solo keyboard: start a sustained note, held until [releaseNote]. */
+    fun startNote(midi: Int) {
+        applySoundSettings(tapPlayer)
+        tapPlayer.startSustainedNote(midi)
+    }
+
+    fun releaseNote() {
+        tapPlayer.releaseSustainedNote()
+    }
+
+    /** Drum editor: audible feedback for toggling a lane. */
+    fun tapKick() {
+        applySoundSettings(tapPlayer)
+        scope.launch { tapPlayer.previewKick(1.0) }
+    }
+
+    fun tapSnare() {
+        applySoundSettings(tapPlayer)
+        scope.launch { tapPlayer.previewSnare(1.0) }
+    }
+
+    fun tapHiHat() {
+        applySoundSettings(tapPlayer)
+        scope.launch { tapPlayer.previewHiHat(1.0) }
+    }
+
+    /**
+     * Loop [prototypeMeasureIndex] of the current section with the supplied patterns applied.
+     * Passing a pattern null keeps that lane silent.
+     */
+    fun playMeasure(
+        session: SongSession,
+        prototypeMeasureIndex: Int,
+        drums: DrumPattern?,
+        strumming: StrummingPattern?,
+        solo: SoloPattern?,
+    ) {
+        stop()
+        applyLiveSoundSettings()
+
+        val source = session.currentProgression
+        val prototype = source.measures.getOrNull(prototypeMeasureIndex)
+        val progression = ChordProgression(
+            name = "Preview",
+            key = source.key,
+            mode = source.mode,
+            tempo = source.tempo,
+        )
+        progression.measures.clear()
+
+        val measure = Measure(1)
+        prototype?.chordEvents?.forEach { measure.addChord(it.chord, it.quarterNote * 2) }
+        if (measure.chordEvents.isEmpty()) {
+            progression.getScaleDegreeChords().firstOrNull()?.let { measure.addChord(it, 0) }
+        }
+        measure.drumPattern = drums ?: DrumPattern("Silent", List(8) { DrumStep() })
+        measure.strummingPattern = strumming ?: StrummingPattern("Silent", List(8) { Strum.REST })
+        measure.soloPattern = solo ?: SoloPattern("Silent", emptyList())
+        progression.measures.add(measure)
+
+        _isPlaying.value = true
+        playbackJob = scope.launch {
+            try {
+                audioPlayer.playProgression(
+                    progression = progression,
+                    shouldLoop = { true },
+                    pluckStrength = settings.pluckStrength,
+                    countInBeats = 0,
+                    onPositionChanged = { _, _ -> },
+                )
+            } finally {
+                _isPlaying.value = false
+            }
+        }
+    }
+
+    fun stop() {
+        audioPlayer.stop()
+        playbackJob?.cancel()
+        playbackJob = null
+        audioPlayer.resetStopFlag()
+        _isPlaying.value = false
     }
 }
 

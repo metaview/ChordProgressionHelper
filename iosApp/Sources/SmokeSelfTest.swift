@@ -1,4 +1,5 @@
 import Foundation
+import Shared
 
 /// Headless startup self-test, run only when the app is launched with `CPH_SMOKE=1` in its
 /// environment (CI passes it via `SIMCTL_CHILD_CPH_SMOKE=1`). Normal launches never run it.
@@ -37,9 +38,9 @@ final class SmokeSelfTest {
     /// A silent 20s CI timeout becomes an actionable FAIL that names the step we were stuck in.
     private func startWatchdog() {
         let progress = self.progress
-        DispatchQueue.global().asyncAfter(deadline: .now() + 14.0) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 25.0) {
             guard !progress.done else { return }
-            emit("SMOKE-SELFTEST: FAIL — watchdog fired after 14s, stuck in step \"\(progress.step)\" "
+            emit("SMOKE-SELFTEST: FAIL — watchdog fired after 25s, stuck in step \"\(progress.step)\" "
                  + "(no PASS/FAIL reached; main thread likely blocked here)")
             emit("SMOKE-SELFTEST: FAIL (watchdog)")
         }
@@ -98,7 +99,55 @@ final class SmokeSelfTest {
         model.stop()
         after(1.0) {
             self.expect(!self.model.isPlaying, "playback stopped: isPlaying == false (was \(self.model.isPlaying))")
-            self.finish()
+            self.checkPatternEditors()
+        }
+    }
+
+    /// Exercises the Etappe-2 per-measure pattern editors end to end: build each editor from the
+    /// shared factory, mutate it, run a one-measure preview through the FlowWatch bridge, and save
+    /// back into the progression. Linking never covers the Kotlin/Native bridging these hit.
+    private func checkPatternEditors() {
+        step("checkPatternEditors")
+
+        let drum = DrumEditorModel(measureIndex: 0)
+        expect(drum.steps.count == 8, "drum editor has 8 steps (was \(drum.steps.count))")
+        expect(!drum.defaultPatterns.isEmpty, "drum editor exposes default patterns")
+        drum.toggleKick(1)
+        drum.toggleSnare(2)
+        if let first = drum.defaultPatterns.first { drum.selectPreset(first) }
+        drum.save()
+        log("drum editor: presets=\(drum.defaultPatterns.count) used=\(drum.usedPatterns.count)")
+
+        let strum = StrummingEditorModel(measureIndex: 0)
+        expect(strum.strums.count == 8, "strumming editor has 8 steps (was \(strum.strums.count))")
+        let strumBefore = PatternDisplay.strumSignature0(strum.strums)
+        strum.cycle(0)
+        expect(PatternDisplay.strumSignature0(strum.strums) != strumBefore,
+               "strumming cycle changed step 0 (\(strumBefore))")
+        strum.save()
+
+        let solo = SoloEditorModel(measureIndex: 0)
+        expect(solo.measureCount >= 1, "solo editor has >=1 measure (was \(solo.measureCount))")
+        expect(solo.slots(0).count == 8, "solo measure has 8 slots (was \(solo.slots(0).count))")
+        expect(!solo.scalePitchClasses().isEmpty, "solo editor computes a scale")
+        solo.cycleEditMode() // PREVIEW -> EDIT
+        expect(solo.editMode == SoloEditMode.edit, "solo edit mode is EDIT after one cycle")
+        solo.selectSlot(measure: 0, slot: 0)
+        solo.pressKey(pitchClass: 0, octaveOffset: 0)
+        solo.releaseKey()
+        expect(PatternDisplay.isNote(solo.slots(0)[0]), "solo pressKey wrote a note at slot 0")
+        solo.save()
+
+        after(0.5) {
+            solo.togglePreview()
+            self.after(1.0) {
+                self.expect(solo.isPreviewing, "pattern preview started (isPreviewing was \(solo.isPreviewing))")
+                solo.stopPreview()
+                self.after(0.8) {
+                    self.expect(!solo.isPreviewing, "pattern preview stopped (isPreviewing was \(solo.isPreviewing))")
+                    self.finish()
+                }
+            }
         }
     }
 

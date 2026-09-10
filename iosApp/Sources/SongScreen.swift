@@ -10,6 +10,8 @@ struct SongScreen: View {
     @State private var showExporter = false
     @State private var exportDocument: MidiDocument?
     @State private var exportFilename = "song"
+    // Debug shortcut: `CPH_OPEN_EDITOR=1` jumps straight into the progression editor on launch
+    // so the per-measure editors can be inspected without UI automation.
     @State private var showEditor = false
 
     var body: some View {
@@ -43,6 +45,16 @@ struct SongScreen: View {
                 .hidden()
             )
             .navigationTitle(model.songName)
+            .onAppear {
+                // Debug shortcut: `CPH_OPEN_EDITOR=1` jumps straight into the progression editor
+                // so the per-measure pattern editors can be inspected without UI automation.
+                if ProcessInfo.processInfo.environment["CPH_OPEN_EDITOR"] != nil && !showEditor {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        model.selectSection(0)
+                        showEditor = true
+                    }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {

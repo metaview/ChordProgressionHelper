@@ -7,6 +7,19 @@ import Shared
 /// tempo, loop, playback. Drum/solo/strumming patterns and templates/save-load come later.
 struct ProgressionScreen: View {
     @StateObject private var model = ProgressionModel(env: IosAppEnvironment.companion.shared)
+    @State private var patternSheet: PatternSheet?
+
+    /// Which per-measure pattern editor is open, if any.
+    enum PatternSheet: Identifiable {
+        case drums(Int), strum(Int), solo(Int)
+        var id: String {
+            switch self {
+            case .drums(let i): return "drums-\(i)"
+            case .strum(let i): return "strum-\(i)"
+            case .solo(let i): return "solo-\(i)"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,7 +31,23 @@ struct ProgressionScreen: View {
         }
         .navigationTitle("Akkorde")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            // Debug: `CPH_OPEN_EDITOR=drums|strum|solo` opens that sheet for measure 1.
+            switch ProcessInfo.processInfo.environment["CPH_OPEN_EDITOR"] {
+            case "drums": patternSheet = .drums(0)
+            case "strum": patternSheet = .strum(0)
+            case "solo": patternSheet = .solo(0)
+            default: break
+            }
+        }
         .onDisappear { model.stop() }
+        .sheet(item: $patternSheet) { sheet in
+            switch sheet {
+            case .drums(let i): DrumPatternSheet(measureIndex: i)
+            case .strum(let i): StrummingPatternSheet(measureIndex: i)
+            case .solo(let i): SoloPatternSheet(measureIndex: i)
+            }
+        }
         .alert(
             "Takt löschen?",
             isPresented: deleteConfirmationBinding,
@@ -101,26 +130,64 @@ struct ProgressionScreen: View {
     }
 
     private func measureRow(index: Int, measure: Measure) -> some View {
-        HStack(spacing: 6) {
-            Text("\(index + 1)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 20)
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Text("\(index + 1)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
 
-            ForEach(0..<4, id: \.self) { quarter in
-                chordSlot(measureIndex: index, quarter: quarter, measure: measure)
+                ForEach(0..<4, id: \.self) { quarter in
+                    chordSlot(measureIndex: index, quarter: quarter, measure: measure)
+                }
+
+                Button { model.requestRemoveMeasure(index) } label: {
+                    Image(systemName: "trash").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
             }
 
-            Button { model.requestRemoveMeasure(index) } label: {
-                Image(systemName: "trash").foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                patternButton("Drums", systemImage: "circle.grid.3x3.fill", detail: measure.drumPattern.name) {
+                    patternSheet = .drums(index)
+                }
+                patternButton("Anschlag", systemImage: "guitars.fill", detail: measure.strummingPattern.name) {
+                    patternSheet = .strum(index)
+                }
+                patternButton("Solo", systemImage: "pianokeys", detail: soloDetail(measure.soloPattern)) {
+                    patternSheet = .solo(index)
+                }
             }
-            .buttonStyle(.borderless)
         }
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(model.currentMeasureIndex == index ? Color.accentColor.opacity(0.18) : Color(.secondarySystemBackground))
         )
+    }
+
+    private func soloDetail(_ pattern: SoloPattern) -> String {
+        pattern.isEmpty() ? "–" : "\(pattern.elements.count)"
+    }
+
+    private func patternButton(_ title: String, systemImage: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Label(title, systemImage: systemImage)
+                    .font(.caption2)
+                    .labelStyle(.iconOnly)
+                Text(title).font(.caption2)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(.tertiarySystemBackground)))
+        }
+        .buttonStyle(.plain)
     }
 
     private func chordSlot(measureIndex: Int, quarter: Int, measure: Measure) -> some View {
