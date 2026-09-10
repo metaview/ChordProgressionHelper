@@ -43,8 +43,7 @@ struct MidiTrackSelectionSheet: View {
     }
 
     var body: some View {
-        // NavigationView (nicht NavigationStack): läuft ab iOS 15.
-        NavigationView {
+        AppNavigationContainer {
             Form {
                 Section("Tracks") {
                     Toggle("Chords", isOn: $includeChords)

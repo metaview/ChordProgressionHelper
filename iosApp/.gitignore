@@ -1,0 +1,9 @@
+# Von XcodeGen generiert (project.yml ist die Quelle der Wahrheit) – nicht committen.
+*.xcodeproj/
+*.xcworkspace/
+
+# Xcode-Build-Artefakte
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
