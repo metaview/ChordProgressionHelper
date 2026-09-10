@@ -12,7 +12,9 @@ struct SongScreen: View {
     @State private var exportFilename = "song"
 
     var body: some View {
-        NavigationStack {
+        // NavigationView (nicht NavigationStack): läuft ab iOS 15. Diese Screens nutzen
+        // keine wertbasierte/Push-Navigation, daher ist es ein 1:1-Ersatz.
+        NavigationView {
             List {
                 ForEach(Array(model.sectionNames.enumerated()), id: \.offset) { index, name in
                     Button {

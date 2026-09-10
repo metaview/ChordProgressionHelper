@@ -4,7 +4,7 @@ name: ChordProgressionHelper
 options:
   bundleIdPrefix: de.metaviewsoft
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "15.0"
 targets:
   ChordProgressionHelper:
     type: application
