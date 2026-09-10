@@ -10,13 +10,17 @@ struct SongScreen: View {
     @State private var showExporter = false
     @State private var exportDocument: MidiDocument?
     @State private var exportFilename = "song"
+    @State private var showEditor = false
 
     var body: some View {
         AppNavigationContainer {
             List {
                 ForEach(Array(model.sectionNames.enumerated()), id: \.offset) { index, name in
                     Button {
+                        // Make this section the current one in the shared song, then open the
+                        // editor (ProgressionScreen edits session.currentProgression).
                         model.selectSection(index)
+                        showEditor = true
                     } label: {
                         HStack {
                             Text(name)
@@ -24,11 +28,20 @@ struct SongScreen: View {
                             if index == model.selectedIndex {
                                 Image(systemName: "checkmark")
                             }
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                         }
                     }
                     .foregroundStyle(.primary)
                 }
             }
+            .background(
+                NavigationLink(destination: ProgressionScreen(), isActive: $showEditor) {
+                    EmptyView()
+                }
+                .hidden()
+            )
             .navigationTitle(model.songName)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {

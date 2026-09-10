@@ -44,6 +44,7 @@ class IosAppEnvironment private constructor() {
     val songViewModel: SongViewModelCore
     val progressionViewModel: ProgressionViewModelCore
     val playback: IosPlaybackController
+    val progressionPlayback: IosProgressionPlaybackController
 
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -74,6 +75,13 @@ class IosAppEnvironment private constructor() {
             scope = mainScope,
             previewGate = SingleOwnerPreviewGate,
             onUserMessage = { AppLog.i("UserMessage", it) },
+        )
+        progressionPlayback = IosProgressionPlaybackController(
+            settings = settings,
+            // The progression is always the current section of the shared song (session.currentProgression),
+            // read lazily at play time so edits made just before pressing play are picked up.
+            progressionProvider = { progressionViewModel.progression },
+            shouldLoop = { progressionViewModel.isProgressionLooping.value },
         )
     }
 
@@ -175,5 +183,74 @@ class IosPlaybackController(
         audioPlayer.resetStopFlag()
         _isPlaying.value = false
         _position.value = null
+    }
+}
+
+/**
+ * Playback for a single progression in the editor screen (iOS counterpart of Android's
+ * progression preview). Drives the shared [AudioPlayer] directly, looping while [shouldLoop]
+ * returns true. Exposes [currentMeasureIndex] (-1 when stopped) so the UI can highlight the
+ * measure that is currently sounding.
+ */
+class IosProgressionPlaybackController(
+    private val settings: SettingsStore,
+    private val progressionProvider: () -> ChordProgression,
+    private val shouldLoop: () -> Boolean,
+) {
+    private val audioPlayer = AudioPlayer()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var playbackJob: Job? = null
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    /** Index of the measure currently sounding, or -1 when stopped. */
+    private val _currentMeasureIndex = MutableStateFlow(-1)
+    val currentMeasureIndex: StateFlow<Int> = _currentMeasureIndex.asStateFlow()
+
+    private fun applyLiveSoundSettings() {
+        audioPlayer.drumLevel = settings.drumLevel.toDouble()
+        audioPlayer.soloLevel = settings.soloLevel.toDouble()
+        audioPlayer.strumLevel = settings.strumLevel.toDouble()
+        audioPlayer.envelopeScale = settings.envelopeScale.toDouble()
+        audioPlayer.hiHatHighpass = settings.hiHatHighpass.toDouble()
+        audioPlayer.voicePreset = settings.strumPreset
+        audioPlayer.soloPreset = settings.soloPreset
+        audioPlayer.shuffleFactor = settings.shuffleFactor
+        audioPlayer.strumCrunchLevel = settings.strumCrunchLevel
+        audioPlayer.soloCrunchLevel = settings.soloCrunchLevel
+        audioPlayer.masterVolume = settings.masterVolume.toDouble()
+    }
+
+    fun play() {
+        if (_isPlaying.value) return
+        applyLiveSoundSettings()
+        val progression = progressionProvider()
+        _isPlaying.value = true
+        playbackJob = scope.launch {
+            try {
+                audioPlayer.playProgression(
+                    progression = progression,
+                    shouldLoop = { shouldLoop() },
+                    pluckStrength = settings.pluckStrength,
+                    countInBeats = settings.countInBeats,
+                    onPositionChanged = { measureIndex, _ ->
+                        _currentMeasureIndex.value = measureIndex
+                    },
+                )
+            } finally {
+                _isPlaying.value = false
+                _currentMeasureIndex.value = -1
+            }
+        }
+    }
+
+    fun stop() {
+        audioPlayer.stop()
+        playbackJob?.cancel()
+        playbackJob = null
+        audioPlayer.resetStopFlag()
+        _isPlaying.value = false
+        _currentMeasureIndex.value = -1
     }
 }
