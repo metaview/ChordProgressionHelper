@@ -113,7 +113,8 @@ final class ProgressionModel: ObservableObject {
     // MARK: - Measures
 
     func chord(inMeasure measure: Measure, quarterNote: Int) -> Chord? {
-        measure.chordEvents.first { $0.quarterNote == Int32(quarterNote) }?.chord
+        let events = measure.chordEvents as? [Measure.ChordEvent] ?? []
+        return events.first { $0.quarterNote == Int32(quarterNote) }?.chord
     }
 
     /// Place the currently selected chord at the given quarter-note slot.
