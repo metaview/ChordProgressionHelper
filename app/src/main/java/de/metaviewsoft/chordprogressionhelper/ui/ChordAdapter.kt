@@ -64,7 +64,12 @@ class ChordAdapter(
         holder.bind(getItem(position))
     }
 
+    private val longPressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     inner class ChordViewHolder(private val binding: ItemChordBinding) : RecyclerView.ViewHolder(binding.root) {
+
+        private var longPressRunnable: Runnable? = null
+        private var longPressFired = false
 
         fun bind(chord: Chord) {
             binding.chordNameText.text = chord.getDisplayName()
@@ -111,45 +116,61 @@ class ChordAdapter(
 
             // Use OnTouchListener instead of OnClickListener for instant response on ACTION_DOWN.
             // Press-and-hold: ACTION_DOWN starts the (sustained) preview, ACTION_UP/CANCEL releases it.
+            // Because this listener consumes the touch stream, View's built-in long-press detection
+            // never runs, so we schedule the long-press (Power chord / Drag menu) manually here.
             binding.root.setOnTouchListener { v, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
+                        longPressFired = false
                         onChordClick(chord)
                         v.performClick()  // Still trigger click for accessibility
+                        val runnable = Runnable {
+                            longPressFired = true
+                            onChordRelease()       // stop the preview before opening the menu
+                            showChordMenu(v, chord)
+                        }
+                        longPressRunnable = runnable
+                        longPressHandler.postDelayed(
+                            runnable,
+                            android.view.ViewConfiguration.getLongPressTimeout().toLong()
+                        )
                         true
                     }
                     android.view.MotionEvent.ACTION_UP,
                     android.view.MotionEvent.ACTION_CANCEL -> {
-                        onChordRelease()
+                        longPressRunnable?.let { longPressHandler.removeCallbacks(it) }
+                        longPressRunnable = null
+                        if (!longPressFired) {
+                            onChordRelease()
+                        }
                         true
                     }
                     else -> false
                 }
             }
+        }
 
-            binding.root.setOnLongClickListener { view ->
-                // Show a small popup menu to either start drag or convert to Power chord
-                val popup = PopupMenu(view.context, view)
-                popup.menu.add("Make Power Chord")
-                popup.menu.add("Drag")
-                popup.setOnMenuItemClickListener { menuItem ->
-                    when (menuItem.title) {
-                        "Make Power Chord" -> {
-                            onMakePower(chord)
-                            true
-                        }
-                        "Drag" -> {
-                            val item = ClipData.Item(chord.getDisplayName())
-                            val dragData = ClipData(view.tag as? CharSequence, arrayOf(ClipDescription.MIMETYPE_TEXT_PLAIN), item)
-                            view.startDragAndDrop(dragData, View.DragShadowBuilder(view), chord, 0)
-                            true
-                        }
-                        else -> false
+        private fun showChordMenu(view: View, chord: Chord) {
+            // Small popup menu to either convert to a Power chord or start a drag.
+            val popup = PopupMenu(view.context, view)
+            popup.menu.add("Make Power Chord")
+            popup.menu.add("Drag")
+            popup.setOnMenuItemClickListener { menuItem ->
+                when (menuItem.title) {
+                    "Make Power Chord" -> {
+                        onMakePower(chord)
+                        true
                     }
+                    "Drag" -> {
+                        val item = ClipData.Item(chord.getDisplayName())
+                        val dragData = ClipData(view.tag as? CharSequence, arrayOf(ClipDescription.MIMETYPE_TEXT_PLAIN), item)
+                        view.startDragAndDrop(dragData, View.DragShadowBuilder(view), chord, 0)
+                        true
+                    }
+                    else -> false
                 }
-                popup.show()
-                true
             }
+            popup.show()
         }
     }
 
