@@ -159,6 +159,21 @@ class SoloPatternEditor(
         cursor = slotIndex.coerceIn(0, 7)
     }
 
+    /**
+     * Tap semantics matching Android's grid: tapping a slot in a *different* measure just selects
+     * it; re-tapping the *currently selected* slot in the active measure deselects it
+     * ([cursor] = -1, "nothing selected"). A -1 cursor suppresses step entry until a slot is
+     * selected again. Host UIs that don't want a deselect state can keep using [selectSlot].
+     */
+    fun toggleCursor(measureIndex: Int, slotIndex: Int) {
+        if (measureIndex != activeMeasure) {
+            if (measureIndex in data.indices) activeMeasure = measureIndex
+            cursor = slotIndex.coerceIn(0, 7)
+        } else {
+            cursor = if (cursor == slotIndex) -1 else slotIndex.coerceIn(0, 7)
+        }
+    }
+
     fun cycleEditMode() {
         editMode = when (editMode) {
             SoloEditMode.PREVIEW -> SoloEditMode.EDIT

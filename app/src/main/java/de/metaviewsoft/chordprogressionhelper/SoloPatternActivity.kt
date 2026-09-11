@@ -30,6 +30,11 @@ import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
 import de.metaviewsoft.chordprogressionhelper.data.SettingsRepository
 import de.metaviewsoft.chordprogressionhelper.data.SoundPreset
 import de.metaviewsoft.chordprogressionhelper.util.AudioPlayer
+import de.metaviewsoft.chordprogressionhelper.ui.SoloPatternEditor
+import de.metaviewsoft.chordprogressionhelper.ui.SoloSlot
+import de.metaviewsoft.chordprogressionhelper.ui.SoloSlotKind
+import de.metaviewsoft.chordprogressionhelper.ui.SoloEditMode
+import de.metaviewsoft.chordprogressionhelper.ui.SoloChordRoot
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
@@ -59,16 +64,6 @@ class SoloPatternActivity : AppCompatActivity() {
         // Dot colors overlaid on the keyboard keys.
         private const val SCALE_DOT_COLOR = 0xFFFFC107.toInt() // amber/yellow: keys in the current scale
         private const val ROOT_DOT_COLOR = 0xFF4CAF50.toInt()  // green: root of the current chord / key tonic
-        
-        // Clipboard for copy/paste of solo patterns across sections
-        private var clipboard: List<Array<Slot>>? = null
-    }
-
-    // Editing modes
-    enum class EditingMode {
-        PREVIEW,  // Keine Aufnahme, nur Anhören
-        EDIT,     // Schrittweise Eingabe am Cursor mit Auto-Advance
-        LIVE      // Aufnahme nur während Playback an Abspielposition
     }
 
     // UI Views
@@ -101,32 +96,17 @@ class SoloPatternActivity : AppCompatActivity() {
     private lateinit var keyCsHigh: Button
     private lateinit var keyDHigh: Button
 
-    private sealed class Slot {
-        object Rest : Slot()
-        object LetRing : Slot()
-        data class NoteSlot(val midi: Int) : Slot()
-    }
-
-    // Multi-measure state
-    private val allSlotsData = mutableListOf<Array<Slot>>()          // one 8-slot array per measure
+    // Editing logic + state (slots, cursor, octave, edit mode, clipboard) now lives in the shared
+    // SoloPatternEditor (commonMain); this Activity is the Android view layer around it.
+    private lateinit var editor: SoloPatternEditor
     private val rowSlotViews = mutableListOf<List<android.widget.Button>>() // slot button views per row
     private val rowCards = mutableListOf<MaterialCardView>()          // card per row for highlighting
-    private var activeMeasureIndex = 0
     // Per measure: list of (quarterNote 0..3, chord display name) for every chord change in that measure
     private var measureChords: List<List<Pair<Int, String>>> = emptyList()
     // Per measure: the real strumming pattern from the song, used for preview accompaniment
     private var measureStrummingPatterns: List<StrummingPattern> = emptyList()
-    
-    // Current editing mode
-    private var currentMode = EditingMode.PREVIEW  // Start in preview mode by default
-
-    // Computed property: always points to the active measure's slot array
-    private val slots: Array<Slot>
-        get() = if (allSlotsData.isNotEmpty()) allSlotsData[activeMeasureIndex] else Array(8) { Slot.Rest as Slot }
     // Local preview player for single-note previews (separate from PlaybackService used for full-pattern previews)
     private val previewAudioPlayer = AudioPlayer()
-    private var selectedSlot: Int = -1
-    private var currentOctave: Int = 4
     // Job handle for the currently playing single-note preview so it can be cancelled
     private var previewJob: Job? = null
     
@@ -277,7 +257,8 @@ class SoloPatternActivity : AppCompatActivity() {
             Log.w(TAG, "Failed to bind PlaybackService: ${e.message}")
         }
 
-        // Build multi-measure slot data
+        // Build the initial solo patterns (one per measure) for the shared editor.
+        val initialPatterns = mutableListOf<SoloPattern>()
         val allPatternsJson = intent?.getStringExtra(EXTRA_ALL_MEASURES_SOLO_PATTERNS_JSON)
         if (allPatternsJson != null) {
             // New multi-measure mode: load all measures' patterns
@@ -294,28 +275,28 @@ class SoloPatternActivity : AppCompatActivity() {
                 }
             }
             try {
-                val patterns = Json.decodeFromString(ListSerializer(SoloPattern.serializer()), allPatternsJson)
-                for (pattern in patterns) {
-                    val arr = Array<Slot>(8) { Slot.Rest }
-                    expandPatternToSlots(pattern, arr)
-                    allSlotsData.add(arr)
-                }
+                initialPatterns.addAll(Json.decodeFromString(ListSerializer(SoloPattern.serializer()), allPatternsJson))
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse all solo patterns: ${e.message}")
             }
         }
         // Fallback / single-measure mode
-        if (allSlotsData.isEmpty()) {
-            val arr = Array<Slot>(8) { Slot.Rest }
-            intent?.getStringExtra(EXTRA_SOLO_PATTERN_JSON)?.let { json ->
-                try {
-                    val pattern = Json.decodeFromString(SoloPattern.serializer(), json)
-                    expandPatternToSlots(pattern, arr)
-                } catch (_: Exception) {}
+        if (initialPatterns.isEmpty()) {
+            val single = intent?.getStringExtra(EXTRA_SOLO_PATTERN_JSON)?.let { json ->
+                try { Json.decodeFromString(SoloPattern.serializer(), json) } catch (_: Exception) { null }
             }
-            allSlotsData.add(arr)
+            initialPatterns.add(single ?: SoloPattern("Custom", emptyList()))
         }
-        activeMeasureIndex = (measureIndex.coerceAtLeast(0)).coerceAtMost(allSlotsData.size - 1)
+
+        // Chord roots per measure (pitch class 0..11) drive the green root dot on the keyboard.
+        val key = try { Key.valueOf(keyVal) } catch (_: Exception) { Key.C }
+        val mode = try { Mode.valueOf(modeVal.uppercase()) } catch (_: Exception) { Mode.MAJOR }
+        val chordRootsByMeasure = measureChords.map { perMeasure ->
+            perMeasure.mapNotNull { (q, name) ->
+                parseChordName(name)?.let { SoloChordRoot(q, ((it.root.noteOffset % 12) + 12) % 12) }
+            }
+        }
+        editor = SoloPatternEditor(initialPatterns, measureIndex.coerceAtLeast(0), key, mode, chordRootsByMeasure)
 
         // Keyboard key backgrounds (own drawables, no theme tint) plus the scale/root
         // dots are set here and refreshed as the cursor moves.
@@ -323,17 +304,17 @@ class SoloPatternActivity : AppCompatActivity() {
 
         // Build all measure rows and select first slot of the active row
         buildMeasureRows()
-        selectedSlot = 0
+        editor.selectSlot(editor.activeMeasure, 0)
         highlightSelectedSlot()
         // Scroll to the initially opened measure after layout is complete
         measureScrollView.post {
             try {
-                rowCards.getOrNull(activeMeasureIndex)?.let { card ->
+                rowCards.getOrNull(editor.activeMeasure)?.let { card ->
                     measureScrollView.smoothScrollTo(0, card.top)
                 }
             } catch (_: Exception) {}
         }
-        octaveText.text = getString(R.string.octave_current, currentOctave)
+        octaveText.text = getString(R.string.octave_current, editor.octave)
 
         btnOk.setOnClickListener { performOk() }
         btnEditMode.setOnClickListener { toggleEditMode() }
@@ -347,60 +328,31 @@ class SoloPatternActivity : AppCompatActivity() {
         // Rest / LetRing buttons
         // Buttons below keyboard
         iconRest.setOnClickListener {
-            if (currentMode != EditingMode.EDIT) return@setOnClickListener  // Only work in edit mode
-            
-            if (selectedSlot >= 0) {
-                slots[selectedSlot] = Slot.Rest
-                renderAllSlots()
-                
-                // FEATURE: Auto-advance to next slot/measure after Rest input
-                if (selectedSlot == 7) {
-                    // Jump to next measure if available
-                    if (activeMeasureIndex < allSlotsData.size - 1) {
-                        activateAndSelectSlot(activeMeasureIndex + 1, 0)
-                    } else {
-                        selectedSlot = 7
-                        highlightSelectedSlot()
-                    }
-                } else {
-                    selectedSlot += 1
-                    highlightSelectedSlot()
-                }
-                updatePreviewIfActive()
-            }
+            if (editor.editMode != SoloEditMode.EDIT) return@setOnClickListener  // Only work in edit mode
+            if (editor.cursor < 0) return@setOnClickListener
+            // setRestAtCursor writes Rest at the cursor and auto-advances (to next measure at slot 7).
+            editor.setRestAtCursor()
+            renderAllRows()
+            refreshSelectionUI()
+            updatePreviewIfActive()
         }
         iconLetRing.setOnClickListener {
-            if (currentMode != EditingMode.EDIT) return@setOnClickListener  // Only work in edit mode
-            
-            if (selectedSlot >= 0) {
-                slots[selectedSlot] = Slot.LetRing
-                renderAllSlots()
-                
-                // FEATURE: Auto-advance to next slot/measure after LetRing input
-                if (selectedSlot == 7) {
-                    // Jump to next measure if available
-                    if (activeMeasureIndex < allSlotsData.size - 1) {
-                        activateAndSelectSlot(activeMeasureIndex + 1, 0)
-                    } else {
-                        selectedSlot = 7
-                        highlightSelectedSlot()
-                    }
-                } else {
-                    selectedSlot += 1
-                    highlightSelectedSlot()
-                }
-                updatePreviewIfActive()
-            }
+            if (editor.editMode != SoloEditMode.EDIT) return@setOnClickListener  // Only work in edit mode
+            if (editor.cursor < 0) return@setOnClickListener
+            editor.setLetRingAtCursor()
+            renderAllRows()
+            refreshSelectionUI()
+            updatePreviewIfActive()
         }
 
         // Octave controls
         octaveUp.setOnClickListener {
-            if (currentOctave < 6) currentOctave++
-            octaveText.text = getString(R.string.octave_current, currentOctave)
+            editor.octaveUp()
+            octaveText.text = getString(R.string.octave_current, editor.octave)
         }
         octaveDown.setOnClickListener {
-            if (currentOctave > 1) currentOctave--
-            octaveText.text = getString(R.string.octave_current, currentOctave)
+            editor.octaveDown()
+            octaveText.text = getString(R.string.octave_current, editor.octave)
         }
 
         // Keyboard key handlers (pitch classes 0..11 where C=0)
@@ -462,11 +414,11 @@ class SoloPatternActivity : AppCompatActivity() {
 
     private fun performOk() {
         // Convert all measures' slots into SoloPatterns and return them all
-        val allPatterns = allSlotsData.map { slotsToPattern(it) }
+        val allPatterns = editor.buildPatterns()
         val allPatternsJson = try {
             Json.encodeToString(ListSerializer(SoloPattern.serializer()), allPatterns)
         } catch (e: Exception) { null }
-        val activePattern = allPatterns.getOrNull(activeMeasureIndex)
+        val activePattern = allPatterns.getOrNull(editor.activeMeasure)
         val activeJson = activePattern?.let {
             try { Json.encodeToString(SoloPattern.serializer(), it) } catch (e: Exception) { null }
         }
@@ -490,54 +442,29 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun performCopy() {
-        // Copy all slot arrays to clipboard (deep copy to avoid shared references)
-        clipboard = allSlotsData.map { originalSlots ->
-            Array(originalSlots.size) { i -> 
-                when (val slot = originalSlots[i]) {
-                    is Slot.Rest -> Slot.Rest
-                    is Slot.LetRing -> Slot.LetRing
-                    is Slot.NoteSlot -> Slot.NoteSlot(slot.midi)
-                }
-            }
-        }
-        
+        // Copy all measures to the shared editor's clipboard (deep copy handled by the editor).
+        editor.copyAll()
         Toast.makeText(this, R.string.copied_solo_pattern, Toast.LENGTH_SHORT).show()
-        Log.i(TAG, "Copied ${clipboard?.size} measures to clipboard")
+        Log.i(TAG, "Copied ${editor.measureCount()} measures to clipboard")
     }
 
     private fun performPaste() {
-        val source = clipboard
-        if (source == null) {
+        if (!editor.hasClipboard()) {
             Toast.makeText(this, R.string.no_solo_pattern_to_paste, Toast.LENGTH_SHORT).show()
             return
         }
-        
-        // Paste from clipboard, truncate if source has more measures than target
-        val targetMeasureCount = allSlotsData.size
-        val sourceMeasureCount = source.size
-        
-        for (i in 0 until minOf(targetMeasureCount, sourceMeasureCount)) {
-            // Deep copy each slot array
-            allSlotsData[i] = Array(source[i].size) { slotIndex ->
-                when (val slot = source[i][slotIndex]) {
-                    is Slot.Rest -> Slot.Rest
-                    is Slot.LetRing -> Slot.LetRing
-                    is Slot.NoteSlot -> Slot.NoteSlot(slot.midi)
-                }
-            }
-        }
-        
-        // Re-render all measures (iterate through all rows)
-        for (rowIdx in allSlotsData.indices) {
-            renderRowSlots(rowIdx)
-        }
-        
+
+        // Paste from clipboard (truncates to the smaller of source/target measure count).
+        editor.pasteAll()
+
+        // Re-render all measures
+        renderAllRows()
+
         // Update preview if active
         updatePreviewIfActive()
-        
-        val pastedCount = minOf(targetMeasureCount, sourceMeasureCount)
+
         Toast.makeText(this, getString(R.string.pasted_solo_pattern), Toast.LENGTH_SHORT).show()
-        Log.i(TAG, "Pasted $pastedCount measures from clipboard (source had $sourceMeasureCount, target has $targetMeasureCount)")
+        Log.i(TAG, "Pasted ${editor.measureCount()} measures from clipboard")
     }
 
     private fun performPreview() {
@@ -582,9 +509,10 @@ class SoloPatternActivity : AppCompatActivity() {
         val mode = try { Mode.valueOf(modeVal.uppercase()) } catch (_: Exception) { Mode.MAJOR }
         val tempProg = ChordProgression(name = "Preview", key = key, mode = mode, tempo = tempoVal)
         tempProg.measures.clear()
+        val builtPatterns = editor.buildPatterns()
 
         // Add ALL measures to the progression for preview
-        for (measureIdx in allSlotsData.indices) {
+        for (measureIdx in builtPatterns.indices) {
             val m = Measure(measureIdx + 1)
 
             // Parse all chords for this measure and add them at their positions
@@ -604,8 +532,8 @@ class SoloPatternActivity : AppCompatActivity() {
                 tonicChord?.let { m.addChord(it, 0) }
             }
 
-            // Convert slots to pattern for this measure
-            val pattern = slotsToPattern(allSlotsData[measureIdx])
+            // Solo pattern for this measure (from the shared editor)
+            val pattern = builtPatterns[measureIdx]
             m.soloPattern = pattern
 
             // Play the progression parallel to the solo using the song's real strumming pattern
@@ -683,32 +611,9 @@ class SoloPatternActivity : AppCompatActivity() {
     private fun updatePreviewIfActive() {
         // During playback: update without restarting in edit/live mode, restart in preview mode
         if (isPreviewActive) {
-            if (currentMode == EditingMode.PREVIEW) {
-                // Preview mode: restart preview
-                val elements = mutableListOf<de.metaviewsoft.chordprogressionhelper.model.SoloElement>()
-                var i = 0
-                while (i < 8) {
-                    when (val s = slots[i]) {
-                        is Slot.NoteSlot -> {
-                            var len = 1
-                            var j = i + 1
-                            while (j < 8 && slots[j] is Slot.LetRing) { len++; j++ }
-                            elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note(s.midi, len))
-                            i = j
-                        }
-                        is Slot.Rest -> {
-                            var len = 1
-                            var j = i + 1
-                            while (j < 8 && slots[j] is Slot.Rest) { len++; j++ }
-                            elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest(len))
-                            i = j
-                        }
-                        is Slot.LetRing -> {
-                            i++
-                        }
-                    }
-                }
-
+            if (editor.editMode == SoloEditMode.PREVIEW) {
+                // Preview mode: restart preview from the active measure's pattern
+                val elements = editor.buildActivePattern().elements
                 if (elements.isNotEmpty()) {
                     startPreviewWithCurrentPattern(elements)
                 }
@@ -720,9 +625,10 @@ class SoloPatternActivity : AppCompatActivity() {
             val mode = try { Mode.valueOf(modeVal.uppercase()) } catch (_: Exception) { Mode.MAJOR }
             val tempProg = ChordProgression(name = "Preview", key = key, mode = mode, tempo = tempoVal)
             tempProg.measures.clear()
+            val builtPatterns = editor.buildPatterns()
 
             // Add ALL measures to the progression
-            for (measureIdx in allSlotsData.indices) {
+            for (measureIdx in builtPatterns.indices) {
                 val m = Measure(measureIdx + 1)
 
                 // Parse all chords for this measure and add them at their positions
@@ -741,8 +647,8 @@ class SoloPatternActivity : AppCompatActivity() {
                     tonicChord?.let { m.addChord(it, 0) }
                 }
 
-                // Convert slots to pattern for this measure
-                val pattern = slotsToPattern(allSlotsData[measureIdx])
+                // Solo pattern for this measure (from the shared editor)
+                val pattern = builtPatterns[measureIdx]
                 m.soloPattern = pattern
 
                 // Use the song's real strumming pattern for accompaniment
@@ -868,78 +774,41 @@ class SoloPatternActivity : AppCompatActivity() {
         return Chord(root, quality, scaleDegreeName)
     }
 
-    // Expand a SoloPattern into an 8-slot representation
-    private fun expandPatternToSlots(pattern: SoloPattern, target: Array<Slot>) {
-        // initialize all to Rest
-        for (k in 0 until 8) target[k] = Slot.Rest
-
-        var pos = 0
-
-        // Use elements from pattern
-        val elementsList = pattern.elements
-
-        for (element in elementsList) {
-            if (pos >= 8) break
-            val len = element.lengthEighths.coerceAtLeast(1)
-
-            when (element) {
-                is de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note -> {
-                    target[pos] = Slot.NoteSlot(element.midi)
-                    // mark let ring for following positions
-                    for (r in 1 until len) {
-                        val idx = pos + r
-                        if (idx >= 8) break
-                        target[idx] = Slot.LetRing
-                    }
-                }
-                is de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest -> {
-                    // Fill with Rest slots
-                    for (r in 0 until len) {
-                        val idx = pos + r
-                        if (idx >= 8) break
-                        target[idx] = Slot.Rest
-                    }
-                }
-                is de.metaviewsoft.chordprogressionhelper.model.SoloElement.LetRing -> {
-                    // Standalone LetRing element (uncommon but valid)
-                    for (r in 0 until len) {
-                        val idx = pos + r
-                        if (idx >= 8) break
-                        target[idx] = Slot.LetRing
-                    }
-                }
-            }
-            pos += len
-        }
+    private fun renderAllSlots() {
+        renderRowSlots(editor.activeMeasure)
     }
 
-    private fun renderAllSlots() {
-        renderRowSlots(activeMeasureIndex)
+    /** Re-render every measure row from the editor's current slot data. */
+    private fun renderAllRows() {
+        for (rowIdx in 0 until editor.measureCount()) renderRowSlots(rowIdx)
     }
 
     private fun renderRowSlots(rowIdx: Int) {
         val btns = rowSlotViews.getOrNull(rowIdx) ?: return
-        val rowSlots = allSlotsData.getOrNull(rowIdx) ?: return
+        val rowSlots = editor.slots(rowIdx)
         for (i in 0 until 8) {
-            val label = when (val s = rowSlots[i]) {
-                is Slot.Rest -> "-"
-                is Slot.LetRing -> " "
-                is Slot.NoteSlot -> midiToName(s.midi)
+            val slot = rowSlots.getOrNull(i)
+            val label = when (slot?.kind) {
+                SoloSlotKind.REST -> "-"
+                SoloSlotKind.LETRING -> " "
+                SoloSlotKind.NOTE -> midiToName(slot.midi)
+                null -> "-"
             }
             btns.getOrNull(i)?.text = label
         }
     }
 
-    private fun selectSlot(index: Int) {
-        if (selectedSlot == index) {
-            // toggle off
-            selectedSlot = -1
-        } else selectedSlot = index
-        highlightSelectedSlot()
+    /** Re-apply slot + card highlights for all rows from the editor's active measure/cursor. */
+    private fun refreshSelectionUI() {
+        for (rowIdx in 0 until editor.measureCount()) {
+            highlightRowSlots(rowIdx, if (rowIdx == editor.activeMeasure) editor.cursor else -1)
+        }
+        updateRowHighlights()
+        refreshKeyDots()
     }
 
     private fun highlightSelectedSlot() {
-        highlightRowSlots(activeMeasureIndex, selectedSlot)
+        highlightRowSlots(editor.activeMeasure, editor.cursor)
         // Cursor may have moved onto a different chord -> update the green root dot.
         refreshKeyDots()
     }
@@ -963,20 +832,10 @@ class SoloPatternActivity : AppCompatActivity() {
         }
     }
 
-    /** Switch to a different measure row and select a slot within it. */
+    /** Switch to a different measure row and select a slot within it (re-tap deselects). */
     private fun activateAndSelectSlot(rowIdx: Int, slotIdx: Int) {
-        if (rowIdx != activeMeasureIndex) {
-            val oldRow = activeMeasureIndex
-            activeMeasureIndex = rowIdx
-            selectedSlot = slotIdx
-            // deselect old row, select new row
-            highlightRowSlots(oldRow, -1)
-            highlightRowSlots(rowIdx, selectedSlot)
-            updateRowHighlights()
-            refreshKeyDots()
-        } else {
-            selectSlot(slotIdx)
-        }
+        editor.toggleCursor(rowIdx, slotIdx)
+        refreshSelectionUI()
     }
 
     /** Highlight active card with a coloured stroke, clear others. */
@@ -984,7 +843,7 @@ class SoloPatternActivity : AppCompatActivity() {
         val dp = resources.displayMetrics.density
         val activeColor = ContextCompat.getColor(this, R.color.purple_700)
         for (i in rowCards.indices) {
-            if (i == activeMeasureIndex) {
+            if (i == editor.activeMeasure) {
                 rowCards[i].strokeWidth = (2 * dp).toInt()
                 rowCards[i].strokeColor = activeColor
             } else {
@@ -1000,7 +859,7 @@ class SoloPatternActivity : AppCompatActivity() {
         rowSlotViews.clear()
         rowCards.clear()
 
-        for (rowIdx in allSlotsData.indices) {
+        for (rowIdx in 0 until editor.measureCount()) {
             val chordsForRow = measureChords.getOrElse(rowIdx) { emptyList() }
             val label = "${rowIdx + 1}"
 
@@ -1096,38 +955,12 @@ class SoloPatternActivity : AppCompatActivity() {
         }
 
         // Render labels and apply initial highlights
-        for (rowIdx in allSlotsData.indices) {
+        for (rowIdx in 0 until editor.measureCount()) {
             renderRowSlots(rowIdx)
             // Set initial colors (all gray, no selection)
             highlightRowSlots(rowIdx, -1)
         }
         updateRowHighlights()
-    }
-
-    /** Convert an 8-slot array to a SoloPattern. */
-    private fun slotsToPattern(slotArray: Array<Slot>): SoloPattern {
-        val elements = mutableListOf<de.metaviewsoft.chordprogressionhelper.model.SoloElement>()
-        var i = 0
-        while (i < 8) {
-            when (val s = slotArray[i]) {
-                is Slot.NoteSlot -> {
-                    var len = 1
-                    var j = i + 1
-                    while (j < 8 && slotArray[j] is Slot.LetRing) { len++; j++ }
-                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Note(s.midi, len))
-                    i = j
-                }
-                is Slot.Rest -> {
-                    var len = 1
-                    var j = i + 1
-                    while (j < 8 && slotArray[j] is Slot.Rest) { len++; j++ }
-                    elements.add(de.metaviewsoft.chordprogressionhelper.model.SoloElement.Rest(len))
-                    i = j
-                }
-                is Slot.LetRing -> { i++ }
-            }
-        }
-        return SoloPattern(name = "Custom", elements = elements)
     }
 
     /** Piano keys paired with their (octave-independent) pitch class. */
@@ -1174,46 +1007,14 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     /**
-     * Pitch class of the root note to highlight green: the root of the chord in
-     * effect at the current cursor position, or the key's tonic if no chord has
-     * been entered up to that point.
-     */
-    private fun currentRootPitchClass(): Int {
-        val cursorQuarter = (if (selectedSlot >= 0) selectedSlot else 0) / 2
-        // Search from the active measure backwards for the last chord at/before the cursor
-        for (mi in activeMeasureIndex downTo 0) {
-            val events = measureChords.getOrNull(mi) ?: continue
-            val candidate = if (mi == activeMeasureIndex) {
-                events.filter { it.first <= cursorQuarter }.maxByOrNull { it.first }
-            } else {
-                events.maxByOrNull { it.first }
-            }
-            if (candidate != null) {
-                parseChordName(candidate.second)?.let { chord ->
-                    return ((chord.root.noteOffset % 12) + 12) % 12
-                }
-            }
-        }
-        // Fallback: the key's tonic
-        val key = try { Key.valueOf(keyVal) } catch (_: Exception) { Key.C }
-        return ((key.rootNote.noteOffset % 12) + 12) % 12
-    }
-
-    /**
      * Draws a yellow dot on every key belonging to the current key's scale, and a
      * green dot on the current chord's root (or the key's tonic when no chord
-     * applies). Pitch classes are octave-independent, so this stays correct across
-     * octave changes.
+     * applies). Scale + root pitch classes come from the shared editor, so they stay
+     * correct across octave changes and match iOS.
      */
     private fun refreshKeyDots() {
-        val scalePitchClasses = try {
-            val key = Key.valueOf(keyVal)
-            val mode = Mode.valueOf(modeVal.uppercase())
-            mode.getScale(key).map { ((it.noteOffset % 12) + 12) % 12 }.toSet()
-        } catch (_: Exception) {
-            emptySet<Int>()
-        }
-        val rootPc = currentRootPitchClass()
+        val scalePitchClasses = editor.scalePitchClasses().toSet()
+        val rootPc = editor.rootPitchClassAt(editor.activeMeasure, editor.cursor)
 
         for ((view, pitchClass) in keyViewsWithPitchClasses()) {
             view.alpha = 1.0f
@@ -1227,7 +1028,7 @@ class SoloPatternActivity : AppCompatActivity() {
     }
 
     private fun onKeyPressed(pitchClass: Int, octaveOffset: Int = 0, sourceView: android.view.View? = null) {
-        val midi = (currentOctave + octaveOffset + 1) * 12 + pitchClass
+        val midi = editor.midiFor(pitchClass, octaveOffset)
 
         // Always trigger note preview for audio feedback (sustained while the key is held down).
         try {
@@ -1264,76 +1065,30 @@ class SoloPatternActivity : AppCompatActivity() {
         } catch (_: Exception) {}
 
         // Handle note input based on current mode
-        when (currentMode) {
-            EditingMode.PREVIEW -> {
+        when (editor.editMode) {
+            SoloEditMode.PREVIEW -> {
                 // Preview mode: just play sound, don't write
                 return
             }
-            EditingMode.LIVE -> {
-                // Live mode: only record during playback
-                if (!isPreviewActive) {
-                    // No playback running, don't record
-                    return
+            SoloEditMode.LIVE -> {
+                // Live mode: only record during playback, at the current playback position.
+                if (!isPreviewActive) return
+                if (lastHighlightedMeasure >= 0 && lastHighlightedSlot >= 0) {
+                    // writeNoteAt clears trailing LetRing of a previous note; no cursor advance in live.
+                    editor.writeNoteAt(lastHighlightedMeasure, lastHighlightedSlot, midi)
+                    renderRowSlots(lastHighlightedMeasure)
+                    updatePreviewIfActive()
                 }
-            }
-            EditingMode.EDIT -> {
-                // Edit mode: always allow input (handled below)
-            }
-        }
-
-        // Determine target slot based on mode
-        val targetMeasure: Int
-        val targetSlot: Int
-        
-        if (currentMode == EditingMode.LIVE) {
-            // Live mode: write at current playback position
-            if (lastHighlightedMeasure >= 0 && lastHighlightedSlot >= 0) {
-                targetMeasure = lastHighlightedMeasure
-                targetSlot = lastHighlightedSlot
-            } else {
-                // Playback running but no position yet - don't write
                 return
             }
-        } else {
-            // Edit mode: write at selected cursor position
-            if (selectedSlot < 0) return  // No slot selected
-            targetMeasure = activeMeasureIndex
-            targetSlot = selectedSlot
-        }
-
-        // Write the note at target position
-        if (targetMeasure in allSlotsData.indices && targetSlot in 0..7) {
-            val targetSlots = allSlotsData[targetMeasure]
-            targetSlots[targetSlot] = Slot.NoteSlot(midi)
-            
-            // Clear subsequent LetRing that belonged to a previous note
-            var j = targetSlot + 1
-            while (j < 8 && targetSlots[j] is Slot.LetRing) {
-                targetSlots[j] = Slot.Rest
-                j++
+            SoloEditMode.EDIT -> {
+                // Edit mode: write at the cursor and auto-advance (handled by the editor).
+                if (editor.cursor < 0) return  // No slot selected
+                editor.pressKey(pitchClass, octaveOffset)
+                renderAllRows()
+                refreshSelectionUI()
+                updatePreviewIfActive()
             }
-            
-            // Render the updated measure
-            renderRowSlots(targetMeasure)
-            
-            // Auto-advance only in edit mode (not in live mode)
-            if (currentMode == EditingMode.EDIT) {
-                if (targetSlot == 7) {
-                    // Jump to next measure if available
-                    if (targetMeasure < allSlotsData.size - 1) {
-                        activateAndSelectSlot(targetMeasure + 1, 0)
-                    } else {
-                        // Stay at end of last measure
-                        selectedSlot = 7
-                        highlightSelectedSlot()
-                    }
-                } else {
-                    selectedSlot = targetSlot + 1
-                    highlightSelectedSlot()
-                }
-            }
-            
-            updatePreviewIfActive()
         }
     }
 
@@ -1505,7 +1260,7 @@ class SoloPatternActivity : AppCompatActivity() {
             lastHighlightedMeasure < rowSlotViews.size &&
             lastHighlightedSlot < rowSlotViews[lastHighlightedMeasure].size) {
             // Reset to gray unless it's the selected slot
-            if (lastHighlightedMeasure == activeMeasureIndex && lastHighlightedSlot == selectedSlot) {
+            if (lastHighlightedMeasure == editor.activeMeasure && lastHighlightedSlot == editor.cursor) {
                 // Keep selected slot highlighted (light purple)
                 rowSlotViews[lastHighlightedMeasure][lastHighlightedSlot].background = 
                     androidx.core.content.res.ResourcesCompat.getDrawable(resources, R.drawable.purple_button_bg_light, theme)
@@ -1526,8 +1281,8 @@ class SoloPatternActivity : AppCompatActivity() {
         lastHighlightedSlot = slotIndex
         
         // In preview mode during playback: move cursor to follow playback position
-        if (currentMode == EditingMode.PREVIEW && isPreviewActive) {
-            if (measureIndex != activeMeasureIndex || slotIndex != selectedSlot) {
+        if (editor.editMode == SoloEditMode.PREVIEW && isPreviewActive) {
+            if (measureIndex != editor.activeMeasure || slotIndex != editor.cursor) {
                 activateAndSelectSlot(measureIndex, slotIndex)
             }
         }
@@ -1548,29 +1303,25 @@ class SoloPatternActivity : AppCompatActivity() {
     }
     
     private fun toggleEditMode() {
-        // Cycle through modes: Preview -> Edit -> Live -> Preview
-        currentMode = when (currentMode) {
-            EditingMode.PREVIEW -> EditingMode.EDIT
-            EditingMode.EDIT -> EditingMode.LIVE
-            EditingMode.LIVE -> EditingMode.PREVIEW
-        }
+        // Cycle through modes: Preview -> Edit -> Live -> Preview (handled by the shared editor)
+        editor.cycleEditMode()
         updateEditModeButton()
     }
-    
+
     private fun updateEditModeButton() {
         try {
-            when (currentMode) {
-                EditingMode.PREVIEW -> {
+            when (editor.editMode) {
+                SoloEditMode.PREVIEW -> {
                     btnEditMode.text = getString(R.string.preview_mode)
                     btnEditMode.setIconResource(R.drawable.ic_visibility)
                     btnEditMode.alpha = 0.7f
                 }
-                EditingMode.EDIT -> {
+                SoloEditMode.EDIT -> {
                     btnEditMode.text = getString(R.string.edit_mode)
                     btnEditMode.setIconResource(R.drawable.ic_edit)
                     btnEditMode.alpha = 1.0f
                 }
-                EditingMode.LIVE -> {
+                SoloEditMode.LIVE -> {
                     btnEditMode.text = getString(R.string.live_mode)
                     btnEditMode.setIconResource(R.drawable.ic_radio_button_checked)
                     btnEditMode.alpha = 1.0f
