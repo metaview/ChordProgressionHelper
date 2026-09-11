@@ -201,10 +201,13 @@ class SoloPatternEditor(
     /**
      * Handle a keyboard press. In [SoloEditMode.EDIT] this writes a note at the cursor and
      * auto-advances; in other modes it only returns the MIDI value (for the audio preview).
+     * No-op (besides returning the MIDI value) when [cursor] is -1 ("nothing selected", see
+     * [toggleCursor]) — otherwise [advanceCursor] would silently re-select slot 0 without a
+     * note actually being written.
      */
     fun pressKey(pitchClass: Int, octaveOffset: Int): Int {
         val midi = midiFor(pitchClass, octaveOffset)
-        if (editMode == SoloEditMode.EDIT) {
+        if (editMode == SoloEditMode.EDIT && cursor in 0..7) {
             writeNoteAt(activeMeasure, cursor, midi)
             advanceCursor()
         }
