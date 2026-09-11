@@ -76,8 +76,7 @@ class SongViewModelCore(
         }
         _songName.value = song.name.ifBlank { "New Song" }
         _songSectionNames.value = song.sections.mapIndexed { index, section ->
-            val label = section.name.ifBlank { "Section ${index + 1}" }
-            "${index + 1}. $label"
+            section.name.ifBlank { "Section ${index + 1}" }
         }
         _selectedSongSectionIndex.value = currentSectionIndex
     }
