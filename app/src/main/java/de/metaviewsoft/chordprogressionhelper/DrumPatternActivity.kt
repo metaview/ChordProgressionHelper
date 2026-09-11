@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.collectLatest
 import de.metaviewsoft.chordprogressionhelper.model.StrummingPattern
 import de.metaviewsoft.chordprogressionhelper.model.Strum
 import de.metaviewsoft.chordprogressionhelper.model.SoloPattern
+import de.metaviewsoft.chordprogressionhelper.ui.DrumPatternEditor
 
 @OptIn(InternalSerializationApi::class)
 class DrumPatternActivity : AppCompatActivity() {
@@ -43,7 +44,9 @@ class DrumPatternActivity : AppCompatActivity() {
     }
 
     private var measureIndex = -1
-    private var currentPattern: DrumPattern = DrumPattern.DEFAULT
+    // Editing logic now lives in the shared DrumPatternEditor (commonMain); this Activity is
+    // the Android view layer around it (PlaybackService preview, chip rendering, lifecycle).
+    private lateinit var editor: DrumPatternEditor
     private lateinit var settingsRepository: SettingsRepository
     private val previewAudioPlayer = AudioPlayer()
 
@@ -158,14 +161,17 @@ class DrumPatternActivity : AppCompatActivity() {
         settingsRepository = (application as MyApplication).settingsRepository
 
         measureIndex = intent?.getIntExtra(EXTRA_MEASURE_INDEX, -1) ?: -1
+        var initialPattern = DrumPattern.DEFAULT
         intent?.getStringExtra(EXTRA_DRUM_PATTERN_JSON)?.let { json ->
-            try { currentPattern = Json.decodeFromString(DrumPattern.serializer(), json) } catch (_: Exception) {}
+            try { initialPattern = Json.decodeFromString(DrumPattern.serializer(), json) } catch (_: Exception) {}
         }
 
         // Parse optional extra patterns list
         val extraPatterns = try {
             intent?.getStringExtra(EXTRA_ALL_PATTERNS_JSON)?.let { Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(DrumPattern.serializer()), it) } ?: emptyList()
         } catch (_: Exception) { emptyList<DrumPattern>() }
+
+        editor = DrumPatternEditor(initialPattern, extraPatterns)
 
         // optional preview context
         intent?.getStringExtra("extra_tonic_chord_json")?.let {
@@ -207,14 +213,14 @@ class DrumPatternActivity : AppCompatActivity() {
         container.removeAllViews()
         val inflater = LayoutInflater.from(this)
 
-        currentPattern.steps.forEachIndexed { idx, _ ->
+        editor.currentSteps().forEachIndexed { idx, _ ->
             val stepLayout = inflater.inflate(R.layout.item_drum_step, container, false) as LinearLayout
             val kickIv = stepLayout.findViewById<ImageView>(R.id.kickIcon)
             val snareIv = stepLayout.findViewById<ImageView>(R.id.snareIcon)
             val hihatIv = stepLayout.findViewById<ImageView>(R.id.hihatIcon)
 
             fun applyState() {
-                val s = currentPattern.steps.getOrNull(idx)
+                val s = editor.currentSteps().getOrNull(idx)
                 kickIv.alpha = if (s?.kick == true) 1.0f else 0.25f
                 snareIv.alpha = if (s?.snare == true) 1.0f else 0.25f
                 hihatIv.alpha = if (s?.hiHat == true) 1.0f else 0.25f
@@ -222,14 +228,14 @@ class DrumPatternActivity : AppCompatActivity() {
             applyState()
 
             kickIv.setOnClickListener {
-                currentPattern = currentPattern.copy(steps = currentPattern.steps.mapIndexed { i, s -> if (i==idx) s.copy(kick = !s.kick) else s })
+                editor.toggleKick(idx)
                 applyState()
                 tempPreviewProgression?.let { tp ->
                     if (tp.measures.isNotEmpty()) {
-                        tp.measures[0].drumPattern = currentPattern
+                        tp.measures[0].drumPattern = editor.build()
                         if (isPreviewActive) {
                             if (isServiceBound && playbackService != null) {
-                                try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
+                                try { playbackService?.updateDrumPattern(0, editor.build()) } catch (_: Exception) {}
                             } else {
                                 try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
                             }
@@ -248,14 +254,14 @@ class DrumPatternActivity : AppCompatActivity() {
             }
 
             snareIv.setOnClickListener {
-                currentPattern = currentPattern.copy(steps = currentPattern.steps.mapIndexed { i, s -> if (i==idx) s.copy(snare = !s.snare) else s })
+                editor.toggleSnare(idx)
                 applyState()
                 tempPreviewProgression?.let { tp ->
                     if (tp.measures.isNotEmpty()) {
-                        tp.measures[0].drumPattern = currentPattern
+                        tp.measures[0].drumPattern = editor.build()
                         if (isPreviewActive) {
                             if (isServiceBound && playbackService != null) {
-                                try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
+                                try { playbackService?.updateDrumPattern(0, editor.build()) } catch (_: Exception) {}
                             } else {
                                 try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
                             }
@@ -274,14 +280,14 @@ class DrumPatternActivity : AppCompatActivity() {
             }
 
             hihatIv.setOnClickListener {
-                currentPattern = currentPattern.copy(steps = currentPattern.steps.mapIndexed { i, s -> if (i==idx) s.copy(hiHat = !s.hiHat) else s })
+                editor.toggleHiHat(idx)
                 applyState()
                 tempPreviewProgression?.let { tp ->
                     if (tp.measures.isNotEmpty()) {
-                        tp.measures[0].drumPattern = currentPattern
+                        tp.measures[0].drumPattern = editor.build()
                         if (isPreviewActive) {
                             if (isServiceBound && playbackService != null) {
-                                try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
+                                try { playbackService?.updateDrumPattern(0, editor.build()) } catch (_: Exception) {}
                             } else {
                                 try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
                             }
@@ -338,7 +344,7 @@ class DrumPatternActivity : AppCompatActivity() {
                     try {
                         tempProg.measures.clear()
                         val m = Measure(1)
-                        m.drumPattern = currentPattern
+                        m.drumPattern = editor.build()
                         m.strummingPattern = StrummingPattern("Silent", List(8) { Strum.REST })
                         m.soloPattern = SoloPattern("Silent", emptyList())
                         tempProg.measures.add(m)
@@ -395,7 +401,7 @@ class DrumPatternActivity : AppCompatActivity() {
      */
     private fun performOk() {
         try {
-            val jsonOut = Json.encodeToString(DrumPattern.serializer(), currentPattern)
+            val jsonOut = Json.encodeToString(DrumPattern.serializer(), editor.build())
             val out = Intent().apply {
                 putExtra(EXTRA_MEASURE_INDEX, measureIndex)
                 putExtra(EXTRA_DRUM_PATTERN_JSON, jsonOut)
@@ -468,16 +474,16 @@ class DrumPatternActivity : AppCompatActivity() {
                     }
                 } catch (_: Exception) {}
                 chip.setOnClickListener {
-                    currentPattern = p
+                    editor.selectPreset(p)
                     setupDrumChips()
                     // If a preview is active, update the running preview immediately
                     try {
                         tempPreviewProgression?.let { tp ->
                             if (tp.measures.isNotEmpty()) {
-                                tp.measures[0].drumPattern = currentPattern
+                                tp.measures[0].drumPattern = editor.build()
                                 if (isPreviewActive) {
                                     if (isServiceBound && playbackService != null) {
-                                        try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
+                                        try { playbackService?.updateDrumPattern(0, editor.build()) } catch (_: Exception) {}
                                     } else {
                                         // Do not call updateProgression here; instead store as pending to be applied when bound
                                         try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
@@ -519,16 +525,16 @@ class DrumPatternActivity : AppCompatActivity() {
                     }
                 } catch (_: Exception) {}
                 chip.setOnClickListener {
-                    currentPattern = p
+                    editor.selectPreset(p)
                     setupDrumChips()
                     // If a preview is active, update the running preview immediately
                     try {
                         tempPreviewProgression?.let { tp ->
                             if (tp.measures.isNotEmpty()) {
-                                tp.measures[0].drumPattern = currentPattern
+                                tp.measures[0].drumPattern = editor.build()
                                 if (isPreviewActive) {
                                     if (isServiceBound && playbackService != null) {
-                                        try { playbackService?.updateDrumPattern(0, currentPattern) } catch (_: Exception) {}
+                                        try { playbackService?.updateDrumPattern(0, editor.build()) } catch (_: Exception) {}
                                     } else {
                                         try { pendingPreviewProgression = tp; pendingPreviewLooping = true; tempPreviewProgression = tp } catch (_: Exception) {}
                                     }
