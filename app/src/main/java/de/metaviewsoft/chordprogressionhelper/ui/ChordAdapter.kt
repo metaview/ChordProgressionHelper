@@ -13,6 +13,7 @@ import androidx.recyclerview.widget.RecyclerView
 import de.metaviewsoft.chordprogressionhelper.R
 import de.metaviewsoft.chordprogressionhelper.databinding.ItemChordBinding
 import de.metaviewsoft.chordprogressionhelper.model.Chord
+import de.metaviewsoft.chordprogressionhelper.model.ChordType
 
 class ChordAdapter(
     private val onChordClick: (Chord) -> Unit,
@@ -28,8 +29,30 @@ class ChordAdapter(
     fun setSelectedChord(chord: Chord?) {
         val previousSelected = selectedChord
         selectedChord = chord
-        previousSelected?.let { notifyItemChanged(currentList.indexOf(it)) }
-        chord?.let { notifyItemChanged(currentList.indexOf(it)) }
+        // A selected Power chord (e.g. G5) is a different Chord object than the palette's base
+        // chord (G), so match it back to its base item by root + scale degree.
+        indexOfMatch(previousSelected).takeIf { it >= 0 }?.let { notifyItemChanged(it) }
+        indexOfMatch(chord).takeIf { it >= 0 }?.let { notifyItemChanged(it) }
+    }
+
+    /** Palette index that should reflect [chord]: the exact item, or its base if [chord] is POWER. */
+    private fun indexOfMatch(chord: Chord?): Int {
+        if (chord == null) return -1
+        val exact = currentList.indexOf(chord)
+        if (exact >= 0) return exact
+        if (chord.quality == ChordType.POWER) {
+            return currentList.indexOfFirst {
+                it.root == chord.root && it.scaleDegreeName == chord.scaleDegreeName
+            }
+        }
+        return -1
+    }
+
+    /** True when [item] is the palette base of the currently selected Power chord. */
+    private fun isSelectedAsPower(item: Chord): Boolean {
+        val sel = selectedChord ?: return false
+        return sel.quality == ChordType.POWER &&
+            sel.root == item.root && sel.scaleDegreeName == item.scaleDegreeName
     }
 
     fun setTargetChord(chord: Chord?) {
@@ -70,7 +93,12 @@ class ChordAdapter(
         private var longPressFired = false
 
         fun bind(chord: Chord) {
-            binding.chordNameText.text = chord.getDisplayName()
+            // When this item is the base of the selected Power chord, show its Power name (e.g. G5)
+            // so it is clear a G5 will be inserted; otherwise show the chord normally.
+            val powerSelected = isSelectedAsPower(chord)
+            val isSelected = chord == selectedChord || powerSelected
+            binding.chordNameText.text =
+                if (powerSelected) selectedChord!!.getDisplayName() else chord.getDisplayName()
             binding.romanNumeralText.text = chord.getRomanNumeral() ?: ""
 
             // Visual state handling with priority
@@ -101,14 +129,14 @@ class ChordAdapter(
                     itemView.setBackgroundResource(R.drawable.primary_chord_background)
                     binding.chordNameText.setTextColor(itemView.context.getColorStateList(R.color.chord_text_color))
                     binding.romanNumeralText.setTextColor(itemView.context.getColorStateList(R.color.chord_text_color))
-                    itemView.isActivated = (chord == selectedChord)
+                    itemView.isActivated = isSelected
                 }
                 else -> {
                     // Standard background for selected/default
                     itemView.setBackgroundResource(R.drawable.chord_item_background)
                     binding.chordNameText.setTextColor(itemView.context.getColorStateList(R.color.chord_text_color))
                     binding.romanNumeralText.setTextColor(itemView.context.getColorStateList(R.color.chord_text_color))
-                    itemView.isActivated = (chord == selectedChord)
+                    itemView.isActivated = isSelected
                 }
             }
 

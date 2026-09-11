@@ -897,6 +897,9 @@ class ProgressionActivity : AppCompatActivity() {
         binding.borrowedMajorContainer.visibility = newVisibility
         binding.expandRelatedChordsButton.rotation = if (areExtraChordsExpanded) 180f else 0f
 
+        // Swap the chords-label legend: Resolution/Replacement when expanded, Power hint otherwise.
+        setupChordsLegend()
+
         // Force inner recyclers to layout and update fade overlays (the lists are never empty)
         binding.relatedChordRecyclerView.post {
             binding.relatedChordRecyclerView.requestLayout()
@@ -1203,13 +1206,22 @@ class ProgressionActivity : AppCompatActivity() {
         val text = SpannableStringBuilder().apply {
             append(getString(R.string.available_chords))
             append("   ")
-            inSpans(RelativeSizeSpan(0.85f)) {
-                inSpans(BackgroundColorSpan(targetColor), ForegroundColorSpan(Color.WHITE)) {
-                    append(" ${getString(R.string.legend_resolution)} ")
+            if (areExtraChordsExpanded) {
+                // The resolution/replacement highlight colours are only meaningful alongside the
+                // related chords, so the legend chips appear only while those are expanded.
+                inSpans(RelativeSizeSpan(0.85f)) {
+                    inSpans(BackgroundColorSpan(targetColor), ForegroundColorSpan(Color.WHITE)) {
+                        append(" ${getString(R.string.legend_resolution)} ")
+                    }
+                    append("  ")
+                    inSpans(BackgroundColorSpan(suggestionColor), ForegroundColorSpan(Color.BLACK)) {
+                        append(" ${getString(R.string.legend_replacement)} ")
+                    }
                 }
-                append("  ")
-                inSpans(BackgroundColorSpan(suggestionColor), ForegroundColorSpan(Color.BLACK)) {
-                    append(" ${getString(R.string.legend_replacement)} ")
+            } else {
+                // Collapsed: show the Power-chord hint instead; it disappears once the chips show.
+                inSpans(RelativeSizeSpan(0.85f)) {
+                    append(getString(R.string.legend_power_hint))
                 }
             }
         }
