@@ -61,6 +61,7 @@ class IosAppEnvironment private constructor() {
     val playback: IosPlaybackController
     val progressionPlayback: IosProgressionPlaybackController
     val patternPreview: IosPatternPreviewController
+    val templatePreview: IosTemplatePreviewController
 
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -100,6 +101,7 @@ class IosAppEnvironment private constructor() {
             shouldLoop = { progressionViewModel.isProgressionLooping.value },
         )
         patternPreview = IosPatternPreviewController(settings)
+        templatePreview = IosTemplatePreviewController(settings)
     }
 
     // ---- Per-measure pattern editors (drums / strumming / solo) ----------------
@@ -425,5 +427,60 @@ class IosProgressionPlaybackController(
         audioPlayer.resetStopFlag()
         _isPlaying.value = false
         _currentMeasureIndex.value = -1
+    }
+}
+
+/**
+ * Loops an arbitrary, not-yet-committed [ChordProgression] — used by the "new progression"
+ * template picker to audition a template (built via [de.metaviewsoft.chordprogressionhelper.util.buildProgressionFromTemplate])
+ * before it replaces the current section.
+ */
+class IosTemplatePreviewController(private val settings: SettingsStore) {
+    private val audioPlayer = AudioPlayer()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var playbackJob: Job? = null
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private fun applyLiveSoundSettings() {
+        audioPlayer.drumLevel = settings.drumLevel.toDouble()
+        audioPlayer.soloLevel = settings.soloLevel.toDouble()
+        audioPlayer.strumLevel = settings.strumLevel.toDouble()
+        audioPlayer.envelopeScale = settings.envelopeScale.toDouble()
+        audioPlayer.hiHatHighpass = settings.hiHatHighpass.toDouble()
+        audioPlayer.voicePreset = settings.strumPreset
+        audioPlayer.soloPreset = settings.soloPreset
+        audioPlayer.shuffleFactor = settings.shuffleFactor
+        audioPlayer.strumCrunchLevel = settings.strumCrunchLevel
+        audioPlayer.soloCrunchLevel = settings.soloCrunchLevel
+        audioPlayer.masterVolume = settings.masterVolume.toDouble()
+    }
+
+    fun play(progression: ChordProgression) {
+        stop()
+        applyLiveSoundSettings()
+        _isPlaying.value = true
+        playbackJob = scope.launch {
+            try {
+                audioPlayer.playProgression(
+                    progression = progression,
+                    shouldLoop = { true },
+                    pluckStrength = settings.pluckStrength,
+                    countInBeats = 0,
+                    onPositionChanged = { _, _ -> },
+                )
+            } finally {
+                _isPlaying.value = false
+            }
+        }
+    }
+
+    fun stop() {
+        audioPlayer.stop()
+        playbackJob?.cancel()
+        playbackJob = null
+        audioPlayer.resetStopFlag()
+        _isPlaying.value = false
     }
 }

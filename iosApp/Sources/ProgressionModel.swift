@@ -10,6 +10,7 @@ import Shared
 final class ProgressionModel: ObservableObject {
     private let core: ProgressionViewModelCore
     private let playback: IosProgressionPlaybackController
+    private let templatePreviewController: IosTemplatePreviewController
     private var handles: [WatchHandle] = []
 
     // Chord palettes
@@ -34,13 +35,21 @@ final class ProgressionModel: ObservableObject {
     // Dialogs driven by the core
     @Published var deleteConfirmationMeasure: Int?
     @Published var transposeConfirmationKey: Key?
+    @Published var showNewProgressionConfirmation: Bool = false
+
+    /// Template preview (the "new progression" picker auditions a template before committing it).
+    @Published var isTemplatePreviewPlaying: Bool = false
 
     /// All keys for the key picker (from the Kotlin bridge helper).
     let allKeys: [Key] = (IosModelBridgeKt.allKeys() as? [Key]) ?? []
 
+    /// Built-in progression templates for the "new progression" picker.
+    let allTemplates: [ProgressionTemplate] = (IosModelBridgeKt.allTemplates() as? [ProgressionTemplate]) ?? []
+
     init(env: IosAppEnvironment) {
         core = env.progressionViewModel
         playback = env.progressionPlayback
+        templatePreviewController = env.templatePreview
 
         // Sync the core's derived state (chords, measures, key, tempo) to whichever section
         // is currently selected in the shared song before we start observing.
@@ -85,6 +94,12 @@ final class ProgressionModel: ObservableObject {
         handles.append(FlowWatchKt.watch(flow: core.showTransposeConfirmation) { [weak self] value in
             self?.transposeConfirmationKey = value as? Key
         })
+        handles.append(FlowWatchKt.watch(flow: core.showNewProgressionConfirmation) { [weak self] value in
+            self?.showNewProgressionConfirmation = (value as? KotlinBoolean)?.boolValue ?? false
+        })
+        handles.append(FlowWatchKt.watch(flow: templatePreviewController.isPlaying) { [weak self] value in
+            self?.isTemplatePreviewPlaying = (value as? KotlinBoolean)?.boolValue ?? false
+        })
         handles.append(FlowWatchKt.watch(flow: playback.isPlaying) { [weak self] value in
             self?.isPlaying = (value as? KotlinBoolean)?.boolValue ?? false
         })
@@ -95,6 +110,7 @@ final class ProgressionModel: ObservableObject {
 
     deinit {
         playback.stop()
+        templatePreviewController.stop()
         handles.forEach { $0.close() }
     }
 
@@ -179,6 +195,55 @@ final class ProgressionModel: ObservableObject {
 
     func stop() {
         playback.stop()
+    }
+
+    // MARK: - New / Load / Save (Etappe 3)
+
+    /// Opens the "new progression" flow: a confirmation alert, then the template picker.
+    func requestNewProgression() {
+        core.requestNewProgression()
+    }
+
+    func cancelNewProgression() {
+        core.onNewProgressionConfirmationHandled()
+    }
+
+    /// Replaces the current section's progression with an empty one (template == nil) or one
+    /// built from `template`, in `key` at `tempo`.
+    func confirmNewProgression(template: ProgressionTemplate?, key: Key, tempo: Int) {
+        core.confirmNewProgression(template: template, newKey: key, newTempo: KotlinInt(int: Int32(tempo)))
+        core.onNewProgressionConfirmationHandled()
+    }
+
+    /// Loops a throwaway progression built from `template` (nil = empty) so the picker can be
+    /// auditioned before committing. Call `stopTemplatePreview()` when the picker closes.
+    func previewTemplate(_ template: ProgressionTemplate?, key: Key, tempo: Int) {
+        let progression = IosModelBridgeKt.buildProgressionFromTemplate(template: template, key: key, tempo: Int32(tempo))
+        templatePreviewController.play(progression: progression)
+    }
+
+    func stopTemplatePreview() {
+        templatePreviewController.stop()
+    }
+
+    func savedProgressionNames() -> [String] {
+        (core.getSavedProgressionNames() as? [String]) ?? []
+    }
+
+    func progressionPreview(_ name: String) -> String? {
+        core.getProgressionPreview(name: name)
+    }
+
+    func saveNamedProgression(_ name: String) {
+        core.saveNamedProgression(name: name)
+    }
+
+    func loadProgression(_ name: String) {
+        core.loadProgression(name: name)
+    }
+
+    func deleteProgression(_ name: String) {
+        core.deleteProgression(name: name)
     }
 
     // MARK: - Helpers

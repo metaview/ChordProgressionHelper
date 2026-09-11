@@ -3,11 +3,14 @@ import Shared
 
 /// Progression editor: pick a chord from the palette (it previews and becomes the "selected"
 /// chord), tap a measure slot to place it, and play the whole progression back (looping).
-/// iOS counterpart of Android's ProgressionActivity — first pass: chords, measures, key,
-/// tempo, loop, playback. Drum/solo/strumming patterns and templates/save-load come later.
+/// iOS counterpart of Android's ProgressionActivity: chords, measures, key, tempo, loop,
+/// playback, per-measure drum/strumming/solo editors, and the New/Load/Save menu.
 struct ProgressionScreen: View {
     @StateObject private var model = ProgressionModel(env: IosAppEnvironment.companion.shared)
     @State private var patternSheet: PatternSheet?
+    @State private var showTemplatePicker = false
+    @State private var showLoadSheet = false
+    @State private var showSaveSheet = false
 
     /// Which per-measure pattern editor is open, if any.
     enum PatternSheet: Identifiable {
@@ -31,12 +34,32 @@ struct ProgressionScreen: View {
         }
         .navigationTitle("Akkorde")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button { model.requestNewProgression() } label: {
+                        Label("Neue Progression…", systemImage: "doc.badge.plus")
+                    }
+                    Button { showLoadSheet = true } label: {
+                        Label("Laden…", systemImage: "folder")
+                    }
+                    Button { showSaveSheet = true } label: {
+                        Label("Speichern…", systemImage: "square.and.arrow.down")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
         .onAppear {
-            // Debug: `CPH_OPEN_EDITOR=drums|strum|solo` opens that sheet for measure 1.
+            // Debug: `CPH_OPEN_EDITOR=drums|strum|solo|newprog|load|save` opens that sheet.
             switch ProcessInfo.processInfo.environment["CPH_OPEN_EDITOR"] {
             case "drums": patternSheet = .drums(0)
             case "strum": patternSheet = .strum(0)
             case "solo": patternSheet = .solo(0)
+            case "newprog": showTemplatePicker = true
+            case "load": showLoadSheet = true
+            case "save": showSaveSheet = true
             default: break
             }
         }
@@ -47,6 +70,24 @@ struct ProgressionScreen: View {
             case .strum(let i): StrummingPatternSheet(measureIndex: i)
             case .solo(let i): SoloPatternSheet(measureIndex: i)
             }
+        }
+        .sheet(isPresented: $showTemplatePicker) {
+            NewProgressionTemplateSheet(model: model)
+        }
+        .sheet(isPresented: $showLoadSheet) {
+            LoadProgressionSheet(model: model)
+        }
+        .sheet(isPresented: $showSaveSheet) {
+            SaveProgressionSheet(model: model)
+        }
+        .alert(
+            "Neue Progression?",
+            isPresented: newProgressionConfirmationBinding
+        ) {
+            Button("Weiter") { showTemplatePicker = true }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Die aktuelle Progression in diesem Abschnitt wird ersetzt.")
         }
         .alert(
             "Takt löschen?",
@@ -262,6 +303,13 @@ struct ProgressionScreen: View {
         Binding(
             get: { model.transposeConfirmationKey != nil },
             set: { if !$0 { model.cancelTranspose() } }
+        )
+    }
+
+    private var newProgressionConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { model.showNewProgressionConfirmation },
+            set: { if !$0 { model.cancelNewProgression() } }
         )
     }
 }

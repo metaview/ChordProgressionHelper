@@ -145,10 +145,53 @@ final class SmokeSelfTest {
                 solo.stopPreview()
                 self.after(0.8) {
                     self.expect(!solo.isPreviewing, "pattern preview stopped (isPreviewing was \(solo.isPreviewing))")
-                    self.finish()
+                    self.checkProgressionLibrary()
                 }
             }
         }
+    }
+
+    /// Exercises the Etappe-3 New/Load/Save flow: template list, applying a template (key/tempo
+    /// round-trip through the FlowWatch bridge), and a save -> load -> delete round trip through
+    /// ProgressionStorage. Uses a throwaway name and deletes it again so repeated runs don't
+    /// accumulate saved progressions.
+    private func checkProgressionLibrary() {
+        step("checkProgressionLibrary")
+        let testName = "SMOKE_TEST_TMP_\(Int(Date().timeIntervalSince1970))"
+
+        let prog = ProgressionModel(env: IosAppEnvironment.companion.shared)
+        expect(!prog.allTemplates.isEmpty, "progression templates list non-empty (was \(prog.allTemplates.count))")
+        expect(!prog.allKeys.isEmpty, "key list non-empty for the template picker")
+
+        prog.saveNamedProgression(testName)
+        let namesAfterSave = prog.savedProgressionNames()
+        expect(namesAfterSave.contains(testName), "save: \"\(testName)\" appears in saved names (was \(namesAfterSave))")
+        log("progression preview for saved name: \(prog.progressionPreview(testName) ?? "<empty>")")
+
+        guard let template = prog.allTemplates.first else {
+            expect(false, "no template available to apply — skipping template/load checks")
+            cleanupLibraryTest(prog, testName)
+            return
+        }
+
+        prog.confirmNewProgression(template: template, key: .g, tempo: 111)
+        after(0.4) {
+            self.expect(prog.key == Key.g, "confirmNewProgression applied key G (was \(prog.key.displayName))")
+            self.expect(prog.tempo == 111, "confirmNewProgression applied tempo 111 (was \(prog.tempo))")
+            self.expect(!prog.measures.isEmpty, "template produced at least one measure")
+
+            prog.loadProgression(testName)
+            self.after(0.4) {
+                self.cleanupLibraryTest(prog, testName)
+            }
+        }
+    }
+
+    private func cleanupLibraryTest(_ prog: ProgressionModel, _ testName: String) {
+        prog.deleteProgression(testName)
+        let namesAfterDelete = prog.savedProgressionNames()
+        expect(!namesAfterDelete.contains(testName), "delete: \"\(testName)\" removed from saved names")
+        finish()
     }
 
     private func finish() {

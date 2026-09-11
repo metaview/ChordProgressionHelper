@@ -153,6 +153,11 @@ class ProgressionViewModelCore(
         return storage.getSavedProgressionNames()
     }
 
+    /** Short chord-list preview (e.g. "C - Am - F - G") for a saved progression's load/save row. */
+    fun getProgressionPreview(name: String): String? {
+        return storage.getPreviewFor(name)
+    }
+
     fun saveNamedProgression(name: String) {
         progression.name = name
         saveCurrentSession()
