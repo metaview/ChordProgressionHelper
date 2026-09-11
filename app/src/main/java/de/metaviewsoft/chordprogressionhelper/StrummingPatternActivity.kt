@@ -18,6 +18,7 @@ import androidx.core.content.res.ResourcesCompat
 import de.metaviewsoft.chordprogressionhelper.databinding.DialogStrummingPatternBinding
 import de.metaviewsoft.chordprogressionhelper.model.*
 import de.metaviewsoft.chordprogressionhelper.service.PlaybackService
+import de.metaviewsoft.chordprogressionhelper.ui.StrummingPatternEditor
 import de.metaviewsoft.chordprogressionhelper.util.ThemeColorResolver
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -40,7 +41,9 @@ class StrummingPatternActivity : AppCompatActivity() {
     private lateinit var binding: DialogStrummingPatternBinding
     private var isPreviewActive = false
     private var measureIndex = -1
-    private lateinit var currentStrums: MutableList<Strum>
+    // Editing logic now lives in the shared StrummingPatternEditor (commonMain); this Activity is
+    // the Android view layer around it (PlaybackService preview, chip rendering, lifecycle).
+    private lateinit var editor: StrummingPatternEditor
     // Preview context passed from ProgressionActivity
     private var tonicChord: Chord? = null
     private var keyVal: Key = Key.C
@@ -198,8 +201,6 @@ class StrummingPatternActivity : AppCompatActivity() {
         }
         tempoVal = intent?.getIntExtra("extra_tempo", 120) ?: 120
 
-        currentStrums = startPattern.strums.toMutableList()
-
         // Parse any externally-provided list of all patterns used in the progression
         try {
             val allJson = intent?.getStringExtra(EXTRA_ALL_PATTERNS_JSON)
@@ -215,6 +216,8 @@ class StrummingPatternActivity : AppCompatActivity() {
             Log.w(TAG, "Error while parsing EXTRA_ALL_PATTERNS_JSON: ${e.message}", e)
             extraPatterns = emptyList()
         }
+
+        editor = StrummingPatternEditor(startPattern, extraPatterns)
 
         setupFadesAndScroll()
         setupStrumChips()
@@ -367,18 +370,12 @@ class StrummingPatternActivity : AppCompatActivity() {
             chip.layoutParams = LinearLayout.LayoutParams(size, size, 0f).apply { setMargins(4, 4, 4, 4) }
             chip.setOnClickListener {
                 // Chips only toggle the strum value and update the UI. No preview on chip clicks.
-                currentStrums[i] = when (currentStrums[i]) {
-                    Strum.DOWN -> Strum.UP
-                    Strum.UP -> Strum.MUTE
-                    Strum.MUTE -> Strum.REST
-                    Strum.REST -> Strum.LETRING
-                    Strum.LETRING -> Strum.DOWN
-                }
+                editor.cycle(i)
                 updateStrumViews()
                 // If service bound and a valid measure index is provided, inform the service to update the pattern
                 try {
                     if (isServiceBound && measureIndex >= 0) {
-                        val newPattern = StrummingPattern("Custom", currentStrums.toList())
+                        val newPattern = StrummingPattern("Custom", editor.currentStrums())
                         playbackService?.updateStrummingPattern(measureIndex, newPattern)
                     }
                 } catch (e: Exception) {
@@ -561,7 +558,7 @@ class StrummingPatternActivity : AppCompatActivity() {
         for (i in 0 until views.childCount) {
             val view = views.getChildAt(i)
             val iconView = view.findViewById<ImageView?>(R.id.strumChipIcon)
-            val strum = currentStrums.getOrNull(i) ?: Strum.DOWN
+            val strum = editor.currentStrums().getOrNull(i) ?: Strum.DOWN
             val drawableId = strumToDrawable(strum)
             iconView?.setImageResource(drawableId)
             view.contentDescription = getString(R.string.strum_content_description, strum.name, i + 1)
@@ -587,7 +584,7 @@ class StrummingPatternActivity : AppCompatActivity() {
 
                 if (!isPreviewActive) {
                     // start looping preview
-                    val livePattern = StrummingPattern("Test", currentStrums.toList())
+                    val livePattern = StrummingPattern("Test", editor.currentStrums())
                     val tempProg = ChordProgression(name = "Preview", key = keyVal, mode = modeVal, tempo = tempoVal)
                     tempProg.measures.clear()
                     val m = Measure(1)
@@ -679,7 +676,7 @@ class StrummingPatternActivity : AppCompatActivity() {
          * beendet die Activity mit RESULT_OK; stoppt ggf. aktive Previews.
          */
         try {
-            val pattern = StrummingPattern("Custom", currentStrums.toList())
+            val pattern = StrummingPattern("Custom", editor.currentStrums())
             val json = Json.encodeToString(pattern)
             val intent = intent
             intent.putExtra(EXTRA_MEASURE_INDEX, measureIndex)
@@ -851,7 +848,7 @@ class StrummingPatternActivity : AppCompatActivity() {
         // Click handler: unified behavior for preview/update — attach to card so clicks inside card trigger
         card.setOnClickListener {
             //if (!previewsAllowed) return@setOnClickListener
-            pattern.strums.forEachIndexed { idx, s -> if (idx < currentStrums.size) currentStrums[idx] = s }
+            editor.selectPreset(pattern)
             updateStrumViews()
 
             val isPatternPreviewEnabled = try {
