@@ -173,13 +173,26 @@ final class ProgressionModel: ObservableObject {
         core.onDeleteConfirmationHandled()
     }
 
+    func duplicateMeasure(_ index: Int) {
+        core.duplicateMeasure(measureIndex: Int32(index))
+    }
+
+    /// Remove all chords from a measure; its drum/strumming/solo patterns are untouched.
+    func clearMeasureChords(_ index: Int) {
+        core.clearMeasureChords(measureIndex: Int32(index))
+    }
+
     /// Reorder measures. `destination` uses SwiftUI's `onMove` convention (an index into the
     /// array *before* removal), so it's adjusted to a plain target index when moving downward.
+    /// Unlike Android (which calls moveMeasure per visual swap during a drag, then
+    /// finalizeMeasureMove once on drop), SwiftUI's onMove only fires once, on drop — so both
+    /// are called together here to renumber measures and persist in the same step.
     func moveMeasure(from source: IndexSet, to destination: Int) {
         guard let from = source.first else { return }
         let to = destination > from ? destination - 1 : destination
         guard to != from else { return }
         core.moveMeasure(fromPosition: Int32(from), toPosition: Int32(to))
+        core.finalizeMeasureMove()
     }
 
     // MARK: - Key / tempo / loop

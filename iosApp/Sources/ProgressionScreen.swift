@@ -183,19 +183,23 @@ struct ProgressionScreen: View {
     private func measureRow(index: Int, measure: Measure) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
-                Text("\(index + 1)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
-
                 ForEach(0..<4, id: \.self) { quarter in
                     chordSlot(measureIndex: index, quarter: quarter, measure: measure)
                 }
 
-                Button { model.requestRemoveMeasure(index) } label: {
-                    Image(systemName: "trash").foregroundStyle(.secondary)
+                Menu {
+                    Button { model.duplicateMeasure(index) } label: {
+                        Label("Duplizieren", systemImage: "plus.square.on.square")
+                    }
+                    Button { model.clearMeasureChords(index) } label: {
+                        Label("Akkorde löschen", systemImage: "eraser")
+                    }
+                    Button(role: .destructive) { model.requestRemoveMeasure(index) } label: {
+                        Label("Takt löschen", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderless)
             }
 
             HStack(spacing: 6) {
