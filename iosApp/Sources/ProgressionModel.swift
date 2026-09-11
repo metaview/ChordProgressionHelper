@@ -128,9 +128,10 @@ final class ProgressionModel: ObservableObject {
 
     // MARK: - Measures
 
+    /// Chord in effect at this quarter-note slot: the most recent chord at or before it, matching
+    /// Android's grid (a chord placed at a slot carries forward until a later slot overrides it).
     func chord(inMeasure measure: Measure, quarterNote: Int) -> Chord? {
-        let events = measure.chordEvents as? [Measure.ChordEvent] ?? []
-        return events.first { $0.quarterNote == Int32(quarterNote) }?.chord
+        measure.getChordAt(eighthNoteIndex: Int32(quarterNote * 2))
     }
 
     /// Place the currently selected chord at the given quarter-note slot.
