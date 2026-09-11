@@ -11,6 +11,9 @@ struct SongScreen: View {
     @State private var exportDocument: MidiDocument?
     @State private var exportFilename = "song"
     @State private var showAddSection = false
+    @State private var showRenameSection = false
+    @State private var renameIndex = 0
+    @State private var renameSuggestedName = ""
     // Debug shortcut: `CPH_OPEN_EDITOR=1` jumps straight into the progression editor on launch
     // so the per-measure editors can be inspected without UI automation.
     @State private var showEditor = false
@@ -19,24 +22,60 @@ struct SongScreen: View {
         AppNavigationContainer {
             List {
                 ForEach(Array(model.sectionNames.enumerated()), id: \.offset) { index, name in
-                    Button {
-                        // Make this section the current one in the shared song, then open the
-                        // editor (ProgressionScreen edits session.currentProgression).
-                        model.selectSection(index)
-                        showEditor = true
-                    } label: {
-                        HStack {
-                            Text(name)
-                            Spacer()
-                            if index == model.selectedIndex {
-                                Image(systemName: "checkmark")
+                    HStack {
+                        Button {
+                            // Make this section the current one in the shared song, then open the
+                            // editor (ProgressionScreen edits session.currentProgression).
+                            model.selectSection(index)
+                            showEditor = true
+                        } label: {
+                            HStack {
+                                Text(name)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
                             }
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
                         }
+                        .foregroundStyle(.primary)
+
+                        Menu {
+                            Button {
+                                renameIndex = index
+                                renameSuggestedName = name
+                                showRenameSection = true
+                            } label: {
+                                Label("Umbenennen", systemImage: "pencil")
+                            }
+                            Button {
+                                model.duplicateSection(index)
+                            } label: {
+                                Label("Duplizieren", systemImage: "plus.square.on.square")
+                            }
+                            Button(role: .destructive) {
+                                model.deleteSection(index)
+                            } label: {
+                                Label("Löschen", systemImage: "trash")
+                            }
+                            Divider()
+                            Button {
+                                model.moveSection(index, to: index - 1)
+                            } label: {
+                                Label("Nach oben", systemImage: "arrow.up")
+                            }
+                            .disabled(index == 0)
+                            Button {
+                                model.moveSection(index, to: index + 1)
+                            } label: {
+                                Label("Nach unten", systemImage: "arrow.down")
+                            }
+                            .disabled(index == model.sectionNames.count - 1)
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .foregroundStyle(.primary)
                 }
                 .onMove { source, destination in
                     model.moveSection(from: source, to: destination)
@@ -86,8 +125,21 @@ struct SongScreen: View {
                 playbackBar
             }
             .sheet(isPresented: $showAddSection) {
-                AddSectionSheet(suggestedName: "Section \(model.sectionNames.count + 1)") { name in
+                SectionNameSheet(
+                    title: "Neue Section",
+                    confirmLabel: "Hinzufügen",
+                    suggestedName: "Section \(model.sectionNames.count + 1)"
+                ) { name in
                     model.addSection(name: name)
+                }
+            }
+            .sheet(isPresented: $showRenameSection) {
+                SectionNameSheet(
+                    title: "Umbenennen",
+                    confirmLabel: "Speichern",
+                    suggestedName: renameSuggestedName
+                ) { name in
+                    model.renameSection(renameIndex, to: name)
                 }
             }
             .sheet(isPresented: $showTrackSelection) {
@@ -112,16 +164,21 @@ struct SongScreen: View {
         }
     }
 
-    /// Prompts for a new section's name, prefilled with the next default ("Section N") so
-    /// accepting as-is works like a plain "add" — matching Android's addSongSection default.
-    private struct AddSectionSheet: View {
+    /// Prompts for a section name, prefilled with `suggestedName` — used both for adding a new
+    /// section (suggested: the next default "Section N") and renaming one (suggested: its
+    /// current name).
+    private struct SectionNameSheet: View {
         @Environment(\.dismiss) private var dismiss
         @State private var name: String
-        let onAdd: (String) -> Void
+        let title: String
+        let confirmLabel: String
+        let onConfirm: (String) -> Void
 
-        init(suggestedName: String, onAdd: @escaping (String) -> Void) {
+        init(title: String, confirmLabel: String, suggestedName: String, onConfirm: @escaping (String) -> Void) {
+            self.title = title
+            self.confirmLabel = confirmLabel
             _name = State(initialValue: suggestedName)
-            self.onAdd = onAdd
+            self.onConfirm = onConfirm
         }
 
         var body: some View {
@@ -130,15 +187,15 @@ struct SongScreen: View {
                     TextField("Name", text: $name)
                         .autocorrectionDisabled()
                 }
-                .navigationTitle("Neue Section")
+                .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Abbrechen") { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Hinzufügen") {
-                            onAdd(name)
+                        Button(confirmLabel) {
+                            onConfirm(name)
                             dismiss()
                         }
                     }

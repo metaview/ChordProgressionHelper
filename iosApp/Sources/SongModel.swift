@@ -68,6 +68,34 @@ final class SongModel: ObservableObject {
         _ = core.moveSongSection(fromIndex: Int32(from), toIndex: Int32(to))
     }
 
+    /// Move a section to an explicit target index (context-menu "move up"/"move down"), as
+    /// opposed to `moveSection(from:to:)`'s drag-gesture index convention.
+    func moveSection(_ index: Int, to newIndex: Int) {
+        _ = core.moveSongSection(fromIndex: Int32(index), toIndex: Int32(newIndex))
+    }
+
+    func renameSection(_ index: Int, to name: String) {
+        core.renameSongSection(index: Int32(index), newName: name)
+    }
+
+    /// Duplicate a section (matches Android: select it, then duplicate the now-current one).
+    func duplicateSection(_ index: Int) {
+        _ = core.selectSongSection(index: Int32(index))
+        _ = core.duplicateCurrentSongSection()
+    }
+
+    /// Delete a section, using the current progression's key/mode/tempo as the fallback for a
+    /// fresh empty section if this was the last one left (mirrors Android).
+    func deleteSection(_ index: Int) {
+        let progression = core.getCurrentProgression()
+        _ = core.deleteSongSection(
+            index: Int32(index),
+            currentKey: progression.key,
+            currentMode: progression.mode,
+            currentTempo: progression.tempo
+        )
+    }
+
     func togglePlayback() {
         if isPlaying {
             playback.stop()
