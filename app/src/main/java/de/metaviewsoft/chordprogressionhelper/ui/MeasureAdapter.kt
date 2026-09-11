@@ -29,6 +29,7 @@ class MeasureAdapter(
     private val onChordDrop: (measureIndex: Int, eighthNoteIndex: Int, chord: Chord) -> Unit,
     private val onRemoveMeasureClick: (measureIndex: Int) -> Unit,
     private val onDuplicateMeasureClick: (measureIndex: Int) -> Unit,
+    private val onClearChordsClick: (measureIndex: Int) -> Unit,
     private val onAddMeasureClick: () -> Unit,
     private val onStartDrag: (viewHolder: RecyclerView.ViewHolder) -> Unit
 ) : ListAdapter<MeasureAdapter.DisplayableItem, RecyclerView.ViewHolder>(MeasureDiffCallback()) {
@@ -220,8 +221,7 @@ class MeasureAdapter(
                         true
                     }
                     3 -> {
-                        // TODO: Clear chords functionality
-                        android.widget.Toast.makeText(view.context, "Clear chords not yet implemented", android.widget.Toast.LENGTH_SHORT).show()
+                        onClearChordsClick(measureIndex)
                         true
                     }
                     else -> false

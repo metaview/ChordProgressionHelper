@@ -1150,6 +1150,7 @@ class ProgressionActivity : AppCompatActivity() {
             onChordDrop = { measureIndex, eighthNoteIndex, chord -> viewModel.addChordToMeasure(measureIndex, eighthNoteIndex, chord) },
             onRemoveMeasureClick = { viewModel.removeMeasure(it) },
             onDuplicateMeasureClick = { viewModel.duplicateMeasure(it) },
+            onClearChordsClick = { viewModel.clearMeasureChords(it) },
             onAddMeasureClick = { viewModel.addMeasure() },
             onStartDrag = { viewHolder -> itemTouchHelper.startDrag(viewHolder) }
         )

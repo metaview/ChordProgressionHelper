@@ -87,6 +87,7 @@ class ProgressionViewModel(application: Application) : AndroidViewModel(applicat
     fun removeMeasure(measureIndex: Int) = core.removeMeasure(measureIndex)
     fun confirmRemoveMeasure(measureIndex: Int) = core.confirmRemoveMeasure(measureIndex)
     fun duplicateMeasure(measureIndex: Int) = core.duplicateMeasure(measureIndex)
+    fun clearMeasureChords(measureIndex: Int) = core.clearMeasureChords(measureIndex)
     fun onDeleteConfirmationHandled() = core.onDeleteConfirmationHandled()
     fun requestNewProgression() = core.requestNewProgression()
     fun confirmNewProgression(template: ProgressionTemplate?, newKey: Key? = null, newTempo: Int? = null) =

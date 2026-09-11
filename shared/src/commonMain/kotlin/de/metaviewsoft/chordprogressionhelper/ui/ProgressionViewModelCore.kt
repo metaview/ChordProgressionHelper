@@ -507,6 +507,15 @@ class ProgressionViewModelCore(
         }
     }
 
+    /** Remove all chords from a measure, leaving its drum/strumming/solo patterns untouched. */
+    fun clearMeasureChords(measureIndex: Int) {
+        if (measureIndex in progression.measures.indices) {
+            progression.measures[measureIndex].clear()
+            updateMeasures()
+            saveCurrentSession()
+        }
+    }
+
     fun onDeleteConfirmationHandled() {
         _showDeleteConfirmation.value = null
     }
