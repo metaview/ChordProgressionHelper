@@ -10,6 +10,7 @@ struct SongScreen: View {
     @State private var showExporter = false
     @State private var exportDocument: MidiDocument?
     @State private var exportFilename = "song"
+    @State private var showAddSection = false
     // Debug shortcut: `CPH_OPEN_EDITOR=1` jumps straight into the progression editor on launch
     // so the per-measure editors can be inspected without UI automation.
     @State private var showEditor = false
@@ -36,6 +37,9 @@ struct SongScreen: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                }
+                .onMove { source, destination in
+                    model.moveSection(from: source, to: destination)
                 }
             }
             .background(
@@ -67,9 +71,24 @@ struct SongScreen: View {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showAddSection = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    EditButton().disabled(model.sectionNames.count < 2)
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 playbackBar
+            }
+            .sheet(isPresented: $showAddSection) {
+                AddSectionSheet(suggestedName: "Section \(model.sectionNames.count + 1)") { name in
+                    model.addSection(name: name)
+                }
             }
             .sheet(isPresented: $showTrackSelection) {
                 MidiTrackSelectionSheet { tracks in
@@ -89,6 +108,41 @@ struct SongScreen: View {
                 defaultFilename: exportFilename
             ) { _ in
                 exportDocument = nil
+            }
+        }
+    }
+
+    /// Prompts for a new section's name, prefilled with the next default ("Section N") so
+    /// accepting as-is works like a plain "add" — matching Android's addSongSection default.
+    private struct AddSectionSheet: View {
+        @Environment(\.dismiss) private var dismiss
+        @State private var name: String
+        let onAdd: (String) -> Void
+
+        init(suggestedName: String, onAdd: @escaping (String) -> Void) {
+            _name = State(initialValue: suggestedName)
+            self.onAdd = onAdd
+        }
+
+        var body: some View {
+            NavigationView {
+                Form {
+                    TextField("Name", text: $name)
+                        .autocorrectionDisabled()
+                }
+                .navigationTitle("Neue Section")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Abbrechen") { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Hinzufügen") {
+                            onAdd(name)
+                            dismiss()
+                        }
+                    }
+                }
             }
         }
     }

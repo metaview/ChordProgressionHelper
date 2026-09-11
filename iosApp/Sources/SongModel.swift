@@ -47,6 +47,27 @@ final class SongModel: ObservableObject {
         _ = core.selectSongSection(index: Int32(index))
     }
 
+    /// Add a new section (blank name lets the shared model auto-name it "Section N"), using the
+    /// current section's key/mode/tempo as the new one's starting point (mirrors Android).
+    func addSection(name: String) {
+        let progression = core.getCurrentProgression()
+        core.addSongSection(
+            name: name,
+            currentKey: progression.key,
+            currentMode: progression.mode,
+            currentTempo: progression.tempo
+        )
+    }
+
+    /// Reorder sections. `destination` uses SwiftUI's `onMove` convention (an index into the
+    /// array *before* removal), so it's adjusted to a plain target index when moving downward.
+    func moveSection(from source: IndexSet, to destination: Int) {
+        guard let from = source.first else { return }
+        let to = destination > from ? destination - 1 : destination
+        guard to != from else { return }
+        _ = core.moveSongSection(fromIndex: Int32(from), toIndex: Int32(to))
+    }
+
     func togglePlayback() {
         if isPlaying {
             playback.stop()
