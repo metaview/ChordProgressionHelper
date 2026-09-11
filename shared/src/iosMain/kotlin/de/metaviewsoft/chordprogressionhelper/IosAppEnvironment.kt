@@ -167,6 +167,10 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
+    /** Eighth-note slot (0..7) currently sounding in [playMeasure]'s loop, or -1 when stopped. */
+    private val _currentSlot = MutableStateFlow(-1)
+    val currentSlot: StateFlow<Int> = _currentSlot.asStateFlow()
+
     private fun applyLiveSoundSettings() {
         applySoundSettings(audioPlayer)
     }
@@ -259,10 +263,11 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
                     shouldLoop = { true },
                     pluckStrength = settings.pluckStrength,
                     countInBeats = 0,
-                    onPositionChanged = { _, _ -> },
+                    onPositionChanged = { _, strumIndex -> _currentSlot.value = strumIndex },
                 )
             } finally {
                 _isPlaying.value = false
+                _currentSlot.value = -1
             }
         }
     }
@@ -273,6 +278,7 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
         playbackJob = null
         audioPlayer.resetStopFlag()
         _isPlaying.value = false
+        _currentSlot.value = -1
     }
 }
 

@@ -133,9 +133,13 @@ final class SoloEditorModel: ObservableObject {
     private let env = IosAppEnvironment.companion.shared
     private let editor: SoloPatternEditor
     private var previewHandle: WatchHandle?
+    private var previewSlotHandle: WatchHandle?
 
     @Published private(set) var revision = 0
     @Published var isPreviewing = false
+    /// Slot (0..7) currently sounding while previewing, or -1 — lets the UI highlight where
+    /// playback is (Android: highlightActiveNote via PlaybackService.currentPlaybackPosition).
+    @Published var playingSlot = -1
 
     init(measureIndex: Int) {
         self.measureIndex = measureIndex
@@ -144,12 +148,16 @@ final class SoloEditorModel: ObservableObject {
         previewHandle = FlowWatchKt.watch(flow: env.patternPreview.isPlaying) { [weak self] value in
             self?.isPreviewing = (value as? KotlinBoolean)?.boolValue ?? false
         }
+        previewSlotHandle = FlowWatchKt.watch(flow: env.patternPreview.currentSlot) { [weak self] value in
+            self?.playingSlot = (value as? KotlinInt)?.intValue ?? -1
+        }
     }
 
     deinit {
         env.patternPreview.stop()
         env.patternPreview.releaseNote()
         previewHandle?.close()
+        previewSlotHandle?.close()
     }
 
     var measureCount: Int { Int(editor.measureCount()) }

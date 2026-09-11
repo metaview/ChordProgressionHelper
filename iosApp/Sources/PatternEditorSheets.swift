@@ -251,8 +251,10 @@ struct SoloPatternSheet: View {
             Button { model.pasteAll() } label: { Image(systemName: "doc.on.clipboard") }
                 .disabled(!model.hasClipboard)
             Button { model.togglePreview() } label: {
-                Image(systemName: model.isPreviewing ? "stop.fill" : "play.fill")
+                Label(model.isPreviewing ? "Stopp" : "Anhören", systemImage: model.isPreviewing ? "stop.fill" : "play.fill")
+                    .font(.subheadline)
             }
+            .buttonStyle(.borderedProminent)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -293,6 +295,7 @@ struct SoloPatternSheet: View {
                     .frame(width: 18)
                 ForEach(Array(model.slots(measure).enumerated()), id: \.offset) { slotIndex, slot in
                     let selected = isActive && slotIndex == model.cursor
+                    let playing = isActive && model.isPreviewing && slotIndex == model.playingSlot
                     Button {
                         model.selectSlot(measure: measure, slot: slotIndex)
                     } label: {
@@ -303,7 +306,7 @@ struct SoloPatternSheet: View {
                             .frame(maxWidth: .infinity, minHeight: 40)
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
-                                    .fill(slotFill(slot: slot, selected: selected))
+                                    .fill(slotFill(slot: slot, selected: selected, playing: playing))
                             )
                     }
                     .buttonStyle(.plain)
@@ -318,7 +321,9 @@ struct SoloPatternSheet: View {
         )
     }
 
-    private func slotFill(slot: SoloSlot, selected: Bool) -> Color {
+    private func slotFill(slot: SoloSlot, selected: Bool, playing: Bool) -> Color {
+        // Playing takes priority so the moving highlight is visible even on the selected slot.
+        if playing { return Color.green.opacity(0.55) }
         if selected { return Color.accentColor.opacity(0.35) }
         if PatternDisplay.isNote(slot) { return Color.accentColor.opacity(0.18) }
         return Color(.tertiarySystemBackground)

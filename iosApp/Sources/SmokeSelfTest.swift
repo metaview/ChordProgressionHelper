@@ -142,9 +142,13 @@ final class SmokeSelfTest {
             solo.togglePreview()
             self.after(1.0) {
                 self.expect(solo.isPreviewing, "pattern preview started (isPreviewing was \(solo.isPreviewing))")
-                solo.stopPreview()
+                self.expect(solo.playingSlot >= 0, "pattern preview reports a playing slot (was \(solo.playingSlot))")
+                // Exercise the actual reported bug: toggling a second time (not stopPreview())
+                // must stop it, or the loop (shouldLoop = { true }) never ends.
+                solo.togglePreview()
                 self.after(0.8) {
-                    self.expect(!solo.isPreviewing, "pattern preview stopped (isPreviewing was \(solo.isPreviewing))")
+                    self.expect(!solo.isPreviewing, "pattern preview stopped via togglePreview (isPreviewing was \(solo.isPreviewing))")
+                    self.expect(solo.playingSlot == -1, "playing slot resets after stop (was \(solo.playingSlot))")
                     self.checkProgressionLibrary()
                 }
             }
