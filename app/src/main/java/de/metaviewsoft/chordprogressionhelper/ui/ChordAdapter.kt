@@ -1,13 +1,9 @@
 package de.metaviewsoft.chordprogressionhelper.ui
 
-import android.content.ClipData
-import android.content.ClipDescription
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
-import android.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -126,8 +122,8 @@ class ChordAdapter(
                         v.performClick()  // Still trigger click for accessibility
                         val runnable = Runnable {
                             longPressFired = true
-                            onChordRelease()       // stop the preview before opening the menu
-                            showChordMenu(v, chord)
+                            onChordRelease()       // stop the preview, then convert to Power chord
+                            onMakePower(chord)
                         }
                         longPressRunnable = runnable
                         longPressHandler.postDelayed(
@@ -148,29 +144,6 @@ class ChordAdapter(
                     else -> false
                 }
             }
-        }
-
-        private fun showChordMenu(view: View, chord: Chord) {
-            // Small popup menu to either convert to a Power chord or start a drag.
-            val popup = PopupMenu(view.context, view)
-            popup.menu.add("Make Power Chord")
-            popup.menu.add("Drag")
-            popup.setOnMenuItemClickListener { menuItem ->
-                when (menuItem.title) {
-                    "Make Power Chord" -> {
-                        onMakePower(chord)
-                        true
-                    }
-                    "Drag" -> {
-                        val item = ClipData.Item(chord.getDisplayName())
-                        val dragData = ClipData(view.tag as? CharSequence, arrayOf(ClipDescription.MIMETYPE_TEXT_PLAIN), item)
-                        view.startDragAndDrop(dragData, View.DragShadowBuilder(view), chord, 0)
-                        true
-                    }
-                    else -> false
-                }
-            }
-            popup.show()
         }
     }
 
