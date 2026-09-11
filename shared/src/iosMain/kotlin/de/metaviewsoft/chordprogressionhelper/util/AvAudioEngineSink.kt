@@ -19,10 +19,22 @@ import platform.darwin.dispatch_semaphore_wait
  * [AudioSink] backed by AVAudioEngine + AVAudioPlayerNode.
  *
  * Emulates AudioTrack's streaming semantics: [write] converts 16-bit PCM to a Float32 buffer,
- * schedules it on the player node and BLOCKS via a counting semaphore once [MAX_QUEUED_BUFFERS]
- * are in flight — that backpressure is what paces the portable playback loop, exactly like
- * `AudioTrack.write`. `flush`/`stop` discard scheduled buffers (their completion handlers fire
- * and re-signal the semaphore, so writers never deadlock).
+ * schedules it on the player node and BLOCKS via a counting semaphore once [MAX_QUEUED_UNITS]
+ * reference-sized units' worth of audio are in flight — that backpressure is what paces the
+ * portable playback loop, exactly like `AudioTrack.write`. `flush`/`stop` discard scheduled
+ * buffers (their completion handlers fire and re-signal the semaphore, so writers never
+ * deadlock).
+ *
+ * The unit is [config]'s `bufferSizeBytes` (Android's own real buffer depth, ~double its
+ * hardware minimum) rather than one permit per call: the portable playback loop writes
+ * eighth-note-sized chunks during normal playback but much larger quarter-note chunks during
+ * the count-in (see `AudioPlayer.playProgression`), and the count-in's hi-hat-only synthesis is
+ * far cheaper than per-strum chord/drum/solo mixing. Counting raw calls let a whole count-in —
+ * several seconds of cheap-to-generate audio — get scheduled almost instantly, so far ahead of
+ * what's actually sounding that `onPositionChanged` (called right before each `write`) reported
+ * measure 1 as current while the count-in was still audible. Weighting permits by duration keeps
+ * the look-ahead bounded to roughly the same real-time window regardless of how large or cheap
+ * an individual write is.
  *
  * `AVAudioPlayerNode` stops itself the moment it runs dry, and there is always a gap between
  * [play] and the first [write] (count-in generation, sample pre-warm, …). So [play] alone is
@@ -34,7 +46,8 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
     private val engine = AVAudioEngine()
     private val player = AVAudioPlayerNode()
     private val format = AVAudioFormat(AVAudioPCMFormatFloat32, config.sampleRate.toDouble(), 1u, false)
-    private val queueSlots = dispatch_semaphore_create(MAX_QUEUED_BUFFERS)
+    private val referenceUnitSamples = (config.bufferSizeBytes / 2).coerceAtLeast(1)
+    private val queueSlots = dispatch_semaphore_create(MAX_QUEUED_UNITS)
     private var initialized = false
     private var started = false
     private var restartCount = 0L
@@ -74,10 +87,17 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
         }
         buffer.frameLength = sizeInShorts.toUInt()
 
-        // Block until a queue slot is free (AudioTrack-style backpressure), then schedule.
-        dispatch_semaphore_wait(queueSlots, DISPATCH_TIME_FOREVER)
+        // Block until enough queue slots are free (AudioTrack-style backpressure), then schedule.
+        // A buffer spanning several reference units (e.g. a count-in quarter-note) costs that many
+        // permits, so look-ahead stays bounded by duration, not by raw call count. Capped at the
+        // semaphore's total capacity: a single buffer longer than the whole look-ahead window still
+        // only ever needs to wait for everything currently in flight, never for its own (not yet
+        // scheduled) completion.
+        val units = ((sizeInShorts + referenceUnitSamples - 1) / referenceUnitSamples)
+            .coerceIn(1, MAX_QUEUED_UNITS.toInt())
+        repeat(units) { dispatch_semaphore_wait(queueSlots, DISPATCH_TIME_FOREVER) }
         player.scheduleBuffer(buffer) {
-            dispatch_semaphore_signal(queueSlots)
+            repeat(units) { dispatch_semaphore_signal(queueSlots) }
         }
 
         // The node stops itself whenever it drains; restart it now that there is data again.
@@ -128,7 +148,7 @@ class AvAudioEngineSink(private val config: AudioSinkConfig) : AudioSink {
     override val isInitialized: Boolean get() = initialized
 
     private companion object {
-        const val MAX_QUEUED_BUFFERS = 8L
+        const val MAX_QUEUED_UNITS = 8L
     }
 }
 
