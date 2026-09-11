@@ -279,7 +279,7 @@ struct ProgressionScreen: View {
                 }
                 .padding(16)
             }
-            .frame(maxHeight: isChordPaletteExpanded ? 260 : 130)
+            .frame(maxHeight: isChordPaletteExpanded ? 340 : 130)
         }
         .background(.thinMaterial)
     }
@@ -295,10 +295,11 @@ struct ProgressionScreen: View {
                     HStack(spacing: 8) {
                         ForEach(Array(chords.enumerated()), id: \.offset) { _, chord in
                             ChordButton(
-                                chord: chord,
-                                isSelected: model.isSelected(chord),
+                                displayChord: model.isSelectedAsPower(chord) ? (model.selectedChord ?? chord) : chord,
+                                isSelected: model.isSelected(chord) || model.isSelectedAsPower(chord),
                                 onPress: { model.pressChord(chord) },
-                                onRelease: { model.releaseChord() }
+                                onRelease: { model.releaseChord() },
+                                onMakePower: { model.makePowerChord(chord) }
                             )
                         }
                     }
@@ -332,20 +333,25 @@ struct ProgressionScreen: View {
 }
 
 /// A chord in the palette. Touch-down starts a sustained audio preview and selects the chord;
-/// lift lets it ring out. Mirrors Android's key-down/key-up preview behavior.
+/// lift lets it ring out. Mirrors Android's key-down/key-up preview behavior. Long-press stops
+/// the preview and offers to turn it into a Power chord (e.g. G -> G5), mirroring Android's
+/// long-press popup.
 private struct ChordButton: View {
-    let chord: Chord
+    let displayChord: Chord
     let isSelected: Bool
     let onPress: () -> Void
     let onRelease: () -> Void
+    let onMakePower: () -> Void
 
     @State private var isPressing = false
+    @State private var longPressFired = false
+    @State private var showPowerMenu = false
 
     var body: some View {
         VStack(spacing: 2) {
-            Text(chord.getDisplayName())
+            Text(displayChord.getDisplayName())
                 .font(.subheadline.weight(.medium))
-            if let roman = chord.getRomanNumeral(), !roman.isEmpty {
+            if let roman = displayChord.getRomanNumeral(), !roman.isEmpty {
                 Text(roman)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -363,19 +369,41 @@ private struct ChordButton: View {
                 .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
         )
         // DragGesture(minimumDistance: 0) fires on touch-down (onChanged) and lift (onEnded),
-        // giving us key-down/key-up semantics for the sustained preview.
+        // giving us key-down/key-up semantics for the sustained preview. A simultaneous
+        // LongPressGesture recognizes alongside it (SwiftUI doesn't cancel one for the other) to
+        // add Android's long-press-for-Power-chord behavior without disturbing the preview.
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
                     if !isPressing {
                         isPressing = true
+                        longPressFired = false
                         onPress()
                     }
                 }
                 .onEnded { _ in
                     isPressing = false
-                    onRelease()
+                    if !longPressFired {
+                        onRelease()
+                    }
                 }
         )
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    longPressFired = true
+                    onRelease()  // stop the preview before opening the menu, like Android
+                    showPowerMenu = true
+                }
+        )
+        .confirmationDialog("", isPresented: $showPowerMenu, titleVisibility: .hidden) {
+            Button("Power-Chord (\(displayChord.root.displayName)5)") { onMakePower() }
+        }
+        .onChange(of: showPowerMenu) { isShowing in
+            if !isShowing {
+                isPressing = false
+                longPressFired = false
+            }
+        }
     }
 }

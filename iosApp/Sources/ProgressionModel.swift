@@ -126,6 +126,22 @@ final class ProgressionModel: ObservableObject {
         core.releaseChordPreview()
     }
 
+    /// True when `selectedChord` is the Power-chord variant of `chord` (same root + scale degree,
+    /// e.g. base "G" while a "G5" built from it is selected). A selected Power chord isn't the
+    /// same Chord object as its palette base, so this matches them back up to keep the base item
+    /// highlighted and showing the Power name — mirrors Android's ChordAdapter.isSelectedAsPower.
+    func isSelectedAsPower(_ chord: Chord) -> Bool {
+        guard let selected = selectedChord, selected.quality == ChordType.power else { return false }
+        return selected.root.displayName == chord.root.displayName
+            && selected.scaleDegreeName == chord.scaleDegreeName
+    }
+
+    /// Turn a palette chord into its Power-chord variant (e.g. G -> G5) and select it.
+    func makePowerChord(_ chord: Chord) {
+        let powerChord = Chord(root: chord.root, quality: ChordType.power, scaleDegreeName: chord.scaleDegreeName)
+        core.setSelectedChord(chord: powerChord, ownerId: "IOS", startPreviewImmediately: true)
+    }
+
     // MARK: - Measures
 
     /// Chord in effect at this quarter-note slot: the most recent chord at or before it, matching
