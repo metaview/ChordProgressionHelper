@@ -3,7 +3,9 @@ package de.metaviewsoft.chordprogressionhelper.ui
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import android.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -113,7 +115,7 @@ class ChordAdapter(
             // Use OnTouchListener instead of OnClickListener for instant response on ACTION_DOWN.
             // Press-and-hold: ACTION_DOWN starts the (sustained) preview, ACTION_UP/CANCEL releases it.
             // Because this listener consumes the touch stream, View's built-in long-press detection
-            // never runs, so we schedule the long-press (Power chord / Drag menu) manually here.
+            // never runs, so we schedule the long-press (Power chord menu) manually here.
             binding.root.setOnTouchListener { v, event ->
                 when (event.action) {
                     android.view.MotionEvent.ACTION_DOWN -> {
@@ -122,8 +124,8 @@ class ChordAdapter(
                         v.performClick()  // Still trigger click for accessibility
                         val runnable = Runnable {
                             longPressFired = true
-                            onChordRelease()       // stop the preview, then convert to Power chord
-                            onMakePower(chord)
+                            onChordRelease()       // stop the preview before opening the menu
+                            showChordMenu(v, chord)
                         }
                         longPressRunnable = runnable
                         longPressHandler.postDelayed(
@@ -144,6 +146,24 @@ class ChordAdapter(
                     else -> false
                 }
             }
+        }
+
+        private fun showChordMenu(view: View, chord: Chord) {
+            // Popup anchored to the chord so the long-press can be confirmed (or dismissed by
+            // tapping elsewhere). Selecting the item turns the palette chord into a Power chord,
+            // which can then be placed by tapping a slot.
+            val popup = PopupMenu(view.context, view)
+            popup.menu.add("Make Power Chord")
+            popup.setOnMenuItemClickListener { menuItem ->
+                when (menuItem.title) {
+                    "Make Power Chord" -> {
+                        onMakePower(chord)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            popup.show()
         }
     }
 
