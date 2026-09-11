@@ -183,6 +183,11 @@ struct ProgressionScreen: View {
     private func measureRow(index: Int, measure: Measure) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
+                Text("\(index + 1)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+
                 ForEach(0..<4, id: \.self) { quarter in
                     chordSlot(measureIndex: index, quarter: quarter, measure: measure)
                 }
