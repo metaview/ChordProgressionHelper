@@ -51,6 +51,9 @@ struct ProgressionScreen: View {
                     Image(systemName: "ellipsis.circle")
                 }
             }
+            ToolbarItem(placement: .navigationBarLeading) {
+                EditButton().disabled(model.measures.count < 2)
+            }
         }
         .onAppear {
             // Debug: `CPH_OPEN_EDITOR=drums|strum|solo|newprog|load|save` opens that sheet.
@@ -153,22 +156,28 @@ struct ProgressionScreen: View {
     // MARK: - Measures
 
     private var measuresList: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(Array(model.measures.enumerated()), id: \.element.id) { index, measure in
-                    measureRow(index: index, measure: measure)
-                }
-
-                Button(action: model.addMeasure) {
-                    Label("Takt hinzufügen", systemImage: "plus")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.bordered)
-                .padding(.top, 4)
+        List {
+            ForEach(Array(model.measures.enumerated()), id: \.element.id) { index, measure in
+                measureRow(index: index, measure: measure)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
-            .padding(16)
+            .onMove { source, destination in
+                model.moveMeasure(from: source, to: destination)
+            }
+
+            Button(action: model.addMeasure) {
+                Label("Takt hinzufügen", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.bordered)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 16, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
         }
+        .listStyle(.plain)
     }
 
     private func measureRow(index: Int, measure: Measure) -> some View {

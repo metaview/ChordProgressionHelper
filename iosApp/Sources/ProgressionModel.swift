@@ -173,6 +173,15 @@ final class ProgressionModel: ObservableObject {
         core.onDeleteConfirmationHandled()
     }
 
+    /// Reorder measures. `destination` uses SwiftUI's `onMove` convention (an index into the
+    /// array *before* removal), so it's adjusted to a plain target index when moving downward.
+    func moveMeasure(from source: IndexSet, to destination: Int) {
+        guard let from = source.first else { return }
+        let to = destination > from ? destination - 1 : destination
+        guard to != from else { return }
+        core.moveMeasure(fromPosition: Int32(from), toPosition: Int32(to))
+    }
+
     // MARK: - Key / tempo / loop
 
     /// Changing the key on a progression that already has chords routes through a transpose
