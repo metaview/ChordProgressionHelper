@@ -139,10 +139,6 @@ final class ProgressionModel: ObservableObject {
         core.addChordToMeasure(measureIndex: Int32(measureIndex), eighthNoteIndex: Int32(quarterNote * 2))
     }
 
-    func removeChord(measureIndex: Int, quarterNote: Int) {
-        core.removeChordFromMeasure(measureIndex: Int32(measureIndex), eighthNoteIndex: Int32(quarterNote * 2))
-    }
-
     func addMeasure() {
         core.addMeasure()
     }

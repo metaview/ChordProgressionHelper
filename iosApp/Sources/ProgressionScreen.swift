@@ -234,11 +234,7 @@ struct ProgressionScreen: View {
     private func chordSlot(measureIndex: Int, quarter: Int, measure: Measure) -> some View {
         let chord = model.chord(inMeasure: measure, quarterNote: quarter)
         return Button {
-            if chord != nil {
-                model.removeChord(measureIndex: measureIndex, quarterNote: quarter)
-            } else {
-                model.addSelectedChord(measureIndex: measureIndex, quarterNote: quarter)
-            }
+            model.addSelectedChord(measureIndex: measureIndex, quarterNote: quarter)
         } label: {
             Text(chord?.getDisplayName() ?? "·")
                 .font(.subheadline)
