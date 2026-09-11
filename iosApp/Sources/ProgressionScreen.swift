@@ -11,6 +11,7 @@ struct ProgressionScreen: View {
     @State private var showTemplatePicker = false
     @State private var showLoadSheet = false
     @State private var showSaveSheet = false
+    @State private var isChordPaletteExpanded = false
 
     /// Which per-measure pattern editor is open, if any.
     enum PatternSheet: Identifiable {
@@ -250,16 +251,36 @@ struct ProgressionScreen: View {
     // MARK: - Chord palette
 
     private var chordPalette: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                paletteRow("Tonleiter", chords: model.scaleDegreeChords)
-                paletteRow("Verwandte (V7/…)", chords: model.relatedChords)
-                paletteRow("Geliehen (Moll)", chords: model.borrowedMinorChords)
-                paletteRow("Geliehen (Dur)", chords: model.borrowedMajorChords)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation { isChordPaletteExpanded.toggle() }
+            } label: {
+                HStack {
+                    Text("Weitere Akkorde")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Image(systemName: isChordPaletteExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
             }
-            .padding(16)
+            .buttonStyle(.plain)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    paletteRow("Tonleiter", chords: model.scaleDegreeChords)
+                    if isChordPaletteExpanded {
+                        paletteRow("Verwandte (V7/…)", chords: model.relatedChords)
+                        paletteRow("Geliehen (Moll)", chords: model.borrowedMinorChords)
+                        paletteRow("Geliehen (Dur)", chords: model.borrowedMajorChords)
+                    }
+                }
+                .padding(16)
+            }
+            .frame(maxHeight: isChordPaletteExpanded ? 260 : 130)
         }
-        .frame(maxHeight: 260)
         .background(.thinMaterial)
     }
 
