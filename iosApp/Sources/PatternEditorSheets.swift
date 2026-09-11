@@ -272,27 +272,42 @@ struct SoloPatternSheet: View {
 
     private func measureCard(_ measure: Int) -> some View {
         let isActive = measure == model.activeMeasure
-        return HStack(spacing: 4) {
-            Text("\(measure + 1)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-            ForEach(Array(model.slots(measure).enumerated()), id: \.offset) { slotIndex, slot in
-                let selected = isActive && slotIndex == model.cursor
-                Button {
-                    model.selectSlot(measure: measure, slot: slotIndex)
-                } label: {
-                    Text(PatternDisplay.soloSlotLabel(slot))
+        return VStack(spacing: 2) {
+            // Chord row: each chord shown above the slot where it starts, column-aligned with
+            // the note slots below (mirrors Android's SoloPatternActivity chordRow).
+            HStack(spacing: 4) {
+                Color.clear.frame(width: 18)
+                ForEach(0..<8, id: \.self) { slotIndex in
+                    Text(model.chordLabel(measure: measure, slot: slotIndex) ?? "")
                         .font(.caption2)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                        .frame(maxWidth: .infinity, minHeight: 40)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(slotFill(slot: slot, selected: selected))
-                        )
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+            }
+            HStack(spacing: 4) {
+                Text("\(measure + 1)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                ForEach(Array(model.slots(measure).enumerated()), id: \.offset) { slotIndex, slot in
+                    let selected = isActive && slotIndex == model.cursor
+                    Button {
+                        model.selectSlot(measure: measure, slot: slotIndex)
+                    } label: {
+                        Text(PatternDisplay.soloSlotLabel(slot))
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(slotFill(slot: slot, selected: selected))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(6)

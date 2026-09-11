@@ -169,6 +169,13 @@ final class SoloEditorModel: ObservableObject {
         Int(editor.rootPitchClassAt(measureIndex: Int32(measure), slotIndex: Int32(slot)))
     }
 
+    /// Chord name at the slot where it starts (e.g. Android's chordRow), or nil elsewhere —
+    /// a chord in effect but starting earlier isn't repeated at every slot it carries through.
+    func chordLabel(measure: Int, slot: Int) -> String? {
+        let events = env.getMeasureChordEvents(measureIndex: Int32(measure))
+        return events.first { Int($0.quarterNote) * 2 == slot }?.chord.getDisplayName()
+    }
+
     func selectSlot(measure: Int, slot: Int) {
         editor.selectSlot(measureIndex: Int32(measure), slotIndex: Int32(slot))
         bump()

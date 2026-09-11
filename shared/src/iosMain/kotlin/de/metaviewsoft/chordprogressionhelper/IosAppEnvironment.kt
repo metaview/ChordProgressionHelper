@@ -135,6 +135,17 @@ class IosAppEnvironment private constructor() {
         return SoloPatternEditor(patterns, measureIndex, progression.key, progression.mode, chordRoots)
     }
 
+    /**
+     * Chord changes for the solo editor's chord row above a measure's note slots (one label at
+     * the slot where each chord starts, e.g. Android's SoloPatternActivity chordRow) — a plain
+     * read-only [List] so it bridges to a typed `[Measure.ChordEvent]` on iOS, unlike
+     * `Measure.chordEvents` itself (see kmp-swift-bridging notes on MutableList props).
+     */
+    fun getMeasureChordEvents(measureIndex: Int): List<Measure.ChordEvent> {
+        val measure = session.currentProgression.measures.getOrNull(measureIndex) ?: return emptyList()
+        return measure.chordEvents.sortedBy { it.quarterNote }
+    }
+
     companion object {
         val shared: IosAppEnvironment by lazy { IosAppEnvironment() }
     }
