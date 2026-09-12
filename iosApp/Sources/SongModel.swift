@@ -14,6 +14,13 @@ final class SongModel: ObservableObject {
     @Published var isLooping: Bool = false
     @Published var tempoPercent: Int = 100
     @Published var isPlaying: Bool = false
+    /// Section currently sounding during playback (-1 when stopped), and 0..1 progress through
+    /// it — mirrors Android's SectionAdapter.setPlayingIndex/setProgress.
+    @Published var playingSectionIndex: Int = -1
+    @Published var playingSectionProgress: Float = 0
+
+    private var lastMeasureIndex = -1
+    private var lastStrumIndex = -1
 
     init(env: IosAppEnvironment) {
         core = env.songViewModel
@@ -37,6 +44,30 @@ final class SongModel: ObservableObject {
         handles.append(FlowWatchKt.watch(flow: playback.isPlaying) { [weak self] value in
             self?.isPlaying = (value as? KotlinBoolean)?.boolValue ?? false
         })
+        handles.append(FlowWatchKt.watch(flow: playback.currentMeasureIndex) { [weak self] value in
+            self?.lastMeasureIndex = (value as? KotlinInt)?.intValue ?? -1
+            self?.updatePlayingPosition()
+        })
+        handles.append(FlowWatchKt.watch(flow: playback.currentStrumIndex) { [weak self] value in
+            self?.lastStrumIndex = (value as? KotlinInt)?.intValue ?? -1
+            self?.updatePlayingPosition()
+        })
+    }
+
+    private func updatePlayingPosition() {
+        guard lastMeasureIndex >= 0, lastStrumIndex >= 0 else {
+            playingSectionIndex = -1
+            playingSectionProgress = 0
+            return
+        }
+        playingSectionIndex = Int(core.getSectionIndexForMeasure(measureIndex: Int32(lastMeasureIndex)))
+        playingSectionProgress = core.getSectionProgress(measureIndex: Int32(lastMeasureIndex), strumIndex: Int32(lastStrumIndex))
+    }
+
+    /// Chord labels for a section's mini progress track, positioned 0..1 on the same timeline
+    /// as `playingSectionProgress` so they align pixel-exact with the moving fill.
+    func chordMarks(forSection index: Int) -> [ChordMark] {
+        core.getSectionChordMarks(index: Int32(index))
     }
 
     deinit {

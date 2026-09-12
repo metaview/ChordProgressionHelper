@@ -321,9 +321,12 @@ class IosPlaybackController(
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    /** (measureIndex, strumIndex) of the strum currently sounding, or null when stopped. */
-    private val _position = MutableStateFlow<Pair<Int, Int>?>(null)
-    val position: StateFlow<Pair<Int, Int>?> = _position.asStateFlow()
+    /** Global measure/strum index of the strum currently sounding, or -1 when stopped. Two plain
+     * Int flows (rather than a Pair) so they bridge to Swift without KotlinPair casting. */
+    private val _currentMeasureIndex = MutableStateFlow(-1)
+    val currentMeasureIndex: StateFlow<Int> = _currentMeasureIndex.asStateFlow()
+    private val _currentStrumIndex = MutableStateFlow(-1)
+    val currentStrumIndex: StateFlow<Int> = _currentStrumIndex.asStateFlow()
 
     init {
         applyLiveSoundSettings()
@@ -357,13 +360,15 @@ class IosPlaybackController(
                     pluckStrength = settings.pluckStrength,
                     countInBeats = settings.countInBeatsSong,
                     onPositionChanged = { measureIndex, strumIndex ->
-                        _position.value = measureIndex to strumIndex
+                        _currentMeasureIndex.value = measureIndex
+                        _currentStrumIndex.value = strumIndex
                         progression.tempo = songViewModel.getPlaybackTempoForMeasure(measureIndex)
                     },
                 )
             } finally {
                 _isPlaying.value = false
-                _position.value = null
+                _currentMeasureIndex.value = -1
+                _currentStrumIndex.value = -1
             }
         }
     }
@@ -374,7 +379,8 @@ class IosPlaybackController(
         playbackJob = null
         audioPlayer.resetStopFlag()
         _isPlaying.value = false
-        _position.value = null
+        _currentMeasureIndex.value = -1
+        _currentStrumIndex.value = -1
     }
 }
 

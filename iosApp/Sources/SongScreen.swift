@@ -22,60 +22,66 @@ struct SongScreen: View {
         AppNavigationContainer {
             List {
                 ForEach(Array(model.sectionNames.enumerated()), id: \.offset) { index, name in
-                    HStack {
-                        Button {
-                            // Make this section the current one in the shared song, then open the
-                            // editor (ProgressionScreen edits session.currentProgression).
-                            model.selectSection(index)
-                            showEditor = true
-                        } label: {
-                            HStack {
-                                Text(name)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Button {
+                                // Make this section the current one in the shared song, then open the
+                                // editor (ProgressionScreen edits session.currentProgression).
+                                model.selectSection(index)
+                                showEditor = true
+                            } label: {
+                                HStack {
+                                    Text(name)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
                             }
-                        }
-                        .foregroundStyle(.primary)
+                            .foregroundStyle(.primary)
 
-                        Menu {
-                            Button {
-                                renameIndex = index
-                                renameSuggestedName = name
-                                showRenameSection = true
+                            Menu {
+                                Button {
+                                    renameIndex = index
+                                    renameSuggestedName = name
+                                    showRenameSection = true
+                                } label: {
+                                    Label("Umbenennen", systemImage: "pencil")
+                                }
+                                Button {
+                                    model.duplicateSection(index)
+                                } label: {
+                                    Label("Duplizieren", systemImage: "plus.square.on.square")
+                                }
+                                Button(role: .destructive) {
+                                    model.deleteSection(index)
+                                } label: {
+                                    Label("Löschen", systemImage: "trash")
+                                }
+                                Divider()
+                                Button {
+                                    model.moveSection(index, to: index - 1)
+                                } label: {
+                                    Label("Nach oben", systemImage: "arrow.up")
+                                }
+                                .disabled(index == 0)
+                                Button {
+                                    model.moveSection(index, to: index + 1)
+                                } label: {
+                                    Label("Nach unten", systemImage: "arrow.down")
+                                }
+                                .disabled(index == model.sectionNames.count - 1)
                             } label: {
-                                Label("Umbenennen", systemImage: "pencil")
+                                Image(systemName: "ellipsis.circle")
+                                    .foregroundStyle(.secondary)
                             }
-                            Button {
-                                model.duplicateSection(index)
-                            } label: {
-                                Label("Duplizieren", systemImage: "plus.square.on.square")
-                            }
-                            Button(role: .destructive) {
-                                model.deleteSection(index)
-                            } label: {
-                                Label("Löschen", systemImage: "trash")
-                            }
-                            Divider()
-                            Button {
-                                model.moveSection(index, to: index - 1)
-                            } label: {
-                                Label("Nach oben", systemImage: "arrow.up")
-                            }
-                            .disabled(index == 0)
-                            Button {
-                                model.moveSection(index, to: index + 1)
-                            } label: {
-                                Label("Nach unten", systemImage: "arrow.down")
-                            }
-                            .disabled(index == model.sectionNames.count - 1)
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .foregroundStyle(.secondary)
+                            .buttonStyle(.borderless)
                         }
-                        .buttonStyle(.borderless)
+                        chordTrack(sectionIndex: index)
                     }
+                    .listRowBackground(
+                        index == model.playingSectionIndex ? Color.accentColor.opacity(0.12) : nil
+                    )
                 }
                 .onMove { source, destination in
                     model.moveSection(from: source, to: destination)
@@ -202,6 +208,41 @@ struct SongScreen: View {
                 }
             }
         }
+    }
+
+    /// Mini progress track showing this section's chords on the same 0..1 timeline as playback
+    /// progress, so a label sits exactly where the fill edge reaches it while playing — mirrors
+    /// Android's ChordTrackView.
+    private func chordTrack(sectionIndex: Int) -> some View {
+        let marks = model.chordMarks(forSection: sectionIndex)
+        let isPlaying = sectionIndex == model.playingSectionIndex
+        let progress = CGFloat(isPlaying ? model.playingSectionProgress : 0)
+
+        return Canvas { context, size in
+            let trackPath = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6)
+            context.fill(trackPath, with: .color(Color(.tertiarySystemFill)))
+
+            if isPlaying && progress > 0 {
+                context.drawLayer { layer in
+                    layer.clip(to: Path(CGRect(x: 0, y: 0, width: size.width * progress, height: size.height)))
+                    layer.fill(trackPath, with: .color(Color.accentColor.opacity(0.35)))
+                }
+            }
+
+            for (i, mark) in marks.enumerated() {
+                let x = CGFloat(mark.fraction) * size.width
+                let slotEnd = i + 1 < marks.count ? CGFloat(marks[i + 1].fraction) * size.width : size.width
+                context.drawLayer { layer in
+                    layer.clip(to: Path(CGRect(x: x, y: 0, width: max(slotEnd - x, 0), height: size.height)))
+                    layer.draw(
+                        Text(mark.label).font(.system(size: 10)).foregroundColor(.secondary),
+                        at: CGPoint(x: x + 3, y: size.height / 2),
+                        anchor: .leading
+                    )
+                }
+            }
+        }
+        .frame(height: 18)
     }
 
     private var playbackBar: some View {
