@@ -46,29 +46,29 @@ struct SongScreen: View {
                                     renameSuggestedName = name
                                     showRenameSection = true
                                 } label: {
-                                    Label("Umbenennen", systemImage: "pencil")
+                                    Label("Rename", systemImage: "pencil")
                                 }
                                 Button {
                                     model.duplicateSection(index)
                                 } label: {
-                                    Label("Duplizieren", systemImage: "plus.square.on.square")
+                                    Label("Duplicate", systemImage: "plus.square.on.square")
                                 }
                                 Button(role: .destructive) {
                                     model.deleteSection(index)
                                 } label: {
-                                    Label("Löschen", systemImage: "trash")
+                                    Label("Delete", systemImage: "trash")
                                 }
                                 Divider()
                                 Button {
                                     model.moveSection(index, to: index - 1)
                                 } label: {
-                                    Label("Nach oben", systemImage: "arrow.up")
+                                    Label("Move Up", systemImage: "arrow.up")
                                 }
                                 .disabled(index == 0)
                                 Button {
                                     model.moveSection(index, to: index + 1)
                                 } label: {
-                                    Label("Nach unten", systemImage: "arrow.down")
+                                    Label("Move Down", systemImage: "arrow.down")
                                 }
                                 .disabled(index == model.sectionNames.count - 1)
                             } label: {
@@ -132,8 +132,8 @@ struct SongScreen: View {
             }
             .sheet(isPresented: $showAddSection) {
                 SectionNameSheet(
-                    title: "Neue Section",
-                    confirmLabel: "Hinzufügen",
+                    title: "New Section",
+                    confirmLabel: "Add",
                     suggestedName: "Section \(model.sectionNames.count + 1)"
                 ) { name in
                     model.addSection(name: name)
@@ -141,8 +141,8 @@ struct SongScreen: View {
             }
             .sheet(isPresented: $showRenameSection) {
                 SectionNameSheet(
-                    title: "Umbenennen",
-                    confirmLabel: "Speichern",
+                    title: "Rename",
+                    confirmLabel: "Save",
                     suggestedName: renameSuggestedName
                 ) { name in
                     model.renameSection(renameIndex, to: name)
@@ -197,7 +197,7 @@ struct SongScreen: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Abbrechen") { dismiss() }
+                        Button("Cancel") { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(confirmLabel) {
@@ -269,7 +269,7 @@ struct SongScreen: View {
                 RepeatingButton(systemImage: "chevron.down") {
                     model.decrementTempoPercent()
                 }
-                Text("\(model.tempoPercent)%")
+                Text(verbatim: "\(model.tempoPercent)%")
                     .font(.subheadline.monospacedDigit())
                     .frame(minWidth: 48)
                 RepeatingButton(systemImage: "chevron.up") {

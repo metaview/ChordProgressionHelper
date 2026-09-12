@@ -5,6 +5,7 @@ options:
   bundleIdPrefix: de.metaviewsoft
   deploymentTarget:
     iOS: "15.0"
+  developmentLanguage: en
 targets:
   ChordProgressionHelper:
     type: application

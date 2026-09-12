@@ -34,21 +34,21 @@ struct NewProgressionTemplateSheet: View {
                 controls
                 Divider()
                 List {
-                    templateRow(index: 0, label: "Leer", template: nil)
+                    templateRow(index: 0, label: String(localized: "Empty"), template: nil)
                     ForEach(Array(model.allTemplates.enumerated()), id: \.offset) { i, template in
                         templateRow(index: i + 1, label: template.name, template: template)
                     }
                 }
                 .listStyle(.plain)
             }
-            .navigationTitle("Neue Progression")
+            .navigationTitle("New Progression")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { model.stopTemplatePreview(); dismiss() }
+                    Button("Cancel") { model.stopTemplatePreview(); dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Erstellen") {
+                    Button("Create") {
                         model.stopTemplatePreview()
                         model.confirmNewProgression(template: selectedTemplate, key: key, tempo: tempo)
                         dismiss()
@@ -78,7 +78,7 @@ struct NewProgressionTemplateSheet: View {
 
             HStack(spacing: 6) {
                 Button { tempo = max(60, tempo - 1) } label: { Image(systemName: "minus.circle") }
-                Text("\(tempo)")
+                Text(verbatim: "\(tempo)")
                     .font(.subheadline.monospacedDigit())
                     .frame(minWidth: 36)
                 Button { tempo = min(240, tempo + 1) } label: { Image(systemName: "plus.circle") }
@@ -149,11 +149,11 @@ struct LoadProgressionSheet: View {
                     }
                 }
             }
-            .navigationTitle("Laden")
+            .navigationTitle("Load")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     // Always present (conditional ToolbarContent needs iOS 16); harmless with an
@@ -168,7 +168,7 @@ struct LoadProgressionSheet: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
-            Text("Keine gespeicherten Progressionen").foregroundStyle(.secondary)
+            Text("No Saved Progressions").foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -197,7 +197,7 @@ struct SaveProgressionSheet: View {
 
                 if !names.isEmpty {
                     List {
-                        Section("Vorhandene Progressionen") {
+                        Section("Existing Progressions") {
                             ForEach(names, id: \.self) { existing in
                                 Button(existing) { name = existing }
                                     .foregroundStyle(.primary)
@@ -209,26 +209,26 @@ struct SaveProgressionSheet: View {
                     Spacer()
                 }
             }
-            .navigationTitle("Speichern")
+            .navigationTitle("Save")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Speichern") { attemptSave() }
+                    Button("Save") { attemptSave() }
                         .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .onAppear { names = model.savedProgressionNames() }
-            .alert("Überschreiben?", isPresented: $showOverwriteConfirm) {
-                Button("Überschreiben", role: .destructive) {
+            .alert("Overwrite?", isPresented: $showOverwriteConfirm) {
+                Button("Overwrite", role: .destructive) {
                     model.saveNamedProgression(name)
                     dismiss()
                 }
-                Button("Abbrechen", role: .cancel) {}
+                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("„\(name)“ existiert bereits und wird überschrieben.")
+                Text("“") + Text(verbatim: name) + Text("” already exists and will be overwritten.")
             }
         }
     }

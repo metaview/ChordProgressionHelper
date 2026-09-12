@@ -20,19 +20,19 @@ struct DrumPatternSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     grid
-                    presetSection("Verwendet", model.usedPatterns)
-                    presetSection("Weitere", model.defaultPatterns)
+                    presetSection("Used", model.usedPatterns)
+                    presetSection("More", model.defaultPatterns)
                 }
                 .padding(16)
             }
-            .navigationTitle("Schlagzeug · Takt \(model.measureIndex + 1)")
+            .navigationTitle(Text("Drums · Measure ") + Text(verbatim: "\(model.measureIndex + 1)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { model.stopPreview(); dismiss() }
+                    Button("Cancel") { model.stopPreview(); dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") { model.save(); model.stopPreview(); dismiss() }
+                    Button("Done") { model.save(); model.stopPreview(); dismiss() }
                 }
             }
             .safeAreaInset(edge: .bottom) { previewBar(isPlaying: model.isPreviewing, action: model.togglePreview) }
@@ -47,7 +47,7 @@ struct DrumPatternSheet: View {
         }
     }
 
-    private func laneRow(name: String, isOn: @escaping (DrumStep) -> Bool, toggle: @escaping (Int) -> Void) -> some View {
+    private func laneRow(name: LocalizedStringKey, isOn: @escaping (DrumStep) -> Bool, toggle: @escaping (Int) -> Void) -> some View {
         HStack(spacing: 4) {
             Text(name)
                 .font(.caption)
@@ -71,7 +71,7 @@ struct DrumPatternSheet: View {
     }
 
     @ViewBuilder
-    private func presetSection(_ title: String, _ patterns: [DrumPattern]) -> some View {
+    private func presetSection(_ title: LocalizedStringKey, _ patterns: [DrumPattern]) -> some View {
         if !patterns.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.caption).foregroundStyle(.secondary)
@@ -116,19 +116,19 @@ struct StrummingPatternSheet: View {
                 VStack(alignment: .leading, spacing: 20) {
                     editorRow
                     legend
-                    presetSection("Verwendet", model.usedPatterns)
-                    presetSection("Weitere", model.defaultPatterns)
+                    presetSection("Used", model.usedPatterns)
+                    presetSection("More", model.defaultPatterns)
                 }
                 .padding(16)
             }
-            .navigationTitle("Anschlag · Takt \(model.measureIndex + 1)")
+            .navigationTitle(Text("Strum · Measure ") + Text(verbatim: "\(model.measureIndex + 1)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { model.stopPreview(); dismiss() }
+                    Button("Cancel") { model.stopPreview(); dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") { model.save(); model.stopPreview(); dismiss() }
+                    Button("Done") { model.save(); model.stopPreview(); dismiss() }
                 }
             }
             .safeAreaInset(edge: .bottom) { previewBar(isPlaying: model.isPreviewing, action: model.togglePreview) }
@@ -154,14 +154,14 @@ struct StrummingPatternSheet: View {
             legendRow("↓", "Downstroke")
             legendRow("↑", "Upstroke")
             legendRow("✕", "Palm Mute")
-            legendRow("→", "Ausklingen lassen")
+            legendRow("→", "Let Ring")
             legendRow("·", "Pause")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
     }
 
-    private func legendRow(_ symbol: String, _ text: String) -> some View {
+    private func legendRow(_ symbol: String, _ text: LocalizedStringKey) -> some View {
         HStack(spacing: 8) {
             Text(symbol).frame(width: 16)
             Text(text)
@@ -169,7 +169,7 @@ struct StrummingPatternSheet: View {
     }
 
     @ViewBuilder
-    private func presetSection(_ title: String, _ patterns: [StrummingPattern]) -> some View {
+    private func presetSection(_ title: LocalizedStringKey, _ patterns: [StrummingPattern]) -> some View {
         if !patterns.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.caption).foregroundStyle(.secondary)
@@ -227,14 +227,14 @@ struct SoloPatternSheet: View {
                 controls
                 keyboard
             }
-            .navigationTitle("Solo · Takt \(model.measureIndex + 1)")
+            .navigationTitle(Text("Solo · Measure ") + Text(verbatim: "\(model.measureIndex + 1)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Abbrechen") { model.stopPreview(); dismiss() }
+                    Button("Cancel") { model.stopPreview(); dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") { model.save(); model.stopPreview(); dismiss() }
+                    Button("Done") { model.save(); model.stopPreview(); dismiss() }
                 }
             }
         }
@@ -251,7 +251,7 @@ struct SoloPatternSheet: View {
             Button { model.pasteAll() } label: { Image(systemName: "doc.on.clipboard") }
                 .disabled(!model.hasClipboard)
             Button { model.togglePreview() } label: {
-                Label(model.isPreviewing ? "Stopp" : "Anhören", systemImage: model.isPreviewing ? "stop.fill" : "play.fill")
+                Label(model.isPreviewing ? "Stop" : "Listen", systemImage: model.isPreviewing ? "stop.fill" : "play.fill")
                     .font(.subheadline)
             }
             .buttonStyle(.borderedProminent)
@@ -260,10 +260,10 @@ struct SoloPatternSheet: View {
         .padding(.vertical, 10)
     }
 
-    private var modeName: String {
-        if model.editMode == SoloEditMode.edit { return "Bearbeiten" }
+    private var modeName: LocalizedStringKey {
+        if model.editMode == SoloEditMode.edit { return "Edit" }
         if model.editMode == SoloEditMode.live { return "Live" }
-        return "Vorschau"
+        return "Preview"
     }
 
     private var modeIcon: String {
@@ -289,7 +289,7 @@ struct SoloPatternSheet: View {
                 }
             }
             HStack(spacing: 4) {
-                Text("\(measure + 1)")
+                Text(verbatim: "\(measure + 1)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(width: 18)
@@ -333,13 +333,13 @@ struct SoloPatternSheet: View {
         HStack(spacing: 12) {
             HStack(spacing: 4) {
                 Button { model.octaveDown() } label: { Image(systemName: "minus.circle") }
-                Text("Okt. \(model.octave)").font(.subheadline.monospacedDigit())
+                (Text("Oct. ") + Text(verbatim: "\(model.octave)")).font(.subheadline.monospacedDigit())
                 Button { model.octaveUp() } label: { Image(systemName: "plus.circle") }
             }
             Spacer()
-            Button { model.setRest() } label: { Text("Pause") }
+            Button { model.setRest() } label: { Text("Rest") }
                 .buttonStyle(.bordered)
-            Button { model.setLetRing() } label: { Text("Halten") }
+            Button { model.setLetRing() } label: { Text("Hold") }
                 .buttonStyle(.bordered)
         }
         .padding(.horizontal, 16)
@@ -416,7 +416,7 @@ private struct PianoKey: View {
 func previewBar(isPlaying: Bool, action: @escaping () -> Void) -> some View {
     HStack {
         Button(action: action) {
-            Label(isPlaying ? "Stopp" : "Anhören", systemImage: isPlaying ? "stop.fill" : "play.fill")
+            Label(isPlaying ? "Stop" : "Listen", systemImage: isPlaying ? "stop.fill" : "play.fill")
         }
         .buttonStyle(.borderedProminent)
         Spacer()

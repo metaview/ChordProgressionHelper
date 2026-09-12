@@ -33,19 +33,19 @@ struct ProgressionScreen: View {
             Divider()
             chordPalette
         }
-        .navigationTitle("Akkorde")
+        .navigationTitle("Chords")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button { model.requestNewProgression() } label: {
-                        Label("Neue Progression…", systemImage: "doc.badge.plus")
+                        Label("New Progression…", systemImage: "doc.badge.plus")
                     }
                     Button { showLoadSheet = true } label: {
-                        Label("Laden…", systemImage: "folder")
+                        Label("Load…", systemImage: "folder")
                     }
                     Button { showSaveSheet = true } label: {
-                        Label("Speichern…", systemImage: "square.and.arrow.down")
+                        Label("Save…", systemImage: "square.and.arrow.down")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -85,34 +85,34 @@ struct ProgressionScreen: View {
             SaveProgressionSheet(model: model)
         }
         .alert(
-            "Neue Progression?",
+            "New Progression?",
             isPresented: newProgressionConfirmationBinding
         ) {
-            Button("Weiter") { showTemplatePicker = true }
-            Button("Abbrechen", role: .cancel) {}
+            Button("Continue") { showTemplatePicker = true }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Die aktuelle Progression in diesem Abschnitt wird ersetzt.")
+            Text("The current progression in this section will be replaced.")
         }
         .alert(
-            "Takt löschen?",
+            "Delete Measure?",
             isPresented: deleteConfirmationBinding,
             presenting: model.deleteConfirmationMeasure
         ) { index in
-            Button("Löschen", role: .destructive) { model.confirmRemoveMeasure(index) }
-            Button("Abbrechen", role: .cancel) { model.cancelRemoveMeasure() }
+            Button("Delete", role: .destructive) { model.confirmRemoveMeasure(index) }
+            Button("Cancel", role: .cancel) { model.cancelRemoveMeasure() }
         } message: { _ in
-            Text("Dieser Takt enthält Akkorde und wird endgültig entfernt.")
+            Text("This measure contains chords and will be permanently removed.")
         }
         .alert(
-            "Tonart ändern",
+            "Change Key",
             isPresented: transposeConfirmationBinding,
             presenting: model.transposeConfirmationKey
         ) { newKey in
-            Button("Transponieren") { model.confirmTranspose(newKey, transpose: true) }
-            Button("Nur Tonart setzen") { model.confirmTranspose(newKey, transpose: false) }
-            Button("Abbrechen", role: .cancel) { model.cancelTranspose() }
+            Button("Transpose") { model.confirmTranspose(newKey, transpose: true) }
+            Button("Set Key Only") { model.confirmTranspose(newKey, transpose: false) }
+            Button("Cancel", role: .cancel) { model.cancelTranspose() }
         } message: { newKey in
-            Text("Bestehende Akkorde nach \(newKey.displayName) transponieren?")
+            Text("Transpose existing chords to ") + Text(verbatim: newKey.displayName) + Text(" as well?")
         }
     }
 
@@ -133,7 +133,7 @@ struct ProgressionScreen: View {
 
             HStack(spacing: 6) {
                 Button { model.decrementTempo() } label: { Image(systemName: "minus.circle") }
-                Text("\(model.tempo)")
+                Text(verbatim: "\(model.tempo)")
                     .font(.subheadline.monospacedDigit())
                     .frame(minWidth: 36)
                 Button { model.incrementTempo() } label: { Image(systemName: "plus.circle") }
@@ -168,7 +168,7 @@ struct ProgressionScreen: View {
             }
 
             Button(action: model.addMeasure) {
-                Label("Takt hinzufügen", systemImage: "plus")
+                Label("Add Measure", systemImage: "plus")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
             }
@@ -183,7 +183,7 @@ struct ProgressionScreen: View {
     private func measureRow(index: Int, measure: Measure) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
-                Text("\(index + 1)")
+                Text(verbatim: "\(index + 1)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
@@ -194,13 +194,13 @@ struct ProgressionScreen: View {
 
                 Menu {
                     Button { model.duplicateMeasure(index) } label: {
-                        Label("Duplizieren", systemImage: "plus.square.on.square")
+                        Label("Duplicate", systemImage: "plus.square.on.square")
                     }
                     Button { model.clearMeasureChords(index) } label: {
-                        Label("Akkorde löschen", systemImage: "eraser")
+                        Label("Clear Chords", systemImage: "eraser")
                     }
                     Button(role: .destructive) { model.requestRemoveMeasure(index) } label: {
-                        Label("Takt löschen", systemImage: "trash")
+                        Label("Delete Measure", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle").foregroundStyle(.secondary)
@@ -213,7 +213,7 @@ struct ProgressionScreen: View {
                 }
                 // Arrow signature (↓↑✕→·, one per strum) so the actual pattern for this measure
                 // is visible at a glance, not just its (often generic) preset name.
-                patternButton("Anschlag", systemImage: "guitars.fill", detail: PatternDisplay.strumSignature(measure.strummingPattern), showTitle: false) {
+                patternButton("Strum", systemImage: "guitars.fill", detail: PatternDisplay.strumSignature(measure.strummingPattern), showTitle: false) {
                     patternSheet = .strum(index)
                 }
                 patternButton("Solo", systemImage: "pianokeys", detail: nil) {
@@ -228,7 +228,7 @@ struct ProgressionScreen: View {
         )
     }
 
-    private func patternButton(_ title: String, systemImage: String, detail: String?, showTitle: Bool = true, action: @escaping () -> Void) -> some View {
+    private func patternButton(_ title: LocalizedStringKey, systemImage: String, detail: String?, showTitle: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Label(title, systemImage: systemImage)
@@ -276,7 +276,7 @@ struct ProgressionScreen: View {
                 withAnimation { isChordPaletteExpanded.toggle() }
             } label: {
                 HStack {
-                    Text("Weitere Akkorde")
+                    Text("More Chords")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Image(systemName: isChordPaletteExpanded ? "chevron.up" : "chevron.down")
@@ -290,11 +290,11 @@ struct ProgressionScreen: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    paletteRow("Tonleiter", chords: model.scaleDegreeChords)
+                    paletteRow("Scale", chords: model.scaleDegreeChords)
                     if isChordPaletteExpanded {
-                        paletteRow("Verwandte (V7/…)", chords: model.relatedChords)
-                        paletteRow("Geliehen (Moll)", chords: model.borrowedMinorChords)
-                        paletteRow("Geliehen (Dur)", chords: model.borrowedMajorChords)
+                        paletteRow("Related (V7/…)", chords: model.relatedChords)
+                        paletteRow("Borrowed (Minor)", chords: model.borrowedMinorChords)
+                        paletteRow("Borrowed (Major)", chords: model.borrowedMajorChords)
                     }
                 }
                 .padding(16)
@@ -305,7 +305,7 @@ struct ProgressionScreen: View {
     }
 
     @ViewBuilder
-    private func paletteRow(_ title: String, chords: [Chord]) -> some View {
+    private func paletteRow(_ title: LocalizedStringKey, chords: [Chord]) -> some View {
         if !chords.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
@@ -417,7 +417,11 @@ private struct ChordButton: View {
                 }
         )
         .confirmationDialog("", isPresented: $showPowerMenu, titleVisibility: .hidden) {
-            Button("Power-Chord (\(displayChord.root.displayName)5)") { onMakePower() }
+            Button {
+                onMakePower()
+            } label: {
+                Text("Power Chord (") + Text(verbatim: "\(displayChord.root.displayName)5") + Text(")")
+            }
         }
         .onChange(of: showPowerMenu) { isShowing in
             if !isShowing {
