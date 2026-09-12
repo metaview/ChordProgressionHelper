@@ -208,12 +208,12 @@ struct ProgressionScreen: View {
             }
 
             HStack(spacing: 6) {
-                patternButton("Drums", systemImage: "circle.grid.3x3.fill", detail: measure.drumPattern.name) {
+                patternButton("Drums", systemImage: "circle.grid.3x3.fill", detail: measure.drumPattern.name, showTitle: false) {
                     patternSheet = .drums(index)
                 }
                 // Arrow signature (↓↑✕→·, one per strum) so the actual pattern for this measure
                 // is visible at a glance, not just its (often generic) preset name.
-                patternButton("Anschlag", systemImage: "guitars.fill", detail: PatternDisplay.strumSignature(measure.strummingPattern)) {
+                patternButton("Anschlag", systemImage: "guitars.fill", detail: PatternDisplay.strumSignature(measure.strummingPattern), showTitle: false) {
                     patternSheet = .strum(index)
                 }
                 patternButton("Solo", systemImage: "pianokeys", detail: nil) {
@@ -228,13 +228,15 @@ struct ProgressionScreen: View {
         )
     }
 
-    private func patternButton(_ title: String, systemImage: String, detail: String?, action: @escaping () -> Void) -> some View {
+    private func patternButton(_ title: String, systemImage: String, detail: String?, showTitle: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Label(title, systemImage: systemImage)
                     .font(.caption2)
                     .labelStyle(.iconOnly)
-                Text(title).font(.caption2)
+                if showTitle {
+                    Text(title).font(.caption2)
+                }
                 if let detail {
                     Text(detail)
                         .font(.caption2)
