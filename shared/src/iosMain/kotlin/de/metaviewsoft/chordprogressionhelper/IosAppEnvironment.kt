@@ -172,9 +172,14 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    /** Eighth-note slot (0..7) currently sounding in [playMeasure]'s loop, or -1 when stopped. */
+    /** Eighth-note slot (0..7) currently sounding, or -1 when stopped. */
     private val _currentSlot = MutableStateFlow(-1)
     val currentSlot: StateFlow<Int> = _currentSlot.asStateFlow()
+
+    /** Measure index currently sounding (only varies during [playSoloWithAccompaniment]'s
+     * multi-measure loop; always 0 during [playMeasure]'s single-measure loop), or -1 stopped. */
+    private val _currentMeasure = MutableStateFlow(-1)
+    val currentMeasure: StateFlow<Int> = _currentMeasure.asStateFlow()
 
     private fun applyLiveSoundSettings() {
         applySoundSettings(audioPlayer)
@@ -268,10 +273,64 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
                     shouldLoop = { true },
                     pluckStrength = settings.pluckStrength,
                     countInBeats = 0,
-                    onPositionChanged = { _, strumIndex -> _currentSlot.value = strumIndex },
+                    onPositionChanged = { measureIndex, strumIndex ->
+                        _currentMeasure.value = measureIndex
+                        _currentSlot.value = strumIndex
+                    },
                 )
             } finally {
                 _isPlaying.value = false
+                _currentMeasure.value = -1
+                _currentSlot.value = -1
+            }
+        }
+    }
+
+    /**
+     * Loop the whole current progression for the solo editor's "hear it with the band" preview:
+     * every measure's REAL chords and strumming accompaniment, but the solo lane comes from
+     * [soloPatterns] (the editor's live, possibly-unsaved patterns) rather than what's saved.
+     * Drums are silenced — matches Android's SoloPatternActivity.startPreviewWithCurrentPattern,
+     * which keeps the focus on solo + chords rather than the full mix.
+     */
+    fun playSoloWithAccompaniment(session: SongSession, soloPatterns: List<SoloPattern>) {
+        stop()
+        applyLiveSoundSettings()
+
+        val source = session.currentProgression
+        val progression = ChordProgression(
+            name = "Preview",
+            key = source.key,
+            mode = source.mode,
+            tempo = source.tempo,
+        )
+        progression.measures.clear()
+        source.measures.forEachIndexed { index, sourceMeasure ->
+            val measure = Measure(index + 1)
+            sourceMeasure.chordEvents.forEach { measure.addChord(it.chord, it.quarterNote * 2) }
+            measure.strummingPattern = sourceMeasure.strummingPattern
+            measure.drumPattern = DrumPattern("Silent", List(8) { DrumStep() })
+            measure.soloPattern = soloPatterns.getOrNull(index) ?: SoloPattern("Silent", emptyList())
+            progression.measures.add(measure)
+        }
+        if (progression.measures.isEmpty()) return
+
+        _isPlaying.value = true
+        playbackJob = scope.launch {
+            try {
+                audioPlayer.playProgression(
+                    progression = progression,
+                    shouldLoop = { true },
+                    pluckStrength = settings.pluckStrength,
+                    countInBeats = 0,
+                    onPositionChanged = { measureIndex, strumIndex ->
+                        _currentMeasure.value = measureIndex
+                        _currentSlot.value = strumIndex
+                    },
+                )
+            } finally {
+                _isPlaying.value = false
+                _currentMeasure.value = -1
                 _currentSlot.value = -1
             }
         }
@@ -282,6 +341,7 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
         playbackJob?.cancel()
         playbackJob = null
         audioPlayer.resetStopFlag()
+        _currentMeasure.value = -1
         _isPlaying.value = false
         _currentSlot.value = -1
     }

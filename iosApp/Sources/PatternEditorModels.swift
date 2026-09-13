@@ -134,12 +134,16 @@ final class SoloEditorModel: ObservableObject {
     private let editor: SoloPatternEditor
     private var previewHandle: WatchHandle?
     private var previewSlotHandle: WatchHandle?
+    private var previewMeasureHandle: WatchHandle?
 
     @Published private(set) var revision = 0
     @Published var isPreviewing = false
-    /// Slot (0..7) currently sounding while previewing, or -1 — lets the UI highlight where
-    /// playback is (Android: highlightActiveNote via PlaybackService.currentPlaybackPosition).
+    /// Slot (0..7) and measure currently sounding while previewing, or -1 — lets the UI
+    /// highlight where playback is (Android: highlightActiveNote via
+    /// PlaybackService.currentPlaybackPosition). Preview loops the whole progression (see
+    /// restartPreview), so the sounding measure moves independently of the editing cursor.
     @Published var playingSlot = -1
+    @Published var playingMeasure = -1
 
     init(measureIndex: Int) {
         self.measureIndex = measureIndex
@@ -151,6 +155,9 @@ final class SoloEditorModel: ObservableObject {
         previewSlotHandle = FlowWatchKt.watch(flow: env.patternPreview.currentSlot) { [weak self] value in
             self?.playingSlot = (value as? KotlinInt)?.intValue ?? -1
         }
+        previewMeasureHandle = FlowWatchKt.watch(flow: env.patternPreview.currentMeasure) { [weak self] value in
+            self?.playingMeasure = (value as? KotlinInt)?.intValue ?? -1
+        }
     }
 
     deinit {
@@ -158,6 +165,7 @@ final class SoloEditorModel: ObservableObject {
         env.patternPreview.releaseNote()
         previewHandle?.close()
         previewSlotHandle?.close()
+        previewMeasureHandle?.close()
     }
 
     var measureCount: Int { Int(editor.measureCount()) }
@@ -220,13 +228,14 @@ final class SoloEditorModel: ObservableObject {
         }
     }
 
+    /// Loops the whole progression with each measure's real chords + strumming accompaniment
+    /// (drums silenced) and the solo lane taken from the editor's live, possibly-unsaved
+    /// patterns for every measure — not just the one being edited. Matches Android's
+    /// SoloPatternActivity.startPreviewWithCurrentPattern.
     private func restartPreview() {
-        env.patternPreview.playMeasure(
+        env.patternPreview.playSoloWithAccompaniment(
             session: env.session,
-            prototypeMeasureIndex: Int32(activeMeasure),
-            drums: nil,
-            strumming: nil,
-            solo: editor.buildActivePattern()
+            soloPatterns: editor.buildPatterns()
         )
     }
 

@@ -295,7 +295,9 @@ struct SoloPatternSheet: View {
                     .frame(width: 18)
                 ForEach(Array(model.slots(measure).enumerated()), id: \.offset) { slotIndex, slot in
                     let selected = isActive && slotIndex == model.cursor
-                    let playing = isActive && model.isPreviewing && slotIndex == model.playingSlot
+                    // Preview loops the whole progression, so the sounding measure moves
+                    // independently of isActive (the editing cursor's measure).
+                    let playing = measure == model.playingMeasure && model.isPreviewing && slotIndex == model.playingSlot
                     Button {
                         model.selectSlot(measure: measure, slot: slotIndex)
                     } label: {
