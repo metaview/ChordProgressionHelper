@@ -82,52 +82,54 @@ jobs:
 
           rm -f ~/Library/Logs/DiagnosticReports/ChordProgressionHelper* 2>/dev/null || true
 
-          # Launch attached to the app's console so we capture its stdout/stderr. Kotlin/Native
-          # prints an uncaught-exception stacktrace to stderr, which is exactly what we need.
-          # macOS has no GNU `timeout`, so we background the console-attached launch and check
-          # whether it survives 20s: --console-pty streams until the app terminates, so the
-          # background process staying alive == the app is alive; it dying early == startup crash.
+          # Capture the in-app self-test via the simulator's UNIFIED LOG, not the app's stdout.
+          # `simctl launch --console-pty` redirected to a file goes empty on newer Xcode/simulator
+          # runner images (the app runs fine, but not a byte reaches the file), which silently broke
+          # this check. The self-test now also emits every line via os_log on a dedicated subsystem
+          # (see SmokeSelfTest.swift), and we stream exactly that subsystem — a stable channel.
           #
-          # SIMCTL_CHILD_CPH_SMOKE=1 is forwarded into the app's environment, which enables the
-          # in-app SmokeSelfTest: it drives the shared core through the SongModel and asserts each
-          # change round-trips back through the StateFlow -> @Published bridge, printing
-          # "SMOKE-SELFTEST: PASS" on success. That proves the Kotlin<->SwiftUI binding actually
-          # WORKS at runtime, not just that the app stays alive.
-          echo "Launching $BUNDLE_ID (console attached, 20s) ..."
-          SIMCTL_CHILD_CPH_SMOKE=1 \
-            xcrun simctl launch --console-pty "$DEVICE" "$BUNDLE_ID" > app-console.log 2>&1 &
-          LAUNCH_PID=$!
-          sleep 20
+          # Start the log stream BEFORE launching so no early lines are missed; the 2s settle lets it
+          # attach. SIMCTL_CHILD_CPH_SMOKE=1 is forwarded into the app's environment, enabling the
+          # SmokeSelfTest: it drives the shared core through SongModel and asserts each change
+          # round-trips back through the StateFlow -> @Published bridge, emitting "SMOKE-SELFTEST: PASS"
+          # on success. That proves the Kotlin<->SwiftUI binding actually WORKS at runtime.
+          echo "Starting unified-log stream (subsystem de.metaviewsoft.smoke) ..."
+          xcrun simctl spawn "$DEVICE" log stream \
+            --level debug --style compact \
+            --predicate 'subsystem == "de.metaviewsoft.smoke"' > app-log.log 2>&1 &
+          LOG_PID=$!
+          sleep 2
 
-          if kill -0 "$LAUNCH_PID" 2>/dev/null; then
-            HEALTHY=1
-            kill "$LAUNCH_PID" 2>/dev/null || true
-            wait "$LAUNCH_PID" 2>/dev/null || true
-          else
-            HEALTHY=0
-            wait "$LAUNCH_PID" 2>/dev/null || true
-          fi
+          echo "Launching $BUNDLE_ID ..."
+          SIMCTL_CHILD_CPH_SMOKE=1 xcrun simctl launch "$DEVICE" "$BUNDLE_ID"
 
-          echo "----- app console output -----"
-          cat app-console.log 2>/dev/null || echo "(no console output captured)"
-          echo "------------------------------"
+          # Let the self-test run through all its async steps (playback, pattern editors, library
+          # round-trip). The in-app watchdog emits a FAIL sentinel at 25s if a step wedges, so wait
+          # past that to capture it rather than racing it.
+          sleep 28
 
+          kill "$LOG_PID" 2>/dev/null || true
+          wait "$LOG_PID" 2>/dev/null || true
+
+          echo "----- self-test log -----"
+          cat app-log.log 2>/dev/null || echo "(no log captured)"
+          echo "-------------------------"
+
+          # A startup crash never reaches PASS; surface the crash report so the failure is actionable.
           CRASHES=$(find ~/Library/Logs/DiagnosticReports -name 'ChordProgressionHelper*' 2>/dev/null || true)
           if [ -n "$CRASHES" ]; then
             echo "----- crash report(s) -----"
             for f in $CRASHES; do echo "===== $f ====="; cat "$f"; done
+            echo "::error::App produced a crash report during the smoke window. See report above."
+            exit 1
           fi
 
-          if [ "$HEALTHY" -ne 1 ]; then
-            echo "::error::App exited early — startup crash. See console output / crash report above."
+          if grep -q 'SMOKE-SELFTEST: FAIL' app-log.log; then
+            echo "::error::In-app self-test reported failures (StateFlow<->SwiftUI binding). See log above."
             exit 1
           fi
-          if grep -q 'SMOKE-SELFTEST: FAIL' app-console.log; then
-            echo "::error::In-app self-test reported failures (StateFlow<->SwiftUI binding). See console above."
+          if ! grep -q 'SMOKE-SELFTEST: PASS' app-log.log; then
+            echo "::error::In-app self-test did not reach PASS (no sentinel) — app may have failed to launch or stalled. See log above."
             exit 1
           fi
-          if ! grep -q 'SMOKE-SELFTEST: PASS' app-console.log; then
-            echo "::error::In-app self-test did not reach PASS (no sentinel). See console above."
-            exit 1
-          fi
-          echo "✅ Smoke test passed: app stayed alive 20s AND the StateFlow<->SwiftUI self-test passed."
+          echo "✅ Smoke test passed: the StateFlow<->SwiftUI self-test PASSED (captured via unified log)."

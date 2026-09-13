@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Shared
 
 /// Headless startup self-test, run only when the app is launched with `CPH_SMOKE=1` in its
@@ -230,16 +231,25 @@ final class SmokeSelfTest {
     private func log(_ msg: String) { emit("SMOKE-SELFTEST: \(msg)") }
 }
 
-/// Prints one line and flushes immediately. CI *kills* the app at the end of the smoke window rather
-/// than letting it exit, so we can't rely on an implicit flush-at-exit — a buffered tail (including
-/// the PASS sentinel) would be lost. Note: `setbuf(stdout, nil)` is NOT a valid alternative here —
-/// it is undefined behavior once the stream has been written to, and the Kotlin runtime already logs
-/// to stdout during startup, so forcing it unbuffered from `run()` corrupted the stream (empty CI
-/// output). A plain per-line `fflush` is well-defined and thread-safe (stdio locks internally), so it
-/// also works from the background watchdog.
+/// Dedicated os_log subsystem the CI greps for. We can't rely on the app's *stdout* being captured:
+/// `simctl launch --console-pty` redirected to a file goes empty on newer Xcode/simulator runner
+/// images (the app runs fine, but not a byte reaches the file). The simulator's *unified log* is the
+/// stable channel, so CI streams `log stream --predicate 'subsystem == "de.metaviewsoft.smoke"'`
+/// instead. `privacy: .public` is required — os_log redacts interpolated strings as `<private>` by
+/// default, which would blank out every sentinel.
+private let smokeLog = Logger(subsystem: "de.metaviewsoft.smoke", category: "selftest")
+
+/// Emits one line to BOTH stdout (kept for local `simctl launch --console` runs) and the unified log
+/// (what CI actually reads). Prints + flushes stdout per line because CI *kills* the app at the end
+/// of the window rather than letting it exit, so a buffered tail (including the PASS sentinel) would
+/// be lost. Note: `setbuf(stdout, nil)` is NOT a valid alternative — it is undefined behavior once
+/// the stream has been written to, and the Kotlin runtime already logs to stdout during startup, so
+/// forcing it unbuffered corrupted the stream. A plain per-line `fflush` is well-defined and
+/// thread-safe (stdio locks internally), so it also works from the background watchdog.
 private func emit(_ line: String) {
     print(line)
     fflush(stdout)
+    smokeLog.log("\(line, privacy: .public)")
 }
 
 /// Lock-guarded, non-isolated progress shared between the `@MainActor` self-test (writer, on main)
