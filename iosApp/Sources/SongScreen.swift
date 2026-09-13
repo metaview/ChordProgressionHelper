@@ -14,6 +14,10 @@ struct SongScreen: View {
     @State private var showRenameSection = false
     @State private var renameIndex = 0
     @State private var renameSuggestedName = ""
+    @State private var showNewSongConfirmation = false
+    @State private var showLoadSong = false
+    @State private var showSaveSong = false
+    @State private var showSettings = false
     // Debug shortcut: `CPH_OPEN_EDITOR=1` jumps straight into the progression editor on launch
     // so the per-measure editors can be inspected without UI automation.
     @State private var showEditor = false
@@ -95,18 +99,46 @@ struct SongScreen: View {
             )
             .navigationTitle(model.songName)
             .onAppear {
-                // Debug shortcut: `CPH_OPEN_EDITOR=1` jumps straight into the progression editor
-                // so the per-measure pattern editors can be inspected without UI automation.
-                if ProcessInfo.processInfo.environment["CPH_OPEN_EDITOR"] != nil && !showEditor {
+                // Debug: `CPH_OPEN_EDITOR=1|settings|loadsong|savesong` jumps straight to that
+                // screen on launch so it can be inspected without UI automation.
+                switch ProcessInfo.processInfo.environment["CPH_OPEN_EDITOR"] {
+                case "1":
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         model.selectSection(0)
                         showEditor = true
                     }
+                case "settings":
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showSettings = true }
+                case "loadsong":
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showLoadSong = true }
+                case "savesong":
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showSaveSong = true }
+                default: break
                 }
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        Button {
+                            showNewSongConfirmation = true
+                        } label: {
+                            Label("New Song…", systemImage: "doc.badge.plus")
+                        }
+                        Button {
+                            showLoadSong = true
+                        } label: {
+                            Label("Load Song…", systemImage: "folder")
+                        }
+                        Button {
+                            showSaveSong = true
+                        } label: {
+                            Label("Save Song…", systemImage: "square.and.arrow.down")
+                        }
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Label("Settings", systemImage: "gearshape")
+                        }
                         Button {
                             showTrackSelection = true
                         } label: {
@@ -159,6 +191,21 @@ struct SongScreen: View {
                     }
                 }
             }
+            .sheet(isPresented: $showLoadSong) {
+                LoadSongSheet(model: model)
+            }
+            .sheet(isPresented: $showSaveSong) {
+                SaveSongSheet(model: model)
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsScreen()
+            }
+            .alert("New Song?", isPresented: $showNewSongConfirmation) {
+                Button("Continue") { model.newSong() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The current song will be replaced.")
+            }
             .fileExporter(
                 isPresented: $showExporter,
                 document: exportDocument,
@@ -206,6 +253,102 @@ struct SongScreen: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Saved songs list, tap to load — Android's SongActivity.showLoadSongDialog (no delete
+    /// there either, unlike the progression Load sheet).
+    private struct LoadSongSheet: View {
+        @ObservedObject var model: SongModel
+        @Environment(\.dismiss) private var dismiss
+        @State private var names: [String] = []
+
+        var body: some View {
+            NavigationView {
+                Group {
+                    if names.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
+                            Text("No Saved Songs").foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        List(names, id: \.self) { name in
+                            Button {
+                                model.loadSong(name)
+                                dismiss()
+                            } label: {
+                                Text(name).foregroundStyle(.primary)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Load Song")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                }
+                .onAppear { names = model.getSavedSongNames() }
+            }
+        }
+    }
+
+    /// Named song save with an overwrite confirmation — mirrors ProgressionLibrarySheets'
+    /// SaveProgressionSheet, bound to the whole song instead of a single progression.
+    private struct SaveSongSheet: View {
+        @ObservedObject var model: SongModel
+        @Environment(\.dismiss) private var dismiss
+        @State private var name: String = ""
+        @State private var names: [String] = []
+        @State private var showOverwriteConfirm = false
+
+        var body: some View {
+            NavigationView {
+                VStack(spacing: 0) {
+                    TextField("Name", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .padding(16)
+                    Spacer()
+                }
+                .navigationTitle("Save Song")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") { attemptSave() }
+                            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .onAppear {
+                    name = model.songName
+                    names = model.getSavedSongNames()
+                }
+                .alert("Overwrite?", isPresented: $showOverwriteConfirm) {
+                    Button("Overwrite", role: .destructive) {
+                        model.saveNamedSong(name)
+                        dismiss()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("“") + Text(verbatim: name) + Text("” already exists and will be overwritten.")
+                }
+            }
+        }
+
+        private func attemptSave() {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            name = trimmed
+            if names.contains(trimmed) {
+                showOverwriteConfirm = true
+            } else {
+                model.saveNamedSong(trimmed)
+                dismiss()
             }
         }
     }

@@ -9,12 +9,15 @@ import com.russhwolf.settings.NSUserDefaultsSettings
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionStorage
 import de.metaviewsoft.chordprogressionhelper.data.SettingsStore
 import de.metaviewsoft.chordprogressionhelper.data.SongSession
+import de.metaviewsoft.chordprogressionhelper.model.Chord
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
+import de.metaviewsoft.chordprogressionhelper.model.ChordType
 import de.metaviewsoft.chordprogressionhelper.model.DrumPattern
 import de.metaviewsoft.chordprogressionhelper.model.DrumStep
 import de.metaviewsoft.chordprogressionhelper.model.Key
 import de.metaviewsoft.chordprogressionhelper.model.Measure
 import de.metaviewsoft.chordprogressionhelper.model.Mode
+import de.metaviewsoft.chordprogressionhelper.model.Note
 import de.metaviewsoft.chordprogressionhelper.model.SoloPattern
 import de.metaviewsoft.chordprogressionhelper.model.Strum
 import de.metaviewsoft.chordprogressionhelper.model.StrummingPattern
@@ -62,6 +65,7 @@ class IosAppEnvironment private constructor() {
     val progressionPlayback: IosProgressionPlaybackController
     val patternPreview: IosPatternPreviewController
     val templatePreview: IosTemplatePreviewController
+    val settingsPreview: IosSettingsPreviewController
 
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -102,6 +106,7 @@ class IosAppEnvironment private constructor() {
         )
         patternPreview = IosPatternPreviewController(settings)
         templatePreview = IosTemplatePreviewController(settings)
+        settingsPreview = IosSettingsPreviewController(settings)
     }
 
     // ---- Per-measure pattern editors (drums / strumming / solo) ----------------
@@ -505,5 +510,38 @@ class IosTemplatePreviewController(private val settings: SettingsStore) {
         playbackJob = null
         audioPlayer.resetStopFlag()
         _isPlaying.value = false
+    }
+}
+
+/**
+ * One-shot instrument previews for the Settings screen ("hear the current solo/strum sound").
+ * A dedicated [AudioPlayer] so a preview never fights a running song/pattern preview.
+ */
+class IosSettingsPreviewController(private val settings: SettingsStore) {
+    private val audioPlayer = AudioPlayer()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /** Plays a single solo note (middle A) with the currently-configured solo instrument/level. */
+    fun previewSolo() {
+        audioPlayer.soloPreset = settings.soloPreset
+        // Keep the keyboard-style minimum so the note is clearly audible even at low level settings.
+        audioPlayer.soloLevel = settings.soloLevel.toDouble().coerceAtLeast(0.5)
+        audioPlayer.soloCrunchLevel = settings.soloCrunchLevel
+        audioPlayer.masterVolume = 1.0
+        audioPlayer.ensurePreviewTrackReady()
+        audioPlayer.triggerSoloNotePreview(midiNote = 69, durationSec = 1.8)
+    }
+
+    /** Strums a C major chord with the currently-configured strumming instrument/level. */
+    fun previewStrum() {
+        audioPlayer.voicePreset = settings.strumPreset
+        audioPlayer.strumLevel = settings.strumLevel.toDouble()
+        audioPlayer.strumCrunchLevel = settings.strumCrunchLevel
+        audioPlayer.masterVolume = 1.0
+        audioPlayer.ensurePreviewTrackReady()
+        val chord = Chord(Note.C, ChordType.MAJOR, "I")
+        scope.launch {
+            audioPlayer.previewChord(chord, settings.pluckStrength)
+        }
     }
 }

@@ -6,6 +6,7 @@ import Shared
 final class SongModel: ObservableObject {
     private let core: SongViewModelCore
     private let playback: IosPlaybackController
+    private let settings: SettingsStore
     private var handles: [WatchHandle] = []
 
     @Published var songName: String = ""
@@ -25,6 +26,7 @@ final class SongModel: ObservableObject {
     init(env: IosAppEnvironment) {
         core = env.songViewModel
         playback = env.playback
+        settings = env.settings
 
         handles.append(FlowWatchKt.watch(flow: core.songName) { [weak self] value in
             self?.songName = value as? String ?? ""
@@ -76,6 +78,30 @@ final class SongModel: ObservableObject {
 
     func selectSection(_ index: Int) {
         _ = core.selectSongSection(index: Int32(index))
+    }
+
+    // MARK: - New / Load / Save (whole song)
+
+    /// Replace the current song with a fresh, empty one using the configured default key/tempo.
+    func newSong() {
+        let allKeys = (IosModelBridgeKt.allKeys() as? [Key]) ?? []
+        let key = allKeys.first { $0.name == settings.defaultKeyName } ?? allKeys.first
+        guard let key else { return }
+        // Kotlin/Native mangles ObjC-export names starting with ARC-owning prefixes like "new"/
+        // "copy"/"alloc" (see kmp-swift-bridging notes) — newSong() bridges as doNewSong(...).
+        core.doNewSong(defaultKey: key, defaultTempo: settings.defaultBpm)
+    }
+
+    func getSavedSongNames() -> [String] {
+        core.getSavedSongNames() as? [String] ?? []
+    }
+
+    func saveNamedSong(_ name: String) {
+        core.saveNamedSong(name: name)
+    }
+
+    func loadSong(_ name: String) {
+        _ = core.loadSong(name: name)
     }
 
     /// Add a new section (blank name lets the shared model auto-name it "Section N"), using the

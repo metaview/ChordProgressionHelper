@@ -62,3 +62,39 @@
 "Overwrite" = "Überschreiben";
 "“" = "„";
 "” already exists and will be overwritten." = "“ existiert bereits und wird überschrieben.";
+
+/* Song-level New/Load/Save + Settings (menu on the Song screen) */
+"New Song…" = "Neuer Song…";
+"Load Song…" = "Song laden…";
+"Save Song…" = "Song speichern…";
+"Settings" = "Einstellungen";
+"New Song?" = "Neuer Song?";
+"The current song will be replaced." = "Der aktuelle Song wird ersetzt.";
+"No Saved Songs" = "Keine gespeicherten Songs";
+"Load Song" = "Song laden";
+"Save Song" = "Song speichern";
+
+/* Settings screen */
+"Sound Levels" = "Lautstärken";
+"Preview Solo" = "Solo anhören";
+"Preview Strum" = "Anschlag anhören";
+"Reset Sound Defaults" = "Sound-Standardwerte zurücksetzen";
+"Sound Character" = "Klangcharakter";
+"Strum Sound" = "Anschlag-Sound";
+"Strum Crunch" = "Anschlag-Crunch";
+"Solo Sound" = "Solo-Sound";
+"Solo Crunch" = "Solo-Crunch";
+"Rhythm" = "Rhythmus";
+"Strum Timing" = "Anschlag-Timing";
+"Count-In" = "Einzählen";
+"Off" = "Aus";
+"Previews" = "Vorschauen";
+"Chord Preview" = "Akkord-Vorschau";
+"Pattern Preview" = "Pattern-Vorschau";
+"Drum Preview" = "Schlagzeug-Vorschau";
+"Template Preview" = "Vorlagen-Vorschau";
+"New Progression Defaults" = "Standardwerte für neue Progression";
+"Default Key" = "Standard-Tonart";
+"Default Tempo" = "Standard-Tempo";
+"Playback" = "Wiedergabe";
+"Loop New Progressions" = "Neue Progressionen wiederholen";
