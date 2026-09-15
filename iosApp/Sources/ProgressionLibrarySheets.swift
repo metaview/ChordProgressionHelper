@@ -62,17 +62,11 @@ struct NewProgressionTemplateSheet: View {
 
     private var controls: some View {
         HStack(spacing: 16) {
-            Menu {
-                ForEach(model.allKeys, id: \.ordinal) { k in
-                    Button(k.displayName) {
-                        key = k
-                        if selectedIndex != nil { model.previewTemplate(selectedTemplate, key: key, tempo: tempo) }
-                    }
-                }
-            } label: {
-                Label(key.displayName, systemImage: "key")
-                    .font(.subheadline)
+            KeyPickerButton(keys: model.allKeys, selectedKey: key) { newKey in
+                key = newKey
+                if selectedIndex != nil { model.previewTemplate(selectedTemplate, key: key, tempo: tempo) }
             }
+            .font(.subheadline)
 
             Spacer()
 

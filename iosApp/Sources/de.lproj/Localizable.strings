@@ -95,6 +95,7 @@
 "Template Preview" = "Vorlagen-Vorschau";
 "New Progression Defaults" = "Standardwerte für neue Progression";
 "Default Key" = "Standard-Tonart";
+"Key" = "Tonart";
 "Default Tempo" = "Standard-Tempo";
 "Playback" = "Wiedergabe";
 "Loop New Progressions" = "Neue Progressionen wiederholen";

@@ -120,14 +120,8 @@ struct ProgressionScreen: View {
 
     private var controlBar: some View {
         HStack(spacing: 16) {
-            Menu {
-                ForEach(model.allKeys, id: \.ordinal) { k in
-                    Button(k.displayName) { model.setKey(k) }
-                }
-            } label: {
-                Label(model.key.displayName, systemImage: "key")
-                    .font(.subheadline)
-            }
+            KeyPickerButton(keys: model.allKeys, selectedKey: model.key) { model.setKey($0) }
+                .font(.subheadline)
 
             Spacer()
 

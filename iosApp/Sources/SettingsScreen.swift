@@ -141,18 +141,13 @@ struct SettingsScreen: View {
 
     private var newProgressionDefaultsSection: some View {
         Section("New Progression Defaults") {
-            Menu {
-                ForEach(model.allKeys, id: \.ordinal) { key in
-                    Button(key.displayName) { model.defaultKey = key }
+            HStack {
+                Text("Default Key")
+                Spacer()
+                KeyPickerButton(keys: model.allKeys, selectedKey: model.defaultKey, showsIcon: false) {
+                    model.defaultKey = $0
                 }
-            } label: {
-                HStack {
-                    Text("Default Key")
-                        .foregroundStyle(Color(.label))
-                    Spacer()
-                    Text(verbatim: model.defaultKey.displayName)
-                        .foregroundStyle(.secondary)
-                }
+                .foregroundStyle(.secondary)
             }
             Stepper(value: $model.defaultBpm, in: 60...240) {
                 HStack {
