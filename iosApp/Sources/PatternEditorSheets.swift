@@ -237,9 +237,15 @@ struct SoloPatternSheet: View {
                         .padding(16)
                     }
                     // Test-playback loops through measures; keep the sounding slot on screen.
+                    // Deferred to the next run loop turn (and unanimated) so this scroll never
+                    // lands inside the same SwiftUI transaction as the FlowWatch-driven state
+                    // update — doing it synchronously froze the whole sheet's hit-testing
+                    // (Listen/Stop stopped responding) once measures started advancing.
                     .onChange(of: model.playingMeasure) { measure in
                         guard model.isPreviewing, measure >= 0 else { return }
-                        withAnimation { proxy.scrollTo(measure, anchor: .center) }
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(measure, anchor: .center)
+                        }
                     }
                 }
                 Divider()
