@@ -122,15 +122,30 @@ struct KeyPickerButton: View {
     }
 }
 
+/// Circle-of-fifths order for the key picker list: descending flats -> C/Am -> ascending sharps.
+/// Mirrors Android's `KeySpinnerAdapter.KEY_ORDER` (raw `Key.entries` order is enum-declaration
+/// order, not musically meaningful).
+private let circleOfFifthsKeyOrder: [Key] = [
+    Key.gFlat, Key.dFlat, Key.aFlat, Key.eFlat, Key.bFlat, Key.f,
+    Key.c,
+    Key.g, Key.d, Key.a, Key.e, Key.b, Key.fSharp, Key.cSharp,
+]
+
 private struct KeyPickerSheet: View {
     let keys: [Key]
     let selectedKey: Key
     let onSelect: (Key) -> Void
     @Environment(\.dismiss) private var dismiss
 
+    private var orderedKeys: [Key] {
+        keys.sorted { a, b in
+            (circleOfFifthsKeyOrder.firstIndex(of: a) ?? 0) < (circleOfFifthsKeyOrder.firstIndex(of: b) ?? 0)
+        }
+    }
+
     var body: some View {
         NavigationView {
-            List(keys, id: \.ordinal) { key in
+            List(orderedKeys, id: \.ordinal) { key in
                 Button {
                     onSelect(key)
                 } label: {
