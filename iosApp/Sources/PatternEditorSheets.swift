@@ -201,13 +201,24 @@ struct SoloPatternSheet: View {
         _model = StateObject(wrappedValue: SoloEditorModel(measureIndex: measureIndex))
     }
 
-    // (label, pitchClass, octaveOffset, isBlack) — mirrors Android's keyboard span.
-    private static let keys: [(String, Int, Int, Bool)] = [
-        ("B", 11, -1, false),
-        ("C", 0, 0, false), ("C♯", 1, 0, true), ("D", 2, 0, false), ("D♯", 3, 0, true),
-        ("E", 4, 0, false), ("F", 5, 0, false), ("F♯", 6, 0, true), ("G", 7, 0, false),
-        ("G♯", 8, 0, true), ("A", 9, 0, false), ("A♯", 10, 0, true), ("B", 11, 0, false),
-        ("C", 0, 1, false), ("C♯", 1, 1, true), ("D", 2, 1, false),
+    // Mirrors Android's keyboard span: B (below the octave) up to D (an octave + a third above).
+    private static let keys: [PianoKeySpec] = [
+        PianoKeySpec(label: "B", pitchClass: 11, octaveOffset: -1, isBlack: false),
+        PianoKeySpec(label: "C", pitchClass: 0, octaveOffset: 0, isBlack: false),
+        PianoKeySpec(label: "C♯", pitchClass: 1, octaveOffset: 0, isBlack: true),
+        PianoKeySpec(label: "D", pitchClass: 2, octaveOffset: 0, isBlack: false),
+        PianoKeySpec(label: "D♯", pitchClass: 3, octaveOffset: 0, isBlack: true),
+        PianoKeySpec(label: "E", pitchClass: 4, octaveOffset: 0, isBlack: false),
+        PianoKeySpec(label: "F", pitchClass: 5, octaveOffset: 0, isBlack: false),
+        PianoKeySpec(label: "F♯", pitchClass: 6, octaveOffset: 0, isBlack: true),
+        PianoKeySpec(label: "G", pitchClass: 7, octaveOffset: 0, isBlack: false),
+        PianoKeySpec(label: "G♯", pitchClass: 8, octaveOffset: 0, isBlack: true),
+        PianoKeySpec(label: "A", pitchClass: 9, octaveOffset: 0, isBlack: false),
+        PianoKeySpec(label: "A♯", pitchClass: 10, octaveOffset: 0, isBlack: true),
+        PianoKeySpec(label: "B", pitchClass: 11, octaveOffset: 0, isBlack: false),
+        PianoKeySpec(label: "C", pitchClass: 0, octaveOffset: 1, isBlack: false),
+        PianoKeySpec(label: "C♯", pitchClass: 1, octaveOffset: 1, isBlack: true),
+        PianoKeySpec(label: "D", pitchClass: 2, octaveOffset: 1, isBlack: false),
     ]
 
     var body: some View {
@@ -215,13 +226,21 @@ struct SoloPatternSheet: View {
             VStack(spacing: 0) {
                 modeBar
                 Divider()
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(0..<model.measureCount, id: \.self) { measure in
-                            measureCard(measure)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(0..<model.measureCount, id: \.self) { measure in
+                                measureCard(measure)
+                                    .id(measure)
+                            }
                         }
+                        .padding(16)
                     }
-                    .padding(16)
+                    // Test-playback loops through measures; keep the sounding slot on screen.
+                    .onChange(of: model.playingMeasure) { measure in
+                        guard model.isPreviewing, measure >= 0 else { return }
+                        withAnimation { proxy.scrollTo(measure, anchor: .center) }
+                    }
                 }
                 Divider()
                 controls
@@ -348,25 +367,56 @@ struct SoloPatternSheet: View {
         .padding(.vertical, 8)
     }
 
+    // All white keys sized to fill the available width so the whole B–D span (mirrors Android's
+    // equal-weight white key row) is visible at once, with black keys overlaid at the boundaries
+    // they sit on — no horizontal scrolling needed.
     private var keyboard: some View {
         let scale = model.scalePitchClasses()
         let rootPc = model.rootPitchClass(measure: model.activeMeasure, slot: model.cursor)
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 3) {
-                ForEach(Array(Self.keys.enumerated()), id: \.offset) { _, key in
-                    let (label, pitchClass, octaveOffset, isBlack) = key
+        let whiteKeys = Self.keys.filter { !$0.isBlack }
+        var whiteIndex = 0
+        let blackKeys: [(key: PianoKeySpec, boundary: Int)] = Self.keys.compactMap { key in
+            if key.isBlack { return (key, whiteIndex) }
+            whiteIndex += 1
+            return nil
+        }
+
+        return GeometryReader { geo in
+            let whiteWidth = geo.size.width / CGFloat(whiteKeys.count)
+            let blackWidth = whiteWidth * 0.62
+            let blackHeight = geo.size.height * 0.6
+
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: 0) {
+                    ForEach(whiteKeys) { key in
+                        PianoKey(
+                            label: key.label,
+                            isBlack: false,
+                            dot: dotColor(pitchClass: key.pitchClass, rootPc: rootPc, scale: scale),
+                            width: whiteWidth,
+                            height: geo.size.height,
+                            onPress: { model.pressKey(pitchClass: key.pitchClass, octaveOffset: key.octaveOffset) },
+                            onRelease: { model.releaseKey() }
+                        )
+                    }
+                }
+                ForEach(blackKeys, id: \.key.id) { entry in
                     PianoKey(
-                        label: label,
-                        isBlack: isBlack,
-                        dot: dotColor(pitchClass: pitchClass, rootPc: rootPc, scale: scale),
-                        onPress: { model.pressKey(pitchClass: pitchClass, octaveOffset: octaveOffset) },
+                        label: entry.key.label,
+                        isBlack: true,
+                        dot: dotColor(pitchClass: entry.key.pitchClass, rootPc: rootPc, scale: scale),
+                        width: blackWidth,
+                        height: blackHeight,
+                        onPress: { model.pressKey(pitchClass: entry.key.pitchClass, octaveOffset: entry.key.octaveOffset) },
                         onRelease: { model.releaseKey() }
                     )
+                    .offset(x: whiteWidth * CGFloat(entry.boundary) - blackWidth / 2)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
         }
+        .frame(height: 120)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(.thinMaterial)
     }
 
@@ -377,10 +427,22 @@ struct SoloPatternSheet: View {
     }
 }
 
+private struct PianoKeySpec: Identifiable {
+    let label: String
+    let pitchClass: Int
+    let octaveOffset: Int
+    let isBlack: Bool
+
+    /// Unique within a single keyboard span: only one key per (pitchClass, octaveOffset) pair.
+    var id: String { "\(pitchClass)_\(octaveOffset)" }
+}
+
 private struct PianoKey: View {
     let label: String
     let isBlack: Bool
     let dot: Color?
+    let width: CGFloat
+    let height: CGFloat
     let onPress: () -> Void
     let onRelease: () -> Void
 
@@ -392,7 +454,7 @@ private struct PianoKey: View {
             if let dot { Circle().fill(dot).frame(width: 8, height: 8) }
             Text(label).font(.caption2)
         }
-        .frame(width: isBlack ? 34 : 44, height: isBlack ? 96 : 128)
+        .frame(width: width, height: height)
         .background(
             RoundedRectangle(cornerRadius: 5)
                 .fill(isBlack ? Color(.label).opacity(pressing ? 0.55 : 0.8) : Color(.systemBackground))
