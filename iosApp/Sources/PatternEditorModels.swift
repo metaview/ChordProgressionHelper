@@ -204,9 +204,18 @@ final class SoloEditorModel: ObservableObject {
     func setLetRing() { editor.setLetRingAtCursor(); bump() }
 
     func pressKey(pitchClass: Int, octaveOffset: Int) {
+        // Only EDIT mode's pressKey actually writes a note into the pattern (see
+        // SoloPatternEditor.pressKey in shared Kotlin) — PREVIEW/LIVE just sound the key for
+        // keyboard play-along. Restarting the whole accompaniment loop on every note only makes
+        // sense when the pattern it plays back actually changed; doing it unconditionally (via
+        // bump()) reset isPreviewing/playingMeasure/playingSlot to false/-1 on every key press,
+        // making the Stop button and the playing-position highlight flicker away while playing
+        // along with the keyboard.
+        let isEditMode = editor.editMode == SoloEditMode.edit
         let midi = editor.pressKey(pitchClass: Int32(pitchClass), octaveOffset: Int32(octaveOffset))
         env.patternPreview.startNote(midi: midi)
-        bump()
+        revision += 1
+        if isPreviewing && isEditMode { restartPreview() }
     }
 
     func releaseKey() {
