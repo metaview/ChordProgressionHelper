@@ -287,6 +287,12 @@ class SoloPatternEditor(
     fun buildPatterns(): List<SoloPattern> = data.map { collapse(it) }
     fun buildActivePattern(): SoloPattern = collapse(data.getOrElse(activeMeasure) { freshMeasure() })
 
+    /** [buildActivePattern] for an arbitrary measure — used to patch one measure of an
+     * already-playing preview loop in place (see IosPatternPreviewController.updateSoloPattern)
+     * without rebuilding every measure's pattern via [buildPatterns]. */
+    fun buildPattern(measureIndex: Int): SoloPattern =
+        collapse(data.getOrElse(measureIndex) { freshMeasure() })
+
     private fun expand(pattern: SoloPattern): MutableList<SoloSlot> {
         val target = freshMeasure()
         var pos = 0

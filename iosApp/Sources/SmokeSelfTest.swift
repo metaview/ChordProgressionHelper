@@ -145,6 +145,16 @@ final class SmokeSelfTest {
                 self.expect(solo.isPreviewing, "pattern preview started (isPreviewing was \(solo.isPreviewing))")
                 self.expect(solo.playingSlot >= 0, "pattern preview reports a playing slot (was \(solo.playingSlot))")
                 self.expect(solo.playingMeasure >= 0, "pattern preview reports a playing measure (was \(solo.playingMeasure))")
+                // Exercise the actual reported bug: playing along on the keyboard while EDIT mode
+                // previews must patch the loop in place, not stop+restart it — a restart briefly
+                // reset isPreviewing/playingMeasure/playingSlot, making Stop and the
+                // playing-position highlight flicker away in the UI.
+                solo.pressKey(pitchClass: 2, octaveOffset: 0)
+                solo.releaseKey()
+                self.expect(solo.isPreviewing,
+                            "preview keeps running after playing along on the keyboard (isPreviewing was \(solo.isPreviewing))")
+                self.expect(solo.playingMeasure >= 0,
+                            "playing measure stays valid after playing along (was \(solo.playingMeasure))")
                 // Exercise the actual reported bug: toggling a second time (not stopPreview())
                 // must stop it, or the loop (shouldLoop = { true }) never ends.
                 solo.togglePreview()

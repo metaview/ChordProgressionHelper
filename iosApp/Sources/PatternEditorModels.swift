@@ -204,18 +204,35 @@ final class SoloEditorModel: ObservableObject {
     func setLetRing() { editor.setLetRingAtCursor(); bump() }
 
     func pressKey(pitchClass: Int, octaveOffset: Int) {
-        // Only EDIT mode's pressKey actually writes a note into the pattern (see
-        // SoloPatternEditor.pressKey in shared Kotlin) — PREVIEW/LIVE just sound the key for
-        // keyboard play-along. Restarting the whole accompaniment loop on every note only makes
-        // sense when the pattern it plays back actually changed; doing it unconditionally (via
-        // bump()) reset isPreviewing/playingMeasure/playingSlot to false/-1 on every key press,
-        // making the Stop button and the playing-position highlight flicker away while playing
-        // along with the keyboard.
-        let isEditMode = editor.editMode == SoloEditMode.edit
+        let mode = editor.editMode
+        // Capture before the write below: EDIT's auto-advance can roll activeMeasure over to the
+        // next measure, and we need the measure that was actually written to, not the one the
+        // cursor lands on afterwards.
+        let measureBeforeWrite = Int(editor.activeMeasure)
         let midi = editor.pressKey(pitchClass: Int32(pitchClass), octaveOffset: Int32(octaveOffset))
         env.patternPreview.startNote(midi: midi)
+
+        // EDIT already wrote at the cursor above (see SoloPatternEditor.pressKey). LIVE has no
+        // separate edit cursor — it always writes at whatever slot is currently sounding.
+        // PREVIEW never writes; pressing a key there is just an audition tap.
+        var editedMeasure: Int? = nil
+        if mode == SoloEditMode.edit {
+            editedMeasure = measureBeforeWrite
+        } else if mode == SoloEditMode.live, isPreviewing, playingMeasure >= 0, playingSlot >= 0 {
+            editor.writeNoteAt(measureIndex: Int32(playingMeasure), slotIndex: Int32(playingSlot), midi: midi)
+            editedMeasure = playingMeasure
+        }
+
         revision += 1
-        if isPreviewing && isEditMode { restartPreview() }
+        if isPreviewing, let measureIndex = editedMeasure {
+            // Patch the already-playing accompaniment in place instead of restarting the whole
+            // loop, so Stop stays Stop and the playing-position highlight keeps advancing while
+            // playing along on the keyboard.
+            env.patternPreview.updateSoloPattern(
+                measureIndex: Int32(measureIndex),
+                pattern: editor.buildPattern(measureIndex: Int32(measureIndex))
+            )
+        }
     }
 
     func releaseKey() {

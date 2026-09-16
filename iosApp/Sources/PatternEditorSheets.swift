@@ -378,7 +378,11 @@ struct SoloPatternSheet: View {
     // they sit on — no horizontal scrolling needed.
     private var keyboard: some View {
         let scale = model.scalePitchClasses()
-        let rootPc = model.rootPitchClass(measure: model.activeMeasure, slot: model.cursor)
+        // While previewing, track the chord under the playhead (not the stationary edit cursor)
+        // so the green root dot moves along with playback.
+        let rootPc = model.isPreviewing && model.playingMeasure >= 0 && model.playingSlot >= 0
+            ? model.rootPitchClass(measure: model.playingMeasure, slot: model.playingSlot)
+            : model.rootPitchClass(measure: model.activeMeasure, slot: model.cursor)
         let whiteKeys = Self.keys.filter { !$0.isBlack }
         var whiteIndex = 0
         let blackKeys: [(key: PianoKeySpec, boundary: Int)] = Self.keys.compactMap { key in

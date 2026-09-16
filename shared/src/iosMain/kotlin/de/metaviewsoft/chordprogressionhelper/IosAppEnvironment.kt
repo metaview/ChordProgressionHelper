@@ -169,6 +169,10 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var playbackJob: Job? = null
 
+    /** The [ChordProgression] currently looping via [playSoloWithAccompaniment]/[playMeasure], if
+     * any — kept so [updateSoloPattern] can patch a measure's pattern in place while it plays. */
+    private var activeProgression: ChordProgression? = null
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
@@ -265,6 +269,7 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
         measure.soloPattern = solo ?: SoloPattern("Silent", emptyList())
         progression.measures.add(measure)
 
+        activeProgression = progression
         _isPlaying.value = true
         playbackJob = scope.launch {
             try {
@@ -279,6 +284,7 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
                     },
                 )
             } finally {
+                activeProgression = null
                 _isPlaying.value = false
                 _currentMeasure.value = -1
                 _currentSlot.value = -1
@@ -315,6 +321,7 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
         }
         if (progression.measures.isEmpty()) return
 
+        activeProgression = progression
         _isPlaying.value = true
         playbackJob = scope.launch {
             try {
@@ -329,6 +336,7 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
                     },
                 )
             } finally {
+                activeProgression = null
                 _isPlaying.value = false
                 _currentMeasure.value = -1
                 _currentSlot.value = -1
@@ -336,11 +344,23 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
         }
     }
 
+    /**
+     * Patches the solo pattern for [measureIndex] of the currently looping accompaniment in
+     * place — no stop/restart, so the next time the loop reaches that measure it plays the new
+     * pattern while the Stop button and the playing-position highlight keep going undisturbed.
+     * Used by the solo editor keyboard (EDIT/LIVE) so playing along doesn't interrupt playback
+     * (see PatternEditorModels.pressKey). No-op if nothing is playing or the index is out of range.
+     */
+    fun updateSoloPattern(measureIndex: Int, pattern: SoloPattern) {
+        activeProgression?.measures?.getOrNull(measureIndex)?.soloPattern = pattern
+    }
+
     fun stop() {
         audioPlayer.stop()
         playbackJob?.cancel()
         playbackJob = null
         audioPlayer.resetStopFlag()
+        activeProgression = null
         _currentMeasure.value = -1
         _isPlaying.value = false
         _currentSlot.value = -1
