@@ -14,7 +14,7 @@ import platform.posix.usleep
 /** [AudioPlatformSupport] backend for iOS. Installed by [IosAppEnvironment]. */
 object IosAudioPlatform : AudioPlatformSupport {
     override val sinkFactory: AudioSinkFactory = IosAudioSinkFactory
-    override val nativeBridge: NativeAudioBridge = UnavailableNativeAudioBridge
+    override val nativeBridge: NativeAudioBridge = CinteropNativeAudioBridge
 
     override fun newAudioTaskQueue(name: String): AudioTaskQueue = IosAudioTaskQueue(name)
 

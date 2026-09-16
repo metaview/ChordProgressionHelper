@@ -1,0 +1,3 @@
+package = de.metaviewsoft.chordprogressionhelper.nativeaudio
+headers = chordhelper_audio_bridge.h
+headerFilter = chordhelper_audio_bridge.h

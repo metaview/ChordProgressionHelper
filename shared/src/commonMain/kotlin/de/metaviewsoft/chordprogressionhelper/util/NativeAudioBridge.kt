@@ -5,8 +5,10 @@ package de.metaviewsoft.chordprogressionhelper.util
  *
  * On Android this is implemented by delegating to the JNI `NativeAudio` object (whose `external`
  * functions are bound by name to `de.metaviewsoft.chordprogressionhelper.util.NativeAudio`, so it
- * must stay in the app at that exact package). iOS will implement this later via cinterop against
- * the same C++ sources. Portable DSP code in :shared depends only on this interface.
+ * must stay in the app at that exact package). On iOS, `CinteropNativeAudioBridge`
+ * (shared/src/iosMain) reaches the same C++ sources through Kotlin/Native cinterop — see
+ * shared/build.gradle's native-audio section for the full build pipeline. Portable DSP code in
+ * :shared depends only on this interface.
  */
 interface NativeAudioBridge {
     fun isAvailable(): Boolean

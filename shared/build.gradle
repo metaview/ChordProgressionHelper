@@ -1,3 +1,6 @@
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
 plugins {
     id 'org.jetbrains.kotlin.multiplatform'
     id 'com.android.kotlin.multiplatform.library'
@@ -22,7 +25,16 @@ kotlin {
     // Ohne das Property bleibt der Linux-/F-Droid-Build byte-identisch unberuehrt;
     // die Sourcen unter src/iosMain/ werden dann gar nicht kompiliert.
     if (providers.gradleProperty('enableIosTargets').present) {
+        def audioBridgeDef = project.file('src/nativeInterop/cinterop/chordhelper_audio_bridge.def')
+        def audioBridgeIncludeDir = project.file('src/nativeInterop/cinterop/include')
+
         iosArm64 {
+            compilations.main.cinterops {
+                chordhelperAudio {
+                    defFile audioBridgeDef
+                    includeDirs audioBridgeIncludeDir
+                }
+            }
             binaries {
                 framework {
                     baseName = 'Shared'
@@ -31,6 +43,12 @@ kotlin {
             }
         }
         iosSimulatorArm64 {
+            compilations.main.cinterops {
+                chordhelperAudio {
+                    defFile audioBridgeDef
+                    includeDirs audioBridgeIncludeDir
+                }
+            }
             binaries {
                 framework {
                     baseName = 'Shared'
@@ -43,6 +61,12 @@ kotlin {
         // drops it ("missing arch x86_64"). embedAndSignAppleFrameworkForXcode picks the slice
         // matching Xcode's $ARCHS, so declaring all three covers both runner architectures.
         iosX64 {
+            compilations.main.cinterops {
+                chordhelperAudio {
+                    defFile audioBridgeDef
+                    includeDirs audioBridgeIncludeDir
+                }
+            }
             binaries {
                 framework {
                     baseName = 'Shared'
@@ -68,5 +92,99 @@ kotlin {
             languageSettings.optIn('kotlinx.serialization.InternalSerializationApi')
             languageSettings.optIn('com.russhwolf.settings.ExperimentalSettingsApi')
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Native (C++) audio engine for iOS: compiles app/src/main/cpp/audio_engine.{h,cpp} — the same
+// portable DSP core Android links via JNI (see app/src/main/cpp/README.md) — plus its plain-C
+// cinterop façade (src/nativeInterop/cpp/chordhelper_audio_bridge.cpp) into a static library per
+// Kotlin/Native iOS target (the cinterop blocks above only need the *header* at bind-generation
+// time, not this compiled library).
+//
+// Kotlin/Native's `binaries.framework { linkerOpts }` turns out to be a no-op for a *static*
+// framework (isStatic = true, required so Xcode can embed it without a separate "embed frameworks"
+// step): producing it is an `ar`/`libtool -static` step, not a real link, so it never pulls in an
+// external .a the way a real executable/dylib link would — confirmed by `nm`/`ar t` on the built
+// Shared.framework/Shared showing the chordhelper_audio_* symbols as merely referenced (U), and
+// libchordhelperaudio.a's object files simply absent from its member list. So instead each
+// `mergeNativeAudioInto<linkTask>` task below runs `libtool -static` *again*, folding
+// libchordhelperaudio.a's objects into the just-linked Shared.framework/Shared binary in place —
+// finalizedBy hooks it onto direct `linkDebugFramework<Target>` invocations (the local dev-loop
+// path, see kmp-swift-bridging memory notes), and `embedAndSignAppleFrameworkForXcode` (what
+// iosApp/project.yml's build script actually calls) additionally dependsOn every merge task so the
+// real Xcode build always gets the merged binary regardless of which specific link task it
+// resolves to internally (Debug/Release x per-arch, decided from Xcode's own env vars).
+// ---------------------------------------------------------------------------------------------
+if (providers.gradleProperty('enableIosTargets').present) {
+    // Kotlin/Native target name -> (clang target triple, SDK). Must stay in sync with the
+    // iosArm64/iosSimulatorArm64/iosX64 blocks above (and their deploymentTarget, 15.0 — see
+    // iosApp/project.yml).
+    def nativeAudioTargets = [
+        iosArm64          : [clangTarget: 'arm64-apple-ios15.0', sdk: 'iphoneos'],
+        iosSimulatorArm64 : [clangTarget: 'arm64-apple-ios15.0-simulator', sdk: 'iphonesimulator'],
+        iosX64            : [clangTarget: 'x86_64-apple-ios15.0-simulator', sdk: 'iphonesimulator'],
+    ]
+
+    def buildScript = project.file('src/nativeInterop/build-native-audio-lib.sh')
+    def bridgeCpp = project.file('src/nativeInterop/cpp/chordhelper_audio_bridge.cpp')
+    def bridgeHeader = project.file('src/nativeInterop/cinterop/include/chordhelper_audio_bridge.h')
+    def engineCpp = project.file('../app/src/main/cpp/audio_engine.cpp')
+    def engineHeader = project.file('../app/src/main/cpp/audio_engine.h')
+
+    nativeAudioTargets.each { targetName, cfg ->
+        def outDir = file("$buildDir/nativeAudioLib/$targetName")
+        tasks.register("buildNativeAudioLib${targetName.capitalize()}", Exec) {
+            group = 'native audio'
+            description = "Builds the native C++ audio engine static lib for $targetName"
+            inputs.file(buildScript)
+            inputs.file(bridgeCpp)
+            inputs.file(bridgeHeader)
+            inputs.file(engineCpp)
+            inputs.file(engineHeader)
+            outputs.file(file("$outDir/libchordhelperaudio.a"))
+            doFirst { outDir.mkdirs() }
+            commandLine 'bash', buildScript.absolutePath, cfg.clangTarget, cfg.sdk, outDir.absolutePath
+        }
+    }
+
+    // Every Debug/Release x target link task is declared (both build types exist for every
+    // Kotlin/Native framework) whenever this whole block runs — the same enableIosTargets gate
+    // that adds the iosArm64/iosSimulatorArm64/iosX64 target blocks above also guards this one —
+    // so depending on the link task by name (resolved lazily by Gradle) is safe without needing to
+    // look the task up via tasks.matching first.
+    def mergeTasks = []
+    ['Debug', 'Release'].each { buildType ->
+        nativeAudioTargets.each { targetName, cfg ->
+            def linkTaskName = "link${buildType}Framework${targetName.capitalize()}"
+            def frameworkBinary = file("$buildDir/bin/$targetName/${buildType.toLowerCase()}Framework/Shared.framework/Shared")
+            def audioLib = file("$buildDir/nativeAudioLib/$targetName/libchordhelperaudio.a")
+            def mergeTask = tasks.register("mergeNativeAudioInto${linkTaskName.capitalize()}", Exec) {
+                group = 'native audio'
+                description = "Folds libchordhelperaudio.a into ${linkTaskName}'s output framework binary"
+                dependsOn linkTaskName, "buildNativeAudioLib${targetName.capitalize()}"
+                inputs.file(audioLib)
+                outputs.file(frameworkBinary)
+                def merged = file("${frameworkBinary}.merged")
+                doFirst {
+                    if (!frameworkBinary.exists()) {
+                        throw new GradleException("$frameworkBinary missing — did $linkTaskName run first?")
+                    }
+                }
+                commandLine 'xcrun', 'libtool', '-static', '-o', merged.absolutePath, frameworkBinary.absolutePath, audioLib.absolutePath
+                doLast { Files.move(merged.toPath(), frameworkBinary.toPath(), StandardCopyOption.REPLACE_EXISTING) }
+            }
+            mergeTasks << mergeTask
+            tasks.named(linkTaskName).configure { finalizedBy(mergeTask) }
+        }
+    }
+    // embedAndSignAppleFrameworkForXcode is what iosApp/project.yml's build script actually calls,
+    // but for the simulator it goes through an intermediate assemble*AppleFrameworkForXcode
+    // (FatFrameworkTask, lipo-ing iosSimulatorArm64 + iosX64 into one fat framework) that reads
+    // the same per-target Shared.framework outputs our merge tasks mutate — match every task in
+    // that family by name suffix rather than enumerating them, so a differently-invoked build
+    // (e.g. only the fat-assemble task, without the embed/sign wrapper) still merges correctly.
+    tasks.matching { it.name.endsWith('AppleFrameworkForXcode') }.configureEach { consumerTask ->
+        consumerTask.dependsOn(mergeTasks)
     }
 }
