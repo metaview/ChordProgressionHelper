@@ -182,9 +182,12 @@ if (providers.gradleProperty('enableIosTargets').present) {
     // but for the simulator it goes through an intermediate assemble*AppleFrameworkForXcode
     // (FatFrameworkTask, lipo-ing iosSimulatorArm64 + iosX64 into one fat framework) that reads
     // the same per-target Shared.framework outputs our merge tasks mutate — match every task in
-    // that family by name suffix rather than enumerating them, so a differently-invoked build
+    // that family by name substring rather than enumerating them, so a differently-invoked build
     // (e.g. only the fat-assemble task, without the embed/sign wrapper) still merges correctly.
-    tasks.matching { it.name.endsWith('AppleFrameworkForXcode') }.configureEach { consumerTask ->
+    // Must be `contains`, not `endsWith`: a real-device build additionally runs a single-arch
+    // `assemble<BuildType>AppleFrameworkForXcode<Target>` (e.g. …IosArm64) copy task per Kotlin/
+    // Native target, which has a target-name suffix after "AppleFrameworkForXcode".
+    tasks.matching { it.name.contains('AppleFrameworkForXcode') }.configureEach { consumerTask ->
         consumerTask.dependsOn(mergeTasks)
     }
 }
