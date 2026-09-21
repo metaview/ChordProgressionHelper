@@ -11,8 +11,9 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationView {
             Form {
-                soundLevelsSection
-                soundCharacterSection
+                drumsSection
+                begleitungSection
+                soloSection
                 rhythmSection
                 countInSection
                 previewsSection
@@ -47,33 +48,42 @@ struct SettingsScreen: View {
         )
     }
 
-    // MARK: - Sound levels
+    // MARK: - Drums
 
-    private var soundLevelsSection: some View {
-        Section("Sound Levels") {
-            percentSlider("Drums", value: $model.drumLevelPercent)
-            percentSlider("Solo", value: $model.soloLevelPercent)
-            Button { model.previewSolo() } label: {
-                Label("Preview Solo", systemImage: "play.circle")
-            }
-            percentSlider("Strum", value: $model.strumLevelPercent)
+    private var drumsSection: some View {
+        Section("Drums") {
+            percentSlider("Level", value: $model.drumLevelPercent)
+            percentSlider("Envelope", value: $model.envelopeScalePercent)
+            percentSlider("Hi-Hat Highpass", value: $model.hiHatHighpassPercent)
+        }
+    }
+
+    // MARK: - Begleitung (Strumming)
+
+    private var begleitungSection: some View {
+        Section("Begleitung") {
+            percentSlider("Level", value: $model.strumLevelPercent)
+            soundPresetPicker("Sound", selection: $model.strumPreset)
+            percentSlider("Crunch", value: $model.strumCrunchPercent)
             Button { model.previewStrum() } label: {
-                Label("Preview Strum", systemImage: "play.circle")
+                Label("Preview", systemImage: "play.circle")
             }
-            Button(role: .destructive) { model.resetSoundDefaults() } label: {
-                Text("Reset Sound Defaults")
+            NavigationLink("Strum Timing") {
+                StrumTimingScreen(model: model)
             }
         }
     }
 
-    // MARK: - Sound character
+    // MARK: - Solo
 
-    private var soundCharacterSection: some View {
-        Section("Sound Character") {
-            soundPresetPicker("Strum Sound", selection: $model.strumPreset)
-            percentSlider("Strum Crunch", value: $model.strumCrunchPercent)
-            soundPresetPicker("Solo Sound", selection: $model.soloPreset)
-            percentSlider("Solo Crunch", value: $model.soloCrunchPercent)
+    private var soloSection: some View {
+        Section("Solo") {
+            percentSlider("Level", value: $model.soloLevelPercent)
+            soundPresetPicker("Sound", selection: $model.soloPreset)
+            percentSlider("Crunch", value: $model.soloCrunchPercent)
+            Button { model.previewSolo() } label: {
+                Label("Preview", systemImage: "play.circle")
+            }
         }
     }
 
@@ -102,9 +112,6 @@ struct SettingsScreen: View {
     private var rhythmSection: some View {
         Section("Rhythm") {
             percentSlider("Shuffle", value: $model.shuffleFactorPercent)
-            NavigationLink("Strum Timing") {
-                StrumTimingScreen(model: model)
-            }
         }
     }
 

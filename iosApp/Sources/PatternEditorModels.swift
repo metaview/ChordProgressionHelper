@@ -144,10 +144,14 @@ final class SoloEditorModel: ObservableObject {
     /// restartPreview), so the sounding measure moves independently of the editing cursor.
     @Published var playingSlot = -1
     @Published var playingMeasure = -1
+    @Published var soloPreset: SoundPreset {
+        didSet { env.patternPreview.previewSoloPreset = soloPreset }
+    }
 
     init(measureIndex: Int) {
         self.measureIndex = measureIndex
         self.editor = IosAppEnvironment.companion.shared.makeSoloEditor(measureIndex: Int32(measureIndex))
+        self.soloPreset = env.settings.soloPreset
         env.patternPreview.warmUp()
         previewHandle = FlowWatchKt.watch(flow: env.patternPreview.isPlaying) { [weak self] value in
             self?.isPreviewing = (value as? KotlinBoolean)?.boolValue ?? false

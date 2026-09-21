@@ -13,6 +13,8 @@ final class SettingsModel: ObservableObject {
     // MARK: - Sound levels (percent, 0...200 — matches Android's seekbar range)
 
     @Published var drumLevelPercent: Double { didSet { core.drumLevel = Float(drumLevelPercent / 100) } }
+    @Published var envelopeScalePercent: Double { didSet { core.envelopeScale = Float(envelopeScalePercent / 100) } }
+    @Published var hiHatHighpassPercent: Double { didSet { core.hiHatHighpass = Float(hiHatHighpassPercent / 100) } }
     @Published var soloLevelPercent: Double { didSet { core.soloLevel = Float(soloLevelPercent / 100) } }
     @Published var strumLevelPercent: Double { didSet { core.strumLevel = Float(strumLevelPercent / 100) } }
     @Published var shuffleFactorPercent: Double { didSet { core.shuffleFactor = Float(shuffleFactorPercent / 100) } }
@@ -63,6 +65,8 @@ final class SettingsModel: ObservableObject {
     init() {
         let core = env.settings
         drumLevelPercent = Double(core.drumLevel * 100)
+        envelopeScalePercent = Double(core.envelopeScale * 100)
+        hiHatHighpassPercent = Double(core.hiHatHighpass * 100)
         soloLevelPercent = Double(core.soloLevel * 100)
         strumLevelPercent = Double(core.strumLevel * 100)
         shuffleFactorPercent = Double(core.shuffleFactor * 100)
@@ -98,6 +102,8 @@ final class SettingsModel: ObservableObject {
     /// per-key defaults) — matches Android's resetSoundButton exactly.
     func resetSoundDefaults() {
         drumLevelPercent = 100
+        envelopeScalePercent = 100
+        hiHatHighpassPercent = 100
         soloLevelPercent = 150
         strumLevelPercent = 100
         shuffleFactorPercent = 0

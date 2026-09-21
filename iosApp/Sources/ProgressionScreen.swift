@@ -11,6 +11,7 @@ struct ProgressionScreen: View {
     @State private var showTemplatePicker = false
     @State private var showLoadSheet = false
     @State private var showSaveSheet = false
+    @State private var showSettingsSheet = false
     @State private var isChordPaletteExpanded = false
 
     /// Which per-measure pattern editor is open, if any.
@@ -38,6 +39,9 @@ struct ProgressionScreen: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Button { showSettingsSheet = true } label: {
+                        Label("Settings…", systemImage: "gear")
+                    }
                     Button { model.requestNewProgression() } label: {
                         Label("New Progression…", systemImage: "doc.badge.plus")
                     }
@@ -83,6 +87,9 @@ struct ProgressionScreen: View {
         }
         .sheet(isPresented: $showSaveSheet) {
             SaveProgressionSheet(model: model)
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            SettingsScreen()
         }
         .alert(
             "New Progression?",

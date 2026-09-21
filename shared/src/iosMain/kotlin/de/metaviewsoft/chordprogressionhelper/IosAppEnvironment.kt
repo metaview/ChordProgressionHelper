@@ -9,6 +9,7 @@ import com.russhwolf.settings.NSUserDefaultsSettings
 import de.metaviewsoft.chordprogressionhelper.data.ProgressionStorage
 import de.metaviewsoft.chordprogressionhelper.data.SettingsStore
 import de.metaviewsoft.chordprogressionhelper.data.SongSession
+import de.metaviewsoft.chordprogressionhelper.data.SoundPreset
 import de.metaviewsoft.chordprogressionhelper.model.Chord
 import de.metaviewsoft.chordprogressionhelper.model.ChordProgression
 import de.metaviewsoft.chordprogressionhelper.model.ChordType
@@ -185,6 +186,9 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
     private val _currentMeasure = MutableStateFlow(-1)
     val currentMeasure: StateFlow<Int> = _currentMeasure.asStateFlow()
 
+    /// Preview-only solo preset override (for testing different instruments in SoloPatternSheet)
+    var previewSoloPreset: SoundPreset? = null
+
     private fun applyLiveSoundSettings() {
         applySoundSettings(audioPlayer)
     }
@@ -196,7 +200,7 @@ class IosPatternPreviewController(private val settings: SettingsStore) {
         player.envelopeScale = settings.envelopeScale.toDouble()
         player.hiHatHighpass = settings.hiHatHighpass.toDouble()
         player.voicePreset = settings.strumPreset
-        player.soloPreset = settings.soloPreset
+        player.soloPreset = previewSoloPreset ?: settings.soloPreset
         player.shuffleFactor = settings.shuffleFactor
         player.strumCrunchLevel = settings.strumCrunchLevel
         player.soloCrunchLevel = settings.soloCrunchLevel

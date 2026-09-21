@@ -357,20 +357,40 @@ struct SoloPatternSheet: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 4) {
-                Button { model.octaveDown() } label: { Image(systemName: "minus.circle") }
-                (Text("Oct. ") + Text(verbatim: "\(model.octave)")).font(.subheadline.monospacedDigit())
-                Button { model.octaveUp() } label: { Image(systemName: "plus.circle") }
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                HStack(spacing: 4) {
+                    Button { model.octaveDown() } label: { Image(systemName: "minus.circle") }
+                    (Text("Oct. ") + Text(verbatim: "\(model.octave)")).font(.subheadline.monospacedDigit())
+                    Button { model.octaveUp() } label: { Image(systemName: "plus.circle") }
+                }
+                Spacer()
+                Button { model.setRest() } label: { Text("Rest") }
+                    .buttonStyle(.bordered)
+                Button { model.setLetRing() } label: { Text("Hold") }
+                    .buttonStyle(.bordered)
             }
-            Spacer()
-            Button { model.setRest() } label: { Text("Rest") }
-                .buttonStyle(.bordered)
-            Button { model.setLetRing() } label: { Text("Hold") }
-                .buttonStyle(.bordered)
+            soundPresetPicker("Sound", selection: $model.soloPreset)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+
+    private func soundPresetPicker(_ title: LocalizedStringKey, selection: Binding<SoundPreset>) -> some View {
+        let ordinalBinding = Binding<Int32>(
+            get: { selection.wrappedValue.ordinal },
+            set: { newOrdinal in
+                if let preset = SoundPreset.entries.first(where: { $0.ordinal == newOrdinal }) {
+                    selection.wrappedValue = preset
+                }
+            }
+        )
+        return Picker(title, selection: ordinalBinding) {
+            Text("Clean").tag(SoundPreset.clean.ordinal)
+            Text("Overdrive").tag(SoundPreset.overdrive.ordinal)
+            Text("Piano").tag(SoundPreset.piano.ordinal)
+        }
+        .pickerStyle(.segmented)
     }
 
     // All white keys sized to fill the available width so the whole B–D span (mirrors Android's

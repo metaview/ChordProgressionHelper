@@ -2599,9 +2599,11 @@ class AudioPlayer {
             // 10ms chunks: limits delay when a new key supersedes this note
             val chunkSize = sampleRate / 100
 
-            val karplusString =
+            // Use native C++ Karplus-Strong for non-Piano presets to match keyboard quality
+            val nativeStringHandle =
                 if (soloPreset != de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO) {
-                    KarplusStrongString(freq, sampleRate, 3, 0.998).apply { pluck() }
+                    nativeBridge.createKarplusString(freq, sampleRate, 3, 0.998)
+                        .also { nativeBridge.pluckString(it) }
                 } else null
 
             val harmonics = listOf(1.0 to 1.0, 2.0 to 0.6, 3.0 to 0.3)
@@ -2649,16 +2651,16 @@ class AudioPlayer {
                 } else {
                     val od = soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE
                     for (i in 0 until n) {
-                        val ks = karplusString!!.tick()
-                        chunkBuf[i] = if (od) DspSupport.overdrive(ks, soloCrunchLevel.toDouble(), soloPreviewOverdriveDrive) else ks
+                        val v = nativeBridge.tickString(nativeStringHandle!!)
+                        chunkBuf[i] = if (od) DspSupport.overdrive(v, soloCrunchLevel.toDouble(), soloPreviewOverdriveDrive) else v
                     }
                 }
-                
+
                 // Apply piano gain to samples
                 for (i in 0 until n) {
                     chunkBuf[i] = chunkBuf[i] * pianoGain
                 }
-                
+
                 // Normalize like main playback (targetPeak = 0.85) to match volume levels
                 var maxAbs = 0.0
                 for (i in 0 until n) {
@@ -2669,7 +2671,7 @@ class AudioPlayer {
                 val scale = (if (maxAbs > 0.0) {
                     if (maxAbs > targetPeak) targetPeak / maxAbs else 1.0
                 } else 1.0) * overdriveMakeupGain
-                
+
                 // Convert to shorts with normalization applied
                 val shorts = ShortArray(n) { i ->
                     ((chunkBuf[i] * scale).coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
@@ -2690,6 +2692,7 @@ class AudioPlayer {
         val myPreviewId = ++currentPreviewId
         sustainReleasing = false
         shouldStopPreview = false
+        val frequency = nativeBridge.midiNoteToFrequency(midiNote)
         audioHandler?.post post@{
             if (myPreviewId != currentPreviewId) return@post
             val at = previewAudioTrack ?: return@post
@@ -2699,69 +2702,47 @@ class AudioPlayer {
                 try { at.play() } catch (_: Exception) {}
                 try { at.setVolume(masterVolume.toFloat()) } catch (_: Exception) {}
 
-                val freq = midiNoteToFrequency(midiNote)
-                val isPiano = soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO
-                // High feedback -> long sustain for the Karplus (Clean/Overdrive) voice.
-                val karplus = if (!isPiano) KarplusStrongString(freq, sampleRate, 3, 0.9998).apply { pluck() } else null
-                val harmonics = listOf(1.0 to 1.0, 2.0 to 0.6, 3.0 to 0.3)
-                val attackSamples = (0.005 * sampleRate).toInt().coerceAtLeast(1)
-                val gain = (when (soloPreset) {
-                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.CLEAN -> 0.4
-                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.35
-                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO -> 0.6
-                }) * soloLevel
+                // Use native C++ Karplus-Strong string for high-quality solo note preview
+                val sustainDecay = 0.9998
+                val stringHandle = nativeBridge.createKarplusString(frequency, sampleRate, 3, sustainDecay)
+                nativeBridge.pluckString(stringHandle)
 
-                // Level-match Overdrive to Clean (tanh raises RMS at equal peak). Tune by ear.
-                val overdriveMakeupGain = if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE) soloPreviewOverdriveMakeup else 1.0
-
-                val chunk = (sampleRate / 20).coerceAtLeast(1) // 50ms
+                // Smaller chunks (10ms instead of 50ms) to keep audio buffer fed continuously
+                // and prevent dropouts during held notes
+                val chunk = (sampleRate / 100).coerceAtLeast(1) // 10ms
                 val buf = DoubleArray(chunk)
                 val pcm = ShortArray(chunk)
                 var releaseGain = 1.0
-                val releaseStep = 1.0 / (sampleRate * 1.2) // ~1.2s fade-out on release
-                var produced = 0
+                val releaseStep = 1.0 / (sampleRate * 1.2) // fade-out over ~1.2s on release
                 var silentChunks = 0
-                val maxSamples = sampleRate * 20 // safety cap if never released
+                var produced = 0
+                val maxSamples = sampleRate * 20
 
                 while (myPreviewId == currentPreviewId && !shouldStopPreview && produced < maxSamples) {
                     val releasing = sustainReleasing
                     var peak = 0.0
                     for (i in 0 until chunk) {
-                        val s = produced + i
-                        val raw = if (isPiano) {
-                            val t = s.toDouble() / sampleRate
-                            var v = 0.0
-                            for ((h, amp) in harmonics) v += amp * sin(2.0 * PI * freq * h * t)
-                            // short attack ramp, then hold at full level while the key is down
-                            val env = if (s < attackSamples) s.toDouble() / attackSamples else 1.0
-                            v * env
-                        } else {
-                            val ks = karplus!!.tick()
-                            if (soloPreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE)
-                                DspSupport.overdrive(ks, soloCrunchLevel.toDouble(), soloPreviewOverdriveDrive)
-                            else ks
-                        }
-                        var vv = raw * gain
+                        var v = nativeBridge.tickString(stringHandle) * voiceGain
                         if (releasing) {
                             releaseGain -= releaseStep
                             if (releaseGain < 0.0) releaseGain = 0.0
-                            vv *= releaseGain
+                            v *= releaseGain
                         }
-                        buf[i] = vv
-                        val a = kotlin.math.abs(vv); if (a > peak) peak = a
+                        buf[i] = v
+                        val a = kotlin.math.abs(v)
+                        if (a > peak) peak = a
                     }
-                    // Peak limiter (targetPeak 0.85) to match playback loudness. It only scales DOWN,
-                    // so it never undoes the release fade.
-                    var maxAbs = 0.0
-                    for (i in 0 until chunk) { val a = kotlin.math.abs(buf[i]); if (a > maxAbs) maxAbs = a }
-                    val scale = (if (maxAbs > 0.85) 0.85 / maxAbs else 1.0) * overdriveMakeupGain
-                    for (i in 0 until chunk) pcm[i] = ((buf[i] * scale).coerceIn(-1.0, 1.0) * 32767.0).toInt().toShort()
+                    for (i in 0 until chunk) {
+                        pcm[i] = (buf[i] * 32767.0).toInt().coerceIn(-32768, 32767).toShort()
+                    }
                     if (myPreviewId != currentPreviewId || shouldStopPreview) break
                     at.write(pcm, 0, chunk)
                     produced += chunk
                     if (releasing && releaseGain <= 0.0) break
-                    if (peak < 0.0005) { if (++silentChunks > 4) break } else silentChunks = 0
+                    if (peak < 0.0005) { if (++silentChunks > 40) break } else silentChunks = 0
                 }
+
+                nativeBridge.destroyKarplusString(stringHandle)
             } catch (e: Exception) {
                 AppLog.w("AudioPlayer", "startSustainedNote failed: ${e.message}", e)
             }
