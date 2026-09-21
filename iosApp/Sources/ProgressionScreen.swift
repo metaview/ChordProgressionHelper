@@ -12,6 +12,7 @@ struct ProgressionScreen: View {
     @State private var showLoadSheet = false
     @State private var showSaveSheet = false
     @State private var showSettingsSheet = false
+    @State private var showInfoSheet = false
     @State private var isChordPaletteExpanded = false
 
     /// Which per-measure pattern editor is open, if any.
@@ -39,18 +40,11 @@ struct ProgressionScreen: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button { showSettingsSheet = true } label: {
-                        Label("Settings…", systemImage: "gear")
-                    }
-                    Button { model.requestNewProgression() } label: {
-                        Label("New Progression…", systemImage: "doc.badge.plus")
-                    }
-                    Button { showLoadSheet = true } label: {
-                        Label("Load…", systemImage: "folder")
-                    }
-                    Button { showSaveSheet = true } label: {
-                        Label("Save…", systemImage: "square.and.arrow.down")
-                    }
+                    settingsButton
+                    newButton
+                    loadButton
+                    saveButton
+                    infoButton
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -90,6 +84,9 @@ struct ProgressionScreen: View {
         }
         .sheet(isPresented: $showSettingsSheet) {
             SettingsScreen()
+        }
+        .sheet(isPresented: $showInfoSheet) {
+            InfoScreen()
         }
         .alert(
             "New Progression?",
@@ -326,6 +323,38 @@ struct ProgressionScreen: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Menu buttons
+
+    private var settingsButton: some View {
+        Button { showSettingsSheet = true } label: {
+            Label("Settings…", systemImage: "gear")
+        }
+    }
+
+    private var newButton: some View {
+        Button { model.requestNewProgression() } label: {
+            Label("New Progression…", systemImage: "doc.badge.plus")
+        }
+    }
+
+    private var loadButton: some View {
+        Button { showLoadSheet = true } label: {
+            Label("Load…", systemImage: "folder")
+        }
+    }
+
+    private var saveButton: some View {
+        Button { showSaveSheet = true } label: {
+            Label("Save…", systemImage: "square.and.arrow.down")
+        }
+    }
+
+    private var infoButton: some View {
+        Button { showInfoSheet = true } label: {
+            Label("Info", systemImage: "info.circle")
         }
     }
 
