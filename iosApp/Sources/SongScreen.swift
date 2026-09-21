@@ -90,6 +90,16 @@ struct SongScreen: View {
                 .onMove { source, destination in
                     model.moveSection(from: source, to: destination)
                 }
+
+                Button(action: { showAddSection = true }) {
+                    Label("Add Section", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 16, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
             .background(
                 NavigationLink(destination: ProgressionScreen(), isActive: $showEditor) {
@@ -146,13 +156,6 @@ struct SongScreen: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showAddSection = true
-                    } label: {
-                        Image(systemName: "plus")
                     }
                 }
                 ToolbarItem(placement: .navigationBarLeading) {
