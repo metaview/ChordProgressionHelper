@@ -25,7 +25,7 @@ struct DrumPatternSheet: View {
                 }
                 .padding(16)
             }
-            .navigationTitle(Text("Drums · Measure ") + Text(verbatim: "\(model.measureIndex + 1)"))
+            .navigationTitle("Drums")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -121,7 +121,7 @@ struct StrummingPatternSheet: View {
                 }
                 .padding(16)
             }
-            .navigationTitle(Text("Strum · Measure ") + Text(verbatim: "\(model.measureIndex + 1)"))
+            .navigationTitle("Strum")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -252,7 +252,7 @@ struct SoloPatternSheet: View {
                 controls
                 keyboard
             }
-            .navigationTitle(Text("Solo · Measure ") + Text(verbatim: "\(model.measureIndex + 1)"))
+            .navigationTitle("Solo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -479,7 +479,10 @@ private struct PianoKey: View {
                 }
                 .onEnded { _ in
                     pressing = false
-                    onRelease()
+                    // Delay release so the tone can ring out instead of fading immediately
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        onRelease()
+                    }
                 }
         )
     }

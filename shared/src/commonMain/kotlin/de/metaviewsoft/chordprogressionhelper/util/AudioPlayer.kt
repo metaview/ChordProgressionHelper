@@ -1543,67 +1543,30 @@ class AudioPlayer {
         sustainReleasing = false
         shouldStopPreview = false
         ensureAudioThreadStarted()
-        val frequencies = chord.getMidiNotes().map { midiNoteToFrequency(it) }
+        val frequencies = chord.getMidiNotes().map { nativeBridge.midiNoteToFrequency(it) }
         audioHandler?.post post@{
             if (myPreviewId != currentPreviewId) return@post
             try {
                 val at = previewAudioTrack ?: return@post
-                // High feedback -> long sustain while the key is held.
-                val sustainDecay = 0.9998
-                val strings =
-                    if (voicePreset == de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO) {
-                        frequencies.flatMap { freq ->
-                            listOf(
-                                KarplusStrongString(freq, sampleRate, pluckStrength, sustainDecay).apply { pluck() },
-                                KarplusStrongString(freq * 1.001, sampleRate, pluckStrength, sustainDecay).apply { pluck() }
-                            )
-                        }
-                    } else {
-                        frequencies.map { freq ->
-                            KarplusStrongString(freq, sampleRate, pluckStrength, sustainDecay).apply { pluck() }
-                        }
-                    }
 
-                val presetNormalizationMultiplier = when (voicePreset) {
-                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.PIANO -> 0.30
-                    de.metaviewsoft.chordprogressionhelper.data.SoundPreset.OVERDRIVE -> 0.7
-                    else -> 0.7
+                // Use native C++ Karplus-Strong strings for high-quality preview synthesis
+                val sustainDecay = 0.9998
+                val strings = frequencies.map { freq ->
+                    nativeBridge.createKarplusString(freq, sampleRate, pluckStrength, sustainDecay).also {
+                        nativeBridge.pluckString(it)
+                    }
                 }
-                val normalizationFactor = frequencies.size * presetNormalizationMultiplier + 1.0
 
                 try { at.flush() } catch (_: Exception) {}
 
-                // Initial 20ms for an instant start, and to estimate headroom (avoid clipping).
-                val initialCount = (sampleRate * 20 / 1000).coerceAtLeast(1)
-                val warm = DoubleArray(initialCount)
-                var quickMax = 0.0
-                for (i in 0 until initialCount) {
-                    var s = 0.0
-                    for (st in strings) s += st.tick()
-                    warm[i] = s * voiceGain
-                    val a = kotlin.math.abs(warm[i])
-                    if (a > quickMax) quickMax = a
-                }
-                val postNormPeak = if (normalizationFactor > 0.0) quickMax / normalizationFactor else quickMax
-                val headroom = if (postNormPeak > 0.99) 0.99 / postNormPeak else 1.0
-                val finalGain = headroom / normalizationFactor
-
-                val initPcm = ShortArray(initialCount)
-                for (i in 0 until initialCount) {
-                    initPcm[i] = (warm[i] * finalGain * 32767.0).toInt().coerceIn(-32768, 32767).toShort()
-                }
-                if (myPreviewId != currentPreviewId) return@post
-                at.write(initPcm, 0, initialCount)
-
-                // Continuous streaming loop. AudioTrack.write blocks, pacing this to real time, so
-                // releaseSustainedChord()/stop() (checked each 50ms chunk) take effect promptly.
+                // Write in 50ms chunks so releaseSustainedChord can interrupt with fade-out.
                 val chunk = (sampleRate / 20).coerceAtLeast(1) // 50ms
                 val buf = DoubleArray(chunk)
                 val pcm = ShortArray(chunk)
                 var releaseGain = 1.0
                 val releaseStep = 1.0 / (sampleRate * 1.2) // fade-out over ~1.2s on release
                 var silentChunks = 0
-                var produced = initialCount
+                var produced = 0
                 val maxSamples = sampleRate * 20 // hard safety cap (~20s) if never released
 
                 while (myPreviewId == currentPreviewId && !shouldStopPreview && produced < maxSamples) {
@@ -1611,8 +1574,10 @@ class AudioPlayer {
                     var peak = 0.0
                     for (i in 0 until chunk) {
                         var s = 0.0
-                        for (st in strings) s += st.tick()
-                        var v = s * voiceGain * finalGain
+                        for (handle in strings) {
+                            s += nativeBridge.tickString(handle)
+                        }
+                        var v = s * voiceGain / strings.size.coerceAtLeast(1)
                         if (releasing) {
                             releaseGain -= releaseStep
                             if (releaseGain < 0.0) releaseGain = 0.0
@@ -1632,6 +1597,11 @@ class AudioPlayer {
                     // End the loop once the note has naturally decayed to near-silence.
                     if (peak < 0.0005) { if (++silentChunks > 4) break } else silentChunks = 0
                 }
+
+                // Cleanup native string handles
+                for (handle in strings) {
+                    nativeBridge.destroyKarplusString(handle)
+                }
             } catch (e: Exception) {
                 AppLog.w("AudioPlayer", "startSustainedChord failed: ${e.message}", e)
             }
@@ -1640,6 +1610,70 @@ class AudioPlayer {
 
     /** Key-up for [startSustainedChord]: let the currently-held chord ring out and stop. */
     fun releaseSustainedChord() {
+        sustainReleasing = true
+    }
+
+    /** Preview a single MIDI note (for solo keyboard). Same as startSustainedChord but for one note. */
+    suspend fun previewSoloNote(midiNote: Int, pluckStrength: Int = 3) = withContext(audioIoDispatcher) {
+        val myPreviewId = ++currentPreviewId
+        sustainReleasing = false
+        shouldStopPreview = false
+        ensureAudioThreadStarted()
+        val frequency = nativeBridge.midiNoteToFrequency(midiNote)
+        audioHandler?.post post@{
+            if (myPreviewId != currentPreviewId) return@post
+            try {
+                val at = previewAudioTrack ?: return@post
+
+                // Use native C++ Karplus-Strong string for high-quality note preview
+                val sustainDecay = 0.9998
+                val stringHandle = nativeBridge.createKarplusString(frequency, sampleRate, pluckStrength, sustainDecay)
+                nativeBridge.pluckString(stringHandle)
+
+                try { at.flush() } catch (_: Exception) {}
+
+                val chunk = (sampleRate / 20).coerceAtLeast(1) // 50ms
+                val buf = DoubleArray(chunk)
+                val pcm = ShortArray(chunk)
+                var releaseGain = 1.0
+                val releaseStep = 1.0 / (sampleRate * 1.2) // fade-out over ~1.2s on release
+                var silentChunks = 0
+                var produced = 0
+                val maxSamples = sampleRate * 20
+
+                while (myPreviewId == currentPreviewId && !shouldStopPreview && produced < maxSamples) {
+                    val releasing = sustainReleasing
+                    var peak = 0.0
+                    for (i in 0 until chunk) {
+                        var v = nativeBridge.tickString(stringHandle) * voiceGain
+                        if (releasing) {
+                            releaseGain -= releaseStep
+                            if (releaseGain < 0.0) releaseGain = 0.0
+                            v *= releaseGain
+                        }
+                        buf[i] = v
+                        val a = kotlin.math.abs(v)
+                        if (a > peak) peak = a
+                    }
+                    for (i in 0 until chunk) {
+                        pcm[i] = (buf[i] * 32767.0).toInt().coerceIn(-32768, 32767).toShort()
+                    }
+                    if (myPreviewId != currentPreviewId || shouldStopPreview) break
+                    at.write(pcm, 0, chunk)
+                    produced += chunk
+                    if (releasing && releaseGain <= 0.0) break
+                    if (peak < 0.0005) { if (++silentChunks > 4) break } else silentChunks = 0
+                }
+
+                nativeBridge.destroyKarplusString(stringHandle)
+            } catch (e: Exception) {
+                AppLog.w("AudioPlayer", "previewSoloNote failed: ${e.message}", e)
+            }
+        }
+    }
+
+    /** Key-up for [previewSoloNote]: let the currently-held note ring out and stop. */
+    fun releaseSoloNotePreview() {
         sustainReleasing = true
     }
 

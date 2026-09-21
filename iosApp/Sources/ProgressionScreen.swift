@@ -346,10 +346,11 @@ struct ProgressionScreen: View {
     }
 }
 
-/// A chord in the palette. Touch-down starts a sustained audio preview and selects the chord;
-/// lift lets it ring out. Mirrors Android's key-down/key-up preview behavior. Long-press stops
-/// the preview and offers to turn it into a Power chord (e.g. G -> G5), mirroring Android's
-/// long-press popup.
+/// A chord in the palette. A tap (complete touch-down + release at the same spot) plays a
+/// preview and selects the chord. Long-press (0.5s) stops and offers to turn it into a Power
+/// chord (e.g. G -> G5), mirroring Android's long-press popup. Scroll gestures on the enclosing
+/// horizontal ScrollView don't trigger any preview (the tap gesture auto-fails when the touch
+/// moves too far).
 private struct ChordButton: View {
     let displayChord: Chord
     let isSelected: Bool
@@ -357,7 +358,6 @@ private struct ChordButton: View {
     let onRelease: () -> Void
     let onMakePower: () -> Void
 
-    @State private var isPressing = false
     @State private var longPressFired = false
     @State private var showPowerMenu = false
 
@@ -382,34 +382,27 @@ private struct ChordButton: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
         )
-        // DragGesture(minimumDistance: 0) fires on touch-down (onChanged) and lift (onEnded),
-        // giving us key-down/key-up semantics for the sustained preview. A simultaneous
-        // LongPressGesture recognizes alongside it (SwiftUI doesn't cancel one for the other) to
-        // add Android's long-press-for-Power-chord behavior without disturbing the preview.
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isPressing {
-                        isPressing = true
-                        longPressFired = false
-                        onPress()
-                    }
-                }
-                .onEnded { _ in
-                    isPressing = false
-                    if !longPressFired {
-                        onRelease()
-                    }
-                }
-        )
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.5)
-                .onEnded { _ in
-                    longPressFired = true
-                    onRelease()  // stop the preview before opening the menu, like Android
-                    showPowerMenu = true
-                }
-        )
+        // onTapGesture fires only when the touch completes (release) at the same spot as
+        // touch-down. If the touch moves > ~10pt during that time, the tap gesture fails and
+        // never fires — that's the escape hatch that lets the ScrollView recognize its own pan
+        // gesture. No preview blips on scroll, no need for debouncing or movement tracking.
+        //
+        // Start the preview on tap, but delay the release (~200ms) so the tone can ring out
+        // instead of fading immediately. This mirrors a brief hold before releasing.
+        .onTapGesture {
+            onPress()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                onRelease()
+            }
+        }
+        // Long-press for the Power-chord menu. Simultaneous with the tap gesture — both can
+        // recognize, and they don't interfere since the tap only succeeds if long-press *didn't*
+        // fire first (the 0.5s minimum).
+        .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 10) {
+            longPressFired = true
+            onRelease()  // stop the preview before opening the menu, like Android
+            showPowerMenu = true
+        }
         .confirmationDialog("", isPresented: $showPowerMenu, titleVisibility: .hidden) {
             Button {
                 onMakePower()
@@ -419,7 +412,6 @@ private struct ChordButton: View {
         }
         .onChange(of: showPowerMenu) { isShowing in
             if !isShowing {
-                isPressing = false
                 longPressFired = false
             }
         }
