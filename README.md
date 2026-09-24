@@ -44,3 +44,11 @@ To run on an emulator or device:
 
 - Android SDK 24 (Android 7.0) or higher
 - Android Studio for development
+
+## Links
+
+- **Privacy policy** (hosted via GitLab Pages, used for the Play Store listing):
+  <https://chordprogressionhelper-276d42.gitlab.io/>
+  (source: [`public/index.html`](public/index.html) / [`PRIVACY.md`](PRIVACY.md);
+  note the GitLab project path is case-sensitive: `metaview/ChordProgressionHelper`)
+- **F-Droid**: <https://f-droid.org/packages/de.metaviewsoft.chordprogressionhelper/>
