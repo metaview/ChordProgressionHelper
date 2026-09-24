@@ -1,0 +1,15 @@
+# Publishes the static privacy policy in public/ via GitLab Pages.
+# Resulting URL: https://metaview.gitlab.io/chordprogressionhelper/
+pages:
+  stage: deploy
+  image: alpine:latest
+  script:
+    - echo "Publishing GitLab Pages from public/"
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - public/**/*
+        - .gitlab-ci.yml
