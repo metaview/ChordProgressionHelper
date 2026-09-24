@@ -1,0 +1,4 @@
+- Export your songs as MIDI files
+- Add power chords directly from the chord palette with a long-press, now showing their names
+- New "Clear chords" option in the bar menu
+- Cleaner song view without numbering before section names
