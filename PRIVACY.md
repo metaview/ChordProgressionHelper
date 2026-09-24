@@ -14,7 +14,7 @@ device.
   playback notification (`POST_NOTIFICATIONS`). None collect or transmit data.
 - **No third-party** advertising, analytics or tracking SDKs are included.
 
-Questions? Contact **h.jonas@schallware.de**.
+Questions? Contact **henk@metaviewsoft.de**.
 
 ---
 
@@ -34,4 +34,4 @@ also gar keine Daten dein Gerät verlassen.
   Wiedergabe-Benachrichtigung (`POST_NOTIFICATIONS`). Keine erhebt oder überträgt Daten.
 - **Keine Drittanbieter**-SDKs für Werbung, Analyse oder Tracking.
 
-Fragen? Kontakt: **h.jonas@schallware.de**.
+Fragen? Kontakt: **henk@metaviewsoft.de**.
