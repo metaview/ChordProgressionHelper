@@ -48,7 +48,7 @@ To run on an emulator or device:
 ## Links
 
 - **Privacy policy** (hosted via GitLab Pages, used for the Play Store listing):
-  <https://chordprogressionhelper-276d42.gitlab.io/>
+  <https://metaview.gitlab.io/ChordProgressionHelper/>
   (source: [`public/index.html`](public/index.html) / [`PRIVACY.md`](PRIVACY.md);
   note the GitLab project path is case-sensitive: `metaview/ChordProgressionHelper`)
 - **F-Droid**: <https://f-droid.org/packages/de.metaviewsoft.chordprogressionhelper/>
